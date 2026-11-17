@@ -1,5 +1,8 @@
+import process from 'node:process';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
+import { balanceGroups } from './shard-balance.mjs';
+import liteDurations from './lite-shard-durations.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
@@ -43,12 +46,19 @@ export function createPlan({selection, discovery, variant, tree, policy, shards 
   const authorizedIds = testIds && !reasons.length && selection.mode === 'selected' && selection.execution_mode === 'enabled' ? testIds : null;
   const selected = applicable.filter(t => authorizedIds ? authorizedIds.includes(t.id) : full || t.tags.includes('@smoke') || [...changedFiles, ...(selection?.changed_tests ?? [])].some(f => f.endsWith(t.file)) || t.tags.some(tag => tag.startsWith('@test:') && selection.categories?.[tag.slice(6)]?.selected));
   // File groups conservatively retain serial suites and file-scoped shared state.
-  if (!selected.length && !(allowEmpty && authorizedIds && selection.selection_scope === 'main' && ['render', 'regression-render'].includes(scope))) throw new Error('Empty test plan');
+  if (!selected.length && !(allowEmpty && authorizedIds && (selection.selection_scope === 'main' || selection.decision_source === 'agent') && ['render', 'regression-render'].includes(scope))) throw new Error('Empty test plan');
   selected.forEach(t => { t.execution_tier = t.tags.includes('@smoke') ? 'smoke' : 'regression'; });
   const groups = new Map();
   for (const t of selected) {const sourcePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../tests/e2e-tests/tests', t.file); const parallel = fs.existsSync(sourcePath) && /test\.describe\.configure\(\{\s*mode:\s*['"]parallel['"]/.test(fs.readFileSync(sourcePath,'utf8')); const key = parallel ? t.id : `${t.project}:${t.serial_group}`; groups.set(key, [...(groups.get(key) ?? []), t]);}
-  const buckets = Array.from({length: Math.min(Math.max(1, Number(shards) || 1), groups.size)}, () => []);
-  for (const group of [...groups.values()].sort((a,b) => b.length-a.length || a[0].file.localeCompare(b[0].file))) buckets.sort((a,b)=>a.length-b.length)[0].push(...group);
+  let buckets;
+  if (variant === 'lite') {
+    // The estimates are advisory: missing files fall back to a fixed duration,
+    // and never affect selection or the indivisible file groups above.
+    buckets = balanceGroups([...groups.values()], shards, liteDurations.estimates, liteDurations.default_ms);
+  } else {
+    buckets = Array.from({length: Math.min(Math.max(1, Number(shards) || 1), groups.size)}, () => []);
+    for (const group of [...groups.values()].sort((a,b) => b.length-a.length || a[0].file.localeCompare(b[0].file))) buckets.sort((a,b)=>a.length-b.length)[0].push(...group);
+  }
   const requiredProjects = new Set();
   function dependency(p) { for (const d of dependencies[p] ?? []) { if (!requiredProjects.has(d)) {requiredProjects.add(d); dependency(d);} } }
   selected.forEach(t => dependency(t.project));

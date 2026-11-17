@@ -7,13 +7,13 @@
 
 ## Purpose
 
-Validate, end-to-end against a real diagramly site via `forge tunnel`, that we can create a Confluence demo page `asApp` from Diagramly code. That's it. This slice deliberately does NOT ship the auto-onboarding behavior described in `CONTEXT.md`. It is the *first* of several slices toward that goal, and its job is to de-risk the plumbing — Forge function, `asApp` request, custom-content macros rendering inside the created page — before we add the parts that depend on it.
+Validate, end-to-end against a real diagramly site via `forge tunnel`, that we can create a Confluence demo page `asApp` from Diagramly code. That's it. This slice deliberately does NOT ship the auto-onboarding behavior described in `GLOSSARY.md`. It is the *first* of several slices toward that goal, and its job is to de-risk the plumbing — Forge function, `asApp` request, custom-content macros rendering inside the created page — before we add the parts that depend on it.
 
 ## Why this is a plumbing spike, not auto-onboarding v1
 
-`CONTEXT.md` is explicit: "we explicitly do not fall back to a generic demo, because the proposition is 'we read your content'" and "A bad demo is worse than no demo." Hardcoded content auto-created on install therefore directly contradicts the product thesis. We cannot ship the auto path until the [[Generated demo]] pipeline exists.
+`GLOSSARY.md` is explicit: "we explicitly do not fall back to a generic demo, because the proposition is 'we read your content'" and "A bad demo is worse than no demo." Hardcoded content auto-created on install therefore directly contradicts the product thesis. We cannot ship the auto path until the [[Generated demo]] pipeline exists.
 
-`CONTEXT.md` also says the demo page and the onboarding banner are paired — "the page is the artifact, the banner is how anyone finds it." Auto-creating a page without the banner gives us an artifact no non-admin will ever discover.
+`GLOSSARY.md` also says the demo page and the onboarding banner are paired — "the page is the artifact, the banner is how anyone finds it." Auto-creating a page without the banner gives us an artifact no non-admin will ever discover.
 
 Conclusion: v1 is **operator-triggered, manual, hardcoded**. An operator (us) clicks a button on a hand-picked dev or pilot tenant to verify the page renders and the Atlassian-side plumbing works. We will not auto-create anything from an install event in this slice.
 
@@ -29,7 +29,7 @@ In scope:
 
 Out of scope (each is a separate follow-up slice):
 
-- Install/upgrade trigger and any auto-create path. This requires the banner and the AI generation to be in place first (`CONTEXT.md` makes this conditional).
+- Install/upgrade trigger and any auto-create path. This requires the banner and the AI generation to be in place first (`GLOSSARY.md` makes this conditional).
 - The onboarding banner (`confluence:pageBanner`). Pair this with the install trigger when both ship together.
 - AI-generated, space-tailored content. Until this exists, only operator-approved manual creates are appropriate.
 - Space scan / `Suitable space` classifier. No automated decision-making.
@@ -40,7 +40,7 @@ Out of scope (each is a separate follow-up slice):
 
 ## Domain terminology
 
-This spec uses the terms defined in `CONTEXT.md`: [[Demo page]] (we create one, manually), [[Opt-out signal]] (honored via the storage marker), [[Async onboarding pipeline]] (deferred entirely). [[Suitable space]] and [[Generated demo]] are explicitly NOT implemented here.
+This spec uses the terms defined in `GLOSSARY.md`: [[Demo page]] (we create one, manually), [[Opt-out signal]] (honored via the storage marker), [[Async onboarding pipeline]] (deferred entirely). [[Suitable space]] and [[Generated demo]] are explicitly NOT implemented here.
 
 ## Architecture
 
@@ -116,7 +116,7 @@ The Forge KV marker is the single source of truth. The page itself is not consul
   - Marker present → return existing info. No POST. No-op.
   - Marker absent → POST `/wiki/api/v2/pages`. On 2xx, write marker.
   - Marker absent + POST fails → no marker written; the next click can retry. This is intentional: a transient 429 or 5xx must not become a silent permanent opt-out.
-- Opt-out semantics: if the user deletes the page in Confluence, the marker remains, and we will not recreate from the button. Operator can intentionally clear via `forge storage del demo-page:<spaceKey>` to allow recreation. This is consistent with `CONTEXT.md`'s [[Opt-out signal]].
+- Opt-out semantics: if the user deletes the page in Confluence, the marker remains, and we will not recreate from the button. Operator can intentionally clear via `forge storage del demo-page:<spaceKey>` to allow recreation. This is consistent with `GLOSSARY.md`'s [[Opt-out signal]].
 
 There is no `pending` state. With a single manual caller, the race-condition surface (two callers writing the marker mid-flight) does not exist; building a state machine to guard against it would be YAGNI. Two simultaneous clicks of the button at worst create one duplicate page in a year of operator usage; we accept that and treat duplicate cleanup as a manual operation.
 
@@ -240,7 +240,7 @@ These test what the function *does*, not the order in which it does it.
 
 ## Follow-up slices (sketch only, in suggested order)
 
-1. **Banner + install trigger together** — once the page is the artifact and we have a discoverability surface to pair it with, we can wire the install/upgrade trigger and an enrollment surface (likely Cloudflare KV, to match the team's existing rollout conventions for the paywall and CSS flag). This pair is what `CONTEXT.md` actually describes as the auto-onboarding behavior.
+1. **Banner + install trigger together** — once the page is the artifact and we have a discoverability surface to pair it with, we can wire the install/upgrade trigger and an enrollment surface (likely Cloudflare KV, to match the team's existing rollout conventions for the paywall and CSS flag). This pair is what `GLOSSARY.md` actually describes as the auto-onboarding behavior.
 2. **D1 analytics event** for "demo page published" — unlocks the success-metrics funnel.
 3. **AI-generated content** — replace `demoPageContent.ts` with the [[Generated demo]] pipeline. This is the precondition for moving from operator-triggered to auto.
 4. **Space scan + suitability classifier** — replace operator judgement with an automated [[Suitable space]] decision.

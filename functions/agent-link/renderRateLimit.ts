@@ -69,8 +69,8 @@ export function addressKey(ip: string): string {
   return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, '')).join(':') + '::/64';
 }
 
-async function bucketFor(ip: string, secret: string | undefined): Promise<string> {
-  const data = ENC.encode(`mcp-render:${addressKey(ip)}`);
+async function bucketFor(ip: string, secret: string | undefined, scope: string): Promise<string> {
+  const data = ENC.encode(`${scope}:${addressKey(ip)}`);
   if (secret) {
     const key = await crypto.subtle.importKey('raw', ENC.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
     return hex(await crypto.subtle.sign('HMAC', key, data)).slice(0, 32);
@@ -82,19 +82,22 @@ async function bucketFor(ip: string, secret: string | undefined): Promise<string
  * Count this call against its address and decide.
  *
  * `ip` is CF-Connecting-IP. Without one (local dev) there is nobody to count,
- * so the call is let through as 'unavailable'.
+ * so the call is let through as 'unavailable'. `options` gives another public
+ * endpoint its own counter in the same table (viewEvent.ts): sharing the render
+ * scope would spend an agent's render calls on its own view's reports.
  */
 export async function checkRenderRate(
   env: RateEnv,
   ip: string | null,
   nowMs: number,
   random: () => number = Math.random,
+  { scope = 'mcp-render', limit = RENDER_LIMIT }: { scope?: string; limit?: number } = {},
 ): Promise<RateDecision> {
   if (!env.DB || !ip) return { allowed: true, unavailable: true };
   const windowMs = RENDER_WINDOW_SECONDS * 1000;
   const windowStart = Math.floor(nowMs / windowMs) * windowMs;
   try {
-    const bucket = await bucketFor(ip, env.OAUTH_GRANT_SECRET);
+    const bucket = await bucketFor(ip, env.OAUTH_GRANT_SECRET, scope);
     const row = await env.DB.prepare(
       `INSERT INTO McpRenderRate (bucket, windowStart, count) VALUES (?, ?, 1)
        ON CONFLICT(bucket, windowStart) DO UPDATE SET count = count + 1
@@ -108,7 +111,7 @@ export async function checkRenderRate(
     }
     const count = typeof row?.count === 'number' ? row.count : NaN;
     if (!Number.isFinite(count)) return { allowed: true, unavailable: true };
-    if (count > RENDER_LIMIT) {
+    if (count > limit) {
       return { allowed: false, count, retryAfterSeconds: Math.max(1, Math.ceil((windowStart + windowMs - nowMs) / 1000)) };
     }
     return { allowed: true, count };

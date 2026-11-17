@@ -1,7 +1,7 @@
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { getDiagramConfig } from "@/model/Diagram/DiagramTypeConfig";
 import globals from "@/model/globals";
-import { trackEvent, addonKey } from "@/utils/window";
+import { trackEvent, addonKey, serializeError } from "@/utils/window";
 import ApWrapper2 from "@/model/ApWrapper2";
 import { getClientDomain } from "@/utils/ContextParameters/ContextParameters";
 import { callRemote } from "@/utils/requestUtil";
@@ -270,7 +270,9 @@ export class MacroMetrics {
   }
 
   private trackError(e: unknown): void {
-    this.eventTracker(JSON.stringify(e), 'report_macro_metrics', 'error');
+    // JSON.stringify(new Error('x')) is '{}': message and stack are not enumerable, so the cause was lost.
+    const label = e instanceof Error ? `${e.name}: ${e.message}` : serializeError(e);
+    this.eventTracker(label, 'report_macro_metrics', 'error');
   }
 }
 

@@ -8,13 +8,15 @@ export type ProbeResult = Awaited<ReturnType<ApWrapper2['probeOrphanRecovery']>>
 /**
  * Direct by-id fetch diagnostics, exactly as loadCustomContentWithOrphanRecovery
  * returns them. Callers pass their `loaded` result straight through; only these
- * four fields are read.
+ * six fields are read.
  */
 export interface DirectFetchDetail {
   directFetchStatus?: 'ok' | 'not_found' | 'other_error';
   directFetchHttpStatus?: number;
   directFetchErrorCode?: string;
   directFetchErrorClass?: 'thrown' | 'structured' | 'malformed';
+  directFetchErrorName?: string;
+  directFetchErrorMessage?: string;
 }
 
 function directFetchProps(detail: DirectFetchDetail | undefined) {
@@ -24,6 +26,8 @@ function directFetchProps(detail: DirectFetchDetail | undefined) {
     ...(detail.directFetchHttpStatus !== undefined && { direct_fetch_http_status: detail.directFetchHttpStatus }),
     ...(detail.directFetchErrorCode && { direct_fetch_error_code: detail.directFetchErrorCode }),
     ...(detail.directFetchErrorClass && { direct_fetch_error_class: detail.directFetchErrorClass }),
+    ...(detail.directFetchErrorName && { direct_fetch_error_name: detail.directFetchErrorName }),
+    ...(detail.directFetchErrorMessage && { direct_fetch_error_message: detail.directFetchErrorMessage }),
   };
 }
 

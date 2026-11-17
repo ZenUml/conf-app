@@ -23,20 +23,16 @@ async function main() {
   await globals.apWrapper.getMacroData();
 
   const [
-    { MacroIdProvider },
-    { CustomContentStorageProvider },
     { NULL_DIAGRAM },
     { mountRoot }
   ] = await Promise.all([
-    import("@/model/ContentProvider/MacroIdProvider"),
-    import("@/model/ContentProvider/CustomContentStorageProvider"),
     import("@/model/Diagram/Diagram"),
     import("@/mount-root")
   ]);
 
-  const id = await new MacroIdProvider(globals.apWrapper as any).getId();
+  const id = (await globals.apWrapper.getMacroData())?.customContentId;
   const doc = id
-    ? await new CustomContentStorageProvider(globals.apWrapper as any).getDiagram(id)
+    ? ((await globals.apWrapper.getCustomContentForCurrentPage(id)) as any)?.value
     : NULL_DIAGRAM;
 
   const DiagramPortal = (await import("@/components/DiagramPortal.vue")).default;

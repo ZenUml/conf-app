@@ -3,7 +3,15 @@
 import type { ProductType } from "./productType";
 import type {
   FeatureArea,
+  TitleDraftLookupStatus,
+  TitleDraftCopyExperimentId,
+  TitleDraftCopyExperimentVersion,
+  TitleDraftCopyVariant,
+  TitleDraftAddFailure,
+  TitleDraftPreviewCloseReason,
+  TitleDraftPreviewRenderFailure,
   MacroTypeValue,
+  CaptureFailureStage,
   Surface,
   EntryPoint,
   CreationOrigin,
@@ -15,6 +23,8 @@ import type {
   ContentState,
   CacheSource,
   PlantUmlRenderer,
+  McpViewPlantUmlRenderer,
+  McpViewFullscreenOutcome,
   PlantUmlLocalFailureReason,
   PlantUmlUnresolvedInclude,
   PlantUmlPngPurpose,
@@ -33,6 +43,7 @@ import type {
   AgentLinkListScope,
   AgentLinkMacroKeySource,
   AgentLinkIdentityFailure,
+  AgentLinkFailureStep,
   AgentLinkOAuthRevokeReason,
   AgentLinkOAuthRoute,
   AgentLinkOAuthAtlassianReason,
@@ -78,15 +89,16 @@ import type {
 
 export type AnalyticsProperties = {
   /** Fullscreen contact recovery. Identifiers are opaque; no email or free text. */
-  feature?: 'fullscreen';
-  policy_version?: 'fullscreen-contact-v1';
+  feature?: 'fullscreen' | 'edit';
+  policy_version?: 'fullscreen-contact-v1' | 'edit-contact-v1';
   attempt_id?: string;
   recovery_request_id?: string;
   recovery_grant_id?: string;
   recovery_state?: 'disabled' | 'not_requested' | 'pending_activation' | 'active' | 'expired' | 'unavailable';
   recovery_action?: 'contact_support' | 'plan_usage' | 'return_inline' | 'continue_request' | 'dismiss_notice';
   recovery_outcome?: 'created' | 'reused' | 'activated' | 'already_active' | 'extended' | 'already_applied';
-  scenario_codes?: Array<'inspect_details' | 'present' | 'discuss' | 'other'>;
+  scenario_codes?: Array<'inspect_details' | 'present' | 'discuss' | 'other'
+    | 'fix_or_update' | 'keep_current' | 'prepare_review' | 'other'>;
   access_source?: 'existing' | 'temporary' | 'fail_open';
   duration_days?: number;
   mail_state?: 'queued' | 'accepted' | 'delivered' | 'bounced' | 'failed' | 'delivery_unknown';
@@ -113,6 +125,8 @@ export type AnalyticsProperties = {
   /** Visible step when a targeted survey is dismissed, including an in-flight send. */
   survey_phase?: 'invite' | 'form' | 'submitting';
   environment_type?: string;
+  /** Forge installation id (app_installed, backend-emitted; #1102). */
+  installation_id?: string;
   // Contextual — required when scope implies them
   // Also carried by macro_export_requested/_succeeded/_failed (#435), sent
   // from src/export.js / src/asyncapi-export.js (Forge backend, outside this
@@ -123,6 +137,25 @@ export type AnalyticsProperties = {
   macro_type?: MacroTypeValue;
   /** Bounded Magic failure category; no diagram text, SVG, or source hash. */
   magic_failure_reason?: MagicFailureReason;
+  /** Title-first offer. Never carries the title or the draft source. */
+  title_draft_status?: TitleDraftLookupStatus;
+  title_draft_failure?: TitleDraftAddFailure;
+  /** Present on preview_closed; native host dismissal cannot identify its control. */
+  title_draft_close_reason?: TitleDraftPreviewCloseReason;
+  /** Preview delay/rejection/empty output; sent on render_delayed/render_failed/reload_clicked. */
+  title_draft_render_failure?: TitleDraftPreviewRenderFailure;
+  /** Elapsed render time on rendered/render_delayed/render_failed, excluding analytics. */
+  title_draft_render_ms?: number;
+  /** Mermaid family of the draft: flowchart, sequence, state or er. */
+  title_draft_kind?: string;
+  /** Model confidence recorded by the batch, 0 to 1. */
+  title_draft_confidence?: number;
+  /** Present together only for a valid, explicitly assigned offer-copy exposure. */
+  title_draft_experiment_id?: TitleDraftCopyExperimentId;
+  title_draft_experiment_version?: TitleDraftCopyExperimentVersion;
+  title_draft_variant?: TitleDraftCopyVariant;
+  /** Opaque per-show ID, carried unchanged through this exposure's funnel. */
+  title_draft_exposure_id?: string;
   /** Automatic writeback terminal outcome. Backend is temporary transport only. */
   magic_writeback_outcome?: 'written' | 'existing' | 'miss' | 'source_changed' | 'unavailable' | 'conflict' | 'invalid_target';
   /**
@@ -146,7 +179,8 @@ export type AnalyticsProperties = {
   magic_layout_preference?: 'magic' | 'original' | 'no_preference';
   // Diagram viewport pan/zoom. This is the user's explicit control intent, not
   // every intermediate wheel, drag, or pinch callback.
-  viewport_action?: "zoom_in" | "zoom_out" | "fit_height" | "fit_width";
+  // `fit` (back to fit) only from the MCP Apps view (agent_link_app_view_zoomed).
+  viewport_action?: "zoom_in" | "zoom_out" | "fit_height" | "fit_width" | "fit";
   /** Header relocation is distinct from the existing floating editor toolbar. */
   viewport_control_location?: "header" | "canvas";
   /** Fit/zoom was applied by a ready renderer; disabled controls emit nothing. */
@@ -154,7 +188,8 @@ export type AnalyticsProperties = {
   // Which control the reader used to zoom. `wheel` is one whole Ctrl/Cmd +
   // scroll gesture, not one per step, so a wheel zoom and a button click cost
   // the same one event and the two are directly comparable.
-  viewport_input?: "toolbar" | "wheel";
+  // `keyboard` only from the MCP Apps view (agent_link_app_view_zoomed).
+  viewport_input?: "toolbar" | "wheel" | "keyboard";
   entry_point?: EntryPoint;
   // Create funnel only (macro_create_started / macro_create_succeeded /
   // macro_create_cancelled). `creation_origin` names the surface that started
@@ -337,7 +372,14 @@ export type AnalyticsProperties = {
   diagrams_pasted?: number;
   paste_truncated?: boolean;
   // ADR-0010 self-hosted PlantUML rendering
-  plantuml_renderer?: PlantUmlRenderer;
+  plantuml_renderer?: PlantUmlRenderer | McpViewPlantUmlRenderer;
+  // MCP Apps view (agent_link_app_view_rendered): whether the host offered
+  // the fullscreen display mode, i.e. whether the view showed its button.
+  fullscreen_available?: boolean;
+  // agent_link_app_view_fullscreen_requested only.
+  fullscreen_outcome?: McpViewFullscreenOutcome;
+  // agent_link_app_view_zoomed: whether the view was in fullscreen.
+  fullscreen_active?: boolean;
   plantuml_failure_reason?: PlantUmlLocalFailureReason;
   plantuml_unresolved_include?: PlantUmlUnresolvedInclude;
   // ADR-0010: a GitHub C4-PlantUML URL include was rewritten to the hosted C4
@@ -411,6 +453,16 @@ export type AnalyticsProperties = {
   feedback_has_screenshot?: boolean;
   feedback_dismiss_reason?: FeedbackDismissReason;
   feedback_handoff_outcome?: FeedbackHandoffOutcome;
+  // Confluence custom-content version number the reporter was looking at
+  // (integer only, never diagram source). Sent on feedback_report_submit_*
+  // when known; absent for surfaces with no loaded diagram.
+  custom_content_version?: number;
+  // Join keys between the viewer iframe and the Feedback modal iframe, which
+  // are separate Mixpanel sessions. `feedback_token` is the per-open random id;
+  // `viewer_replay_id` is the viewer's `$mp_replay_id`. Both are registered as
+  // super-properties, never report content.
+  feedback_token?: string;
+  viewer_replay_id?: string;
   // Viewer Create slash-command guide (create_guide_*).
   create_guide_variant?: CreateGuideVariant;
   create_guide_close_method?: CreateGuideCloseMethod;
@@ -483,6 +535,11 @@ export type AnalyticsProperties = {
   // Phase 5b, on every page-banner event so the funnel can be split by audience.
   // See utils/paywall/spaceAdminProbe.ts.
   is_space_admin?: boolean;
+  // True when the page-banner iframe received the previous page's space after
+  // a Confluence SPA navigation and the space was corrected from the page URL.
+  // Set on paywall page-banner events; a forward navigation that now shows no
+  // banner sends no event, so this counts corrected banners, not all stale loads.
+  space_context_stale?: boolean;
   // Phase 5b: WHICH gate admitted the paywall page banner, and therefore which
   // copy/CTA set the user saw.
   //   'editor'      — legacy gate: this user created/edited a macro in the last
@@ -505,6 +562,10 @@ export type AnalyticsProperties = {
   // Advertised annual price on the bundle CTA at click time (USD, per space).
   // Recorded on the event so a later price change stays comparable.
   bundle_price_usd?: number;
+  /** Confirmed unpaid rows offering a one-space checkout on Plan and usage. */
+  purchasable_space_count?: number;
+  /** Per-space Lite limit at the time of a checkout action. */
+  macro_limit?: number;
   // JSM Apply Extension automation. `extension_action` is the fixed policy
   // command, never an arbitrary duration. Initial grants are requester-only
   // for 7 days; feedback grants renew the same requester for 60 days.
@@ -651,6 +712,15 @@ export type AnalyticsProperties = {
   whats_new_expanded?: boolean;
   // whats_new_link_clicked: the item's stable id within its release.
   whats_new_item_id?: string;
+  // diagram_added_to_page, from the placement picker. Where the diagram went
+  // among the page's top-level blocks.
+  placement_position?: "start" | "middle" | "end";
+  // diagram_added_to_page and placement_picker_opened: top-level blocks on the
+  // page. A short page has few places to choose from, so read position with it.
+  placement_block_count?: number;
+  // diagram_added_to_page: the user left the preselected end-of-page gap alone.
+  // A high share means the picker is an extra click on the old append.
+  placement_default_kept?: boolean;
   // diagram_added_to_page. How many macros the page already carried when the
   // one-click place ran. Read with `result`: a page at the Lite limit is the
   // case where placing a diagram and hitting the paywall collide, and this is
@@ -678,33 +748,17 @@ export type AnalyticsProperties = {
   // committed the same title; 'empty' = committed a blank title (refused,
   // the previous title stands).
   rename_exit_reason?: 'escape' | 'unchanged' | 'empty';
-  // "Copy for AI" viewer action (copy_for_ai_clicked — catalog.ts) AND the
-  // "Copy diagram link" pill action (deeplink_copied — catalog.ts) share this
-  // one `outcome` axis. For copy_for_ai_clicked: 'copied' = full page+diagram
-  // copy, 'copied_diagram_only' = fell back to diagram-only content (page
-  // context unavailable), 'clipboard_failed' = the clipboard write itself
-  // threw. For deeplink_copied: 'copied' = clipboard write succeeded,
-  // 'clipboard_failed' = the write returned false or threw, 'unavailable' =
-  // the link couldn't be minted at all (no host/contentId, or cloudId
-  // unresolved) — 'copied_diagram_only' does not apply to deeplink_copied.
-  // `dsl_bytes` / `page_bytes` are the byte sizes of the diagram DSL and the
-  // surrounding page context that were attempted, regardless of outcome
-  // (copy_for_ai_clicked only).
-  // `job` identifies which entry point fired the click: 'generic' = the
-  // one-click primary segment (today's generic prompt, unchanged); the other
-  // five are the split-button menu's job-framed entry points — explain /
-  // update / implement / audit / tests — which only swap the preamble
-  // buildCopyForAiPrompt.ts builds (same DSL + page payload, same fallback
-  // rules). Absent on events emitted before this axis existed.
-  outcome?: 'copied' | 'copied_diagram_only' | 'clipboard_failed' | 'unavailable';
-  dsl_bytes?: number;
-  page_bytes?: number;
-  job?: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
+  // Copy outcome, shared by the "Copy diagram link" action (deeplink_copied —
+  // catalog.ts), viewer_source_copied and the Connect MCP dialog copies:
+  // 'copied' = clipboard write succeeded, 'clipboard_failed' = the write
+  // returned false or threw, 'unavailable' = the deeplink couldn't be minted
+  // at all (no host/contentId, or cloudId unresolved). The retired Copy for
+  // AI action (removed 2026-11-14) also sent 'copied_diagram_only'.
+  outcome?: 'copied' | 'clipboard_failed' | 'unavailable';
   // Copy -> editor attribution. A marker is written only after a successful
   // clipboard write and contains metadata only — never diagram text or hashes.
   copy_id?: string;
   copy_source?: CopySource;
-  copy_job?: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
   ms_since_copy?: number;
   // Per-transaction editor replacement signal. journey_id/session_id join the
   // operation to the editor lifecycle; replace_index preserves repeated whole
@@ -713,7 +767,7 @@ export type AnalyticsProperties = {
   session_id?: string;
   // --- macro_authoring_ended (utils/journeyTracking.ts) ---------------------
   // How the authoring session ended. Named `authoring_outcome` rather than
-  // reusing the existing `outcome`, which is the copy-for-AI result union and
+  // reusing the existing `outcome`, which is the copy result union and
   // would collide on type.
   authoring_outcome?: AuthoringOutcome;
   // Wall-clock ms from startEditJourney to the terminal event — the editor's
@@ -750,7 +804,6 @@ export type AnalyticsProperties = {
   delta_from_last_replace_bucket?: ContentDeltaBucket;
   last_copy_id?: string;
   last_copy_source?: CopySource;
-  last_copy_job?: 'generic' | 'explain' | 'update' | 'implement' | 'audit' | 'tests';
   // Bottom-pill "Copy diagram link" (deeplink_copied — catalog.ts). Which
   // affordance minted the deeplink: the old bottom pill or the header More menu. Not
   // the same surface as the `/deeplink-ticket` share-preview endpoint, which
@@ -760,9 +813,9 @@ export type AnalyticsProperties = {
   // The bottom pill is gone: its actions (Copy diagram link, Copy page link,
   // Export PNG, Versions, Download debug info) moved into the inline header's
   // More (⋯) menu (`header_more_menu`) and onto Fullscreen's header
-  // (`fullscreen_header`); at collapse stage 3 Source and Copy for AI also
+  // (`fullscreen_header`); at collapse stage 3 Source and Connect MCP also
   // run from the More menu. Carried by deeplink_copied, fullscreen_opened
-  // (entry_point=export), viewer_source_opened, copy_for_ai_clicked, and in
+  // (entry_point=export), viewer_source_opened, and in
   // the free-form details of the legacy trackEvent copy_link /
   // show_content_versions / debug_bundle_downloaded events. Absent = the
   // action's own header button (or an event from before 2026-10).
@@ -772,7 +825,7 @@ export type AnalyticsProperties = {
   // viewer_more_menu_opened: the inline header's collapse stage when the More
   // menu opened, and agent_link_mcp_button_shown: the stage when the button
   // was shown. 0 all labels, 1 Edit + Refined icon-only, 2 Fullscreen
-  // icon-only, 3 Source + Copy for AI moved into the menu. Absent in Fullscreen.
+  // icon-only, 3 Source + Connect MCP moved into the menu. Absent in Fullscreen.
   header_stage?: 0 | 1 | 2 | 3;
   // In-viewer Edit dup gate (edit_dup_gate_evaluated): outcome of the
   // click-time same-page shared-id check. `same_page_macro_count` = how many
@@ -842,11 +895,22 @@ export type AnalyticsProperties = {
   // render-time comparisons use a measured signal rather than inferring cache
   // state from duration magnitude. See utils/analytics/trackRenderTime.ts.
   cache_state?: CacheState;
+  // macro_viewed only: whether this browser already reported this macro on this
+  // surface today (UTC). `first` is always emitted; `repeat` is emitted at
+  // MACRO_VIEWED_REPEAT_SAMPLE_RATE and carries `sample_rate`. Absent when the
+  // browser cannot remember (no storage, no macro id): that event is emitted.
+  view_of_day?: "first" | "repeat";
   // #113: body classification at render time (default starter / authored / empty). Wipe detection.
   content_state?: ContentState;
   // Full only: Forge `license.active` at render time. Absent on other variants
   // and whenever Forge supplies no boolean; Forge also reports false for free apps.
   license_active?: boolean;
+  // Why the Full license notice was shown; missing license fields alone are never evidence.
+  license_notice_basis?: "forge_inactive" | "forge_legacy_free" | "marketplace_legacy_free" | "development_mock" | "site_policy_limit_reached";
+  // Per-site paywall enforcement stage from /api/space-status `enforcement.stage`.
+  enforcement_stage?: "notice" | "watermark" | "block_create" | "block_edit";
+  // Full viewer evaluation completed, including hidden and unavailable decisions.
+  license_notice_outcome?: "shown" | "active" | "unknown" | "disabled" | "unavailable";
   transfer_bytes?: number;
   // Phase 0b sub-timings (renderPerf). Attribute duration_ms to load phases so we
   // can pick the right optimization lever. Absent phases are omitted, not 0.
@@ -1061,6 +1125,10 @@ export type AnalyticsProperties = {
   // `cloud_id` field above, as it does on X/Y/AA.
   paywall_gate?: AgentLinkPaywallGate;
   guardrail_rejected?: boolean;
+  // Why the write guard refused, on `_tool_called` and the write event of a
+  // `guardrail_rejected` call. `reason` there is only that code, which cannot
+  // tell a source that did not parse from a suspected truncation.
+  guardrail_reason?: AgentLinkGuardrailRejectReason;
   // agent_link_diagram_updated only: true when the call renamed the diagram
   // (a non-blank `title` that differs from the stored one, #789).
   title_changed?: boolean;
@@ -1081,14 +1149,30 @@ export type AnalyticsProperties = {
   // latency rides `duration_ms`; the target site rides `cloud_id` (only when
   // the argument is UUID-shaped — anything else is client free text). `mcp_client_name` / `mcp_client_version` are
   // the client's MCP `clientInfo`, trimmed to 64 chars. On a successful
-  // read_diagram / create_diagram the diagram's type rides the shared
-  // `macro_type` (closed vocabulary; omitted when unknown, and always on
-  // update_diagram, whose result carries no type), so MCP Apps view usage can
-  // be split by type.
+  // read_diagram / create_diagram / update_diagram the diagram's type rides the
+  // shared `macro_type` (closed vocabulary; omitted when unknown), so usage can
+  // be split by type. `_tool_called` on the headless path also names the host in
+  // `oauth_client_id` / `oauth_client_name`, because a stateless tools/call
+  // carries no `clientInfo`, and the site in `client_domain` (bare subdomain, as
+  // `is_internal_client_domain` expects).
   mcp_tool?: string;
   mcp_tool_outcome?: AgentLinkMcpToolOutcome;
+  // On a successful page-scoped list_diagrams: how many of the listed diagrams
+  // are embedded on that page from another page (an embed macro's target),
+  // rather than stored on it. Omitted on every other call.
+  embedded_diagram_count?: number;
+  // On a `reason: 'upstream'` tool_error: which step failed, the HTTP status
+  // it got (when there was one), and for step 'identity' the resolver's
+  // refusal. See AgentLinkFailureStep.
+  failure_step?: AgentLinkFailureStep;
+  upstream_status?: number;
+  identity_failure?: AgentLinkIdentityFailure;
   mcp_client_name?: string;
   mcp_client_version?: string;
+  // Set by our own smoke checks on the public render endpoint, which has no
+  // user or site for `is_internal_client_domain` to read. Absent is not proof
+  // of a customer: a person on the team testing a connector looks the same.
+  internal_probe?: boolean;
   // render_diagram on the public render endpoint (`mcp_mode: 'render'`): did
   // the source parse.
   render_validation?: AgentLinkRenderValidation;
@@ -1116,9 +1200,23 @@ export type AnalyticsProperties = {
   // reusing MacroTypeValue rather than inventing a parallel enum since the
   // detectable dialects are already macro types users can switch to.
   detected_dialect?: MacroTypeValue;
+  // convert_to_png toPng_failed / toPng_timeout (#1061). Bounded: no diagram
+  // text, data URL or query string. See CaptureFailureStage in catalog.ts.
+  capture_failure_stage?: CaptureFailureStage;
+  capture_error?: string;
+  capture_node_width?: number;
+  capture_node_height?: number;
+  document_visibility?: string;
   // Error
   error_code?: string;
   error_name?: string;
+  // graph_icon_proxy_*: icons.diagrams.net URLs found in the diagram, and how
+  // many the backend returned as data URLs. Counts only, never URLs.
+  external_icon_count?: number;
+  icon_resolved_count?: number;
+  // First per-icon code the backend reported (fetch_failed, http_<status>,
+  // bad_content_type, too_large). Says why, where error_code says only "missing".
+  upstream_error_code?: string;
   // save_failed_diagnosed (create 404 diagnosis). `error_shape` classifies the
   // Confluence 404 envelope; the `can_*` booleans are read off the caller's own
   // `operations` list on the host page, so `can_create_cc_type=false` is
@@ -1203,7 +1301,14 @@ export type AnalyticsProperties = {
   // and 'malformed' for a body with no `body.raw.value`. `http_status` /
   // `error_code` come from the first structured error.
   load_status?: 'not_found' | 'other_error';
-  error_class?: 'structured' | 'malformed';
+  // load_failed_shown (GenericViewer) reuses `error_class`, `http_status` and
+  // `direct_fetch_status` from the store's load error, and adds 'thrown' for a
+  // by-id fetch that rejected instead of returning a response. For 'thrown',
+  // `error_name` is the rejection's name (e.g. TypeError) and `error_message`
+  // its message scrubbed of query strings, emails and 4+ digit runs, max 100
+  // chars (utils/fetchErrorDiagnostics.ts).
+  error_class?: 'thrown' | 'structured' | 'malformed';
+  error_message?: string;
   // customcontent_orphan_observed: the by-id GET (the "direct fetch") that ran
   // before any probe. Without these, `recoverable: 'probe_skipped_no_probe_result'`
   // could not say whether the fetch hit a 403, a 5xx, a thrown request or a
@@ -1216,6 +1321,12 @@ export type AnalyticsProperties = {
   direct_fetch_http_status?: number;
   direct_fetch_error_code?: string;
   direct_fetch_error_class?: 'thrown' | 'structured' | 'malformed';
+  // Thrown direct fetch only: the rejection's name (e.g. TypeError) and its
+  // message scrubbed of query strings, emails and 4+ digit runs, max 100 chars
+  // (utils/fetchErrorDiagnostics.ts). Separates a network failure from a
+  // host-side bridge rejection when there is no HTTP status.
+  direct_fetch_error_name?: string;
+  direct_fetch_error_message?: string;
   // Build info — auto-enriched from VITE_APP_VERSION / VITE_APP_COMMIT
   app_version?: string;
   app_commit?: string;

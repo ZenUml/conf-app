@@ -49,8 +49,8 @@ Capture a screenshot or snapshot for each UI assertion.
    Seed the existing impression key with `showCount: 100`, current `lastShownAt`
    and current legacy `dismissedAt`; reload and verify it still appears.
 4. **Admin:** without recent authoring, the eligible space admin sees the banner,
-   Plan and usage, and `paywall-banner-unlock-space`. Check the purchase target
-   without completing a payment.
+   and Plan and usage only; `paywall-banner-unlock-space` must be absent
+   (the Forge pageBanner guideline forbids a checkout control in the banner).
 5. **Eligibility:** at 100 macros or fewer, a paid space, an exempt policy, or a
    non-admin with no recent authoring, the paywall banner is absent. Another
    eligible banner may occupy the slot, so do not equate absence of this banner
@@ -63,9 +63,13 @@ Capture a screenshot or snapshot for each UI assertion.
 
 Verify send-side event evidence where ingestion may lag:
 
-- `paywall_banner_shown`: each eligible mount, `surface=page_banner`, with
-  `show_count`, optional `hours_since_last_shown`, and audience/count context.
-  These properties describe impressions; they never suppress one.
+- `paywall_banner_shown`: the first eligible mount per browser, site and space
+  per UTC day (from the 2026-11 release; every eligible mount before it),
+  `surface=page_banner`, with `show_count`, optional `hours_since_last_shown`,
+  and audience/count context. The banner still shows on every eligible mount
+  and `show_count` still counts every display, so a second load the same day
+  shows the banner and sends no event. To see the event again in one session,
+  clear the iframe's impression marker or wait for the next UTC day.
 - `plan_usage_viewed`: `surface=page_banner` means CTA click; `surface=dashboard`
   is emitted by the destination. Keep those two meanings separate.
 - `paywall_bundle_cta_clicked`: space-admin purchase CTA.

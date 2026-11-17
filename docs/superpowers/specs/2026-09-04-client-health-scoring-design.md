@@ -88,7 +88,7 @@ one primitive, just with different signal sets and directions.
 | 2 | adoption_breadth | unique_creators (90d) / seat_tier |
 | 3 | usage_volume | macro_viewed total (90d) |
 | 4 | growth_trend | (views_last30d − views_prior30d) / max(views_prior30d, 1) |
-| 5 | paywall_friction | paywall_triggered + paywall_blocked_create + paywall_blocked_edit (90d) |
+| 5 | paywall_friction | `paywall_gate_evaluated` events (90d) where the gate fired, or the space is over its limit, enforced (`css_enabled`) and unpaid. Changed 2026-11-14: the earlier sum of paywall_triggered + paywall_blocked_create + paywall_blocked_edit stopped receiving events on 2026-09-11, when the editor block was switched off |
 
 `size_value` uses the seat tier from the Marketplace license and the
 Full-plan monthly quote from `mp_pricing.py`'s band table (see marketplace

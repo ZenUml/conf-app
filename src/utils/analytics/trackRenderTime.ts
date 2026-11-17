@@ -1,6 +1,10 @@
 import { getDiagramFontState } from '@/utils/fonts/diagramFontState';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import { trackAnalyticsEvent } from './trackAnalyticsEvent';
+import { MACRO_VIEWED_REPEAT_SAMPLE_RATE } from './eventSampling';
+import { classifyMacroView } from './macroViewOfDay';
+import { getClientDomain } from '@/utils/ContextParameters/ContextParameters';
+import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import type { CacheState, MacroTypeValue, RenderMode, CacheSource, ContentState, PlantUmlRenderer } from './catalog';
 import { getTimings } from './renderPerf';
 import { getRenderIdentity } from './renderIdentity';
@@ -83,9 +87,23 @@ export function trackRenderTime(
   if (import.meta.env.DEV) {
     console.debug('[macro_viewed]', { macro_type: macroType, duration_ms, ...timings });
   }
+  const surface = isDisplayMode ? 'viewer' : 'editor';
+  const viewOfDay = classifyMacroView({
+    clientDomain: getClientDomain(),
+    macroKey:
+      resolveEffectiveCustomContentId(forgeGlobal.forgeContext) ??
+      forgeGlobal.forgeContext?.localId,
+    surface,
+  });
+  if (viewOfDay === 'repeat' && Math.random() >= MACRO_VIEWED_REPEAT_SAMPLE_RATE) {
+    scheduleRendererPrefetch(macroType);
+    return;
+  }
   trackAnalyticsEvent('macro_viewed', {
     feature_area: 'macro',
-    surface: isDisplayMode ? 'viewer' : 'editor',
+    surface,
+    ...(viewOfDay !== null ? { view_of_day: viewOfDay } : {}),
+    ...(viewOfDay === 'repeat' ? { sample_rate: MACRO_VIEWED_REPEAT_SAMPLE_RATE } : {}),
     macro_type: macroType,
     render_mode: renderMode,
     cache_source: cacheSource,

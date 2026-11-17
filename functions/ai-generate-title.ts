@@ -1,5 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
+import { looksLikeTitle, NOT_TITLE_LIKE } from '../src/lib/aiTitleGuard.js';
+
 interface Env {
   AI: Ai;
 }
@@ -10,10 +12,15 @@ function isOpenApiTitleRequest(type?: string): boolean {
   return /openapi/i.test((type || '').trim());
 }
 
+function isSequenceTitleRequest(type?: string): boolean {
+  return !type || /sequence/i.test(type);
+}
+
 // Robustly pull a title out of the model's free-form response. Llama often
 // ignores the "wrap in triple quotes" instruction (especially for sequence
 // DSLs), so fall back through: triple-quoted span -> any quoted span -> the
-// first non-empty line of the raw text. Throws only when nothing usable remains.
+// first non-empty line of the raw text. Throws when nothing usable remains, or
+// when the reply is chat text (see aiTitleGuard), so the next model gets a turn.
 export function extractTitle(raw: string): string {
   const text = String(raw ?? '');
   const quoted = text.match(/"""([\s\S]*?)"""/)?.[1] ?? text.match(/"([^"]{2,})"/)?.[1];
@@ -24,7 +31,22 @@ export function extractTitle(raw: string): string {
     .find((line) => line.length > 0);
   const title = (firstLine ?? '').replace(/^["'\s]+|["'\s]+$/g, '').trim();
   if (!title) throw new Error('Failed to extract title');
+  if (!looksLikeTitle(title)) throw new Error(NOT_TITLE_LIKE);
   return title.slice(0, 80);
+}
+
+// Gemma returns chat completions; Llama returns a legacy `response` string.
+// Only final text can be a title: never coerce objects or read reasoning fields.
+function extractModelTitle(result: unknown): string {
+  const output = result as {
+    response?: unknown;
+    choices?: { message?: { content?: unknown } }[];
+  } | null;
+  const raw = Array.isArray(output?.choices) ? output.choices[0]?.message?.content : output?.response;
+  if (typeof raw !== 'string') throw new Error('Failed to extract title');
+  // Reject unparsed thought blocks even if they contain a quoted draft title.
+  if (/<think\b|<\|channel>thought/i.test(raw)) throw new Error(NOT_TITLE_LIKE);
+  return extractTitle(raw);
 }
 
 // Two strategies deliberately run on *different* models so a single model
@@ -32,7 +54,8 @@ export function extractTitle(raw: string): string {
 // endpoint has been taken down twice by Cloudflare deprecating the one shared
 // model (llama-2-7b-chat-int8, then llama-3.1-8b-instruct); diverging the models
 // closes that failure mode. Verify replacements against `wrangler ai models`.
-const PRIMARY_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
+// Replaces llama-3.1-8b-instruct-fp8, retiring on 2026-11-20.
+const PRIMARY_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const FALLBACK_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
 const strategies: Strategy[] = [
@@ -48,13 +71,18 @@ const strategies: Strategy[] = [
         },
         { role: 'user', content: dsl },
       ],
+      // Non-thinking usage: https://developers.cloudflare.com/workers-ai/get-started/workers-wrangler/
+      chat_template_kwargs: { enable_thinking: false },
+      max_completion_tokens: 128,
     });
-    return extractTitle((result as any).response);
+    return extractModelTitle(result);
   },
   async (ai, dsl, type) => {
     const systemPrompt = isOpenApiTitleRequest(type)
       ? 'Generate one concise title for the provided OpenAPI specification. Only output the title, nothing else.'
-      : 'You are an expert of ZenUML sequence diagram. Generate title for the given DSL. Only output the title, nothing else.';
+      : isSequenceTitleRequest(type)
+        ? 'You are an expert of ZenUML sequence diagram. Generate title for the given DSL. Only output the title, nothing else.'
+        : `Generate one concise title for the provided ${type} diagram. Only output the title, nothing else.`;
     const result = await (ai as any).run(FALLBACK_MODEL, {
       messages: [
         {
@@ -64,7 +92,7 @@ const strategies: Strategy[] = [
         { role: 'user', content: dsl },
       ],
     });
-    return extractTitle((result as any).response);
+    return extractModelTitle(result);
   },
 ];
 
@@ -95,6 +123,7 @@ export async function onRequest({ request, env }: { request: Request; env: Env }
   const { dsl, type } = body;
   let title = '';
   let lastError = '';
+  let modelRefused = false;
 
   for (const strategy of strategies) {
     try {
@@ -102,9 +131,11 @@ export async function onRequest({ request, env }: { request: Request; env: Env }
       if (title) break;
     } catch (err) {
       lastError = String(err);
+      modelRefused = (err as Error)?.message === NOT_TITLE_LIKE;
     }
   }
 
+  if (!title && modelRefused) return new Response(NOT_TITLE_LIKE, { status: 422, headers: CORS_HEADERS });
   if (!title) return new Response(lastError || 'Failed to generate title', { status: 500, headers: CORS_HEADERS });
   return new Response(title, { headers: CORS_HEADERS });
 }

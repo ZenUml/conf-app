@@ -30,7 +30,7 @@
            single button. More than one and the summary alone cannot say WHICH,
            so the rows carry that — behind a toggle, because this banner sits
            above every load of the page and must not own the fold. -->
-      <!-- One click finishes the job. The four-step alternative — copy, open
+      <!-- Choose a spot and it is done. The four-step alternative — copy, open
            the editor, paste, publish — is what the user already abandoned once;
            that is why this diagram is unplaced. Copy link stays as the fallback
            for a reader who cannot edit the page (see `canEdit`). -->
@@ -140,6 +140,7 @@ import { clearUnplacedProperty, readUnplacedProperty, unlistedCount } from '@/ut
 import { higherPriorityBannerPending } from '@/utils/banners/priority'
 import { bylineNounFor, capitalize } from '@/utils/byline/bylineNoun'
 import { placeDiagram } from '@/utils/byline/placeDiagram'
+import { choosePlacement, PICKER_OPEN_FAILED_MESSAGE, placementEventProps } from '@/utils/byline/placementPicker'
 
 /**
  * "Saved here, but on no page" — said on the surface that is actually read.
@@ -467,8 +468,11 @@ onBeforeUnmount(() => {
   if (copyFlashTimer) clearTimeout(copyFlashTimer)
 })
 
+/** Blocks a second picker while one is open; the page behind it stays clickable. */
+let choosing = false
+
 /**
- * Place the diagram on the page, in one click.
+ * Ask where, then place the diagram there.
  *
  * On success the row is gone and the record is retired immediately rather than
  * left for the next load's verification: the page just changed, and a banner
@@ -476,10 +480,25 @@ onBeforeUnmount(() => {
  * answer. When the last row goes, so does the banner.
  */
 async function onAddToPage(entry: UnplacedDiagramEntry) {
-  if (!identity || addingId.value) return
+  if (!identity || addingId.value || choosing) return
   const pageId = identity.pageId
-  addingId.value = entry.id
   addFailure.value = null
+
+  choosing = true
+  const answer = await choosePlacement(pageId, entry, 'page_banner')
+  choosing = false
+  if (answer.status === 'open_failed') {
+    trackAnalyticsEvent('placement_picker_opened', {
+      ...baseProps(),
+      macro_type: toMacroType(entry.diagramType) as MacroTypeValue,
+      result: 'open_failed',
+    })
+    addFailure.value = PICKER_OPEN_FAILED_MESSAGE
+    return
+  }
+  if (answer.status !== 'chosen') return
+
+  addingId.value = entry.id
 
   const outcome = await placeDiagram(pageId, entry, () => {
     // Runs before the reload, deliberately: the reloaded page reads this record
@@ -491,13 +510,14 @@ async function onAddToPage(entry: UnplacedDiagramEntry) {
     if (props.source === 'property') void clearUnplacedProperty(pageId)
     else recordUnplacedBannerResolved(identity!, recordUpdatedAt)
     visible.value = false
-  })
+  }, answer.choice.placement)
   addingId.value = null
 
   trackAnalyticsEvent('diagram_added_to_page', {
     ...baseProps(),
     macro_type: toMacroType(entry.diagramType) as MacroTypeValue,
     result: outcome.result,
+    ...placementEventProps(answer.choice),
     ...(outcome.pageMacroCount === undefined ? {} : { page_macro_count: outcome.pageMacroCount }),
     // Which step failed, and the code behind it. 'failed' alone is one bucket
     // over six causes that need different fixes.

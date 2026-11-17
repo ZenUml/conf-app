@@ -1,4 +1,4 @@
-本文件仅供中文审阅。英文主文件：[SKILL.md](SKILL.md)。规则、执行和后续修改以英文主文件为准；本译本不作为独立 skill 入口。同步日期：2026-09-28。
+本文件仅供中文审阅。英文主文件：[SKILL.md](SKILL.md)。规则、执行和后续修改以英文主文件为准；本译本不作为独立 skill 入口。同步日期：2026-11-11。
 
 技能名称：marketplace
 
@@ -75,7 +75,7 @@ python3 $S whois example-tenant-a                                  # 域名 -> c
 | `client <name>` | 单个租户的完整许可证和交易历史（按公司名/slug 文本搜索）。用于查询“他们以前付过款吗 / 付了多少 / 用什么套餐”。 |
 | `revenue [--period] [--top N]` | 按累计供应商收入排序的头部付款客户，并显示计费周期和已付款至日期。`--period annual\|monthly`。 |
 | `tier <domain>` | 快速查询租户的档位、许可证类型和状态（决定 Full 套餐价格的数字）。 |
-| `whois <domain>` | 跨已安装应用的一张信息卡：身份、用户数、许可证状态和基于交易的汇总。按 cloudId + 产品关联；付款结论前，应从导出数据核实权益、原始状态和来源 ID（见上文的辅助脚本局限）。Lite 会自动检查远程 Stripe/KV；`--no-kv` / `--local` 会明确跳过该层检查。未匹配 slug 时会建议相似主机名；cloudId 可回退到 `_edge/tenant_info`。 |
+| `whois <domain>` | 跨已安装应用的一张信息卡：身份、用户数、许可证状态和基于交易的汇总。按 cloudId + 产品关联；付款结论前，应从导出数据核实权益、原始状态和来源 ID（见上文的辅助脚本局限）。Lite 会自动检查远程 Stripe/KV 空间许可证；`--no-kv` / `--local` 会跳过这项检查。遇到 401 时，信息卡打印 `FIX: npx wrangler login`。未匹配 slug 时会建议相似主机名；cloudId 可回退到 `_edge/tenant_info`。 |
 | `sync` | 将所有应用的许可证和交易快照保存到本地 SQLite DB（`scripts/marketplace.db`，约 1.7k 条许可证 + 约 5k 笔交易，约 14 秒）。之后给任何命令加 `--local`，即可针对快照运行（不到 100 毫秒、离线、无需凭据）。 |
 
 ### 本地快照（`sync` + `--local`）——用于批量和跨来源关联

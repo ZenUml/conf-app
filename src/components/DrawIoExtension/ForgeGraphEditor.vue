@@ -16,6 +16,20 @@
          Save & Exit button. currentXml feeds the AI auto-title watcher with the
          live diagram content (initial body, then each DrawIO autosave). -->
     <DrawIoExtension :doc="doc" :current-xml="currentXml" :editor-mode="editorMode" />
+    <!-- MCP promo (useEditorMcpPromo). Fed only from autosaves DrawIO marks
+         modified: its load-time autosave is not an edit by the author, and
+         treating it as one would hide the new-diagram card at once. It sits
+         in the canvas's bottom-right corner: clear of the shape library on the
+         left, the Format panel (240px) on the right and the page tabs below. -->
+    <EditorMcpPromo
+      diagram-type="graph"
+      :code="mcpPromoXml"
+      :diagram-id="customContentId || ''"
+      :diagram-title="doc?.title || ''"
+      corner="bottom-right"
+      :inset-side="264"
+      :inset-bottom="48"
+    />
     <!-- Publishing overlay. The graph macro's Publish button lives INSIDE the
          DrawIO iframe (Save & Exit, relabeled), so unlike the other editors it
          can't show the PublishButton "Publishing…" spinner. Without this,
@@ -39,6 +53,7 @@
 
 <script>
 import DrawIoExtension from "@/components/DrawIoExtension/DrawIoExtension.vue";
+import EditorMcpPromo from "@/components/AgentLink/EditorMcpPromo.vue";
 import "@/components/DrawIoExtension/graphEditor.css";
 import { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
 import { setupCloseGuard } from "@/utils/closeGuard";
@@ -47,6 +62,7 @@ import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCached
 import EventBus from "@/EventBus";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { notifyAiTitleSaved } from "@/composables/useAutoTitle";
+import { createEditorIconLoader } from "@/utils/graph/editorExternalIcons";
 import {
   buildDrawioEditorSrc,
   normalizeGraphEditorMode,
@@ -73,7 +89,8 @@ const EMPTY_GRAPH = `<mxfile>
 export default {
   name: "ForgeGraphEditor",
   components: {
-    DrawIoExtension
+    DrawIoExtension,
+    EditorMcpPromo,
   },
   props: {
     graphXml: String,
@@ -98,6 +115,28 @@ export default {
       if (this.$refs.drawioFrame) {
         this.$refs.drawioFrame.contentWindow?.postMessage(JSON.stringify(data), '*');
       }
+    },
+    /**
+     * The one path for every `load` (init, frame reload on mode switch, draft
+     * restore). Icons from icons.diagrams.net are fetched through our backend and
+     * installed in the frame first, so the cells draw them; the XML sent is the
+     * original. Waits only when there is something to fetch, for a bounded time,
+     * and loads even when that fails. A newer load supersedes an older pending one.
+     */
+    loadIntoFrame(xml) {
+      const ticket = ++this.loadTicket;
+      const send = () => {
+        if (ticket !== this.loadTicket || this.isUnmounted) return;
+        this.sendToFrame({ action: 'load', xml, autosave: 1 });
+      };
+      let pending = null;
+      try {
+        pending = this.iconLoader.prepare(this.$refs.drawioFrame?.contentWindow, xml);
+      } catch (e) {
+        console.error('ForgeGraphEditor: external icon setup failed:', e);
+      }
+      if (pending) pending.then(send, send);
+      else send();
     },
     xmlForLoad() {
       return this.xmlForMode(this.editorMode) || EMPTY_GRAPH;
@@ -152,7 +191,7 @@ export default {
       // every model change.
       const xml = this.xmlForLoad();
       if (xml) {
-        this.sendToFrame({ action: 'load', xml, autosave: 1 });
+        this.loadIntoFrame(xml);
       }
       this.scheduleMountModeSwitch();
     },
@@ -245,6 +284,9 @@ export default {
       mountTimers: [],
       isUnmounted: false,
       drawioModified: false,
+      // The source the MCP promo watches: empty until the author's first
+      // modifying autosave, then each modified autosave's xml.
+      mcpPromoXml: '',
       publishing: false,
       closeGuardOff: null,
       closeOutcomeOff: null,
@@ -261,6 +303,8 @@ export default {
       draftScope: null,
       restoreListener: null,
       messageListener: null,
+      loadTicket: 0,
+      iconLoader: createEditorIconLoader({ track: trackAnalyticsEvent }),
     };
   },
   created() {
@@ -279,7 +323,7 @@ export default {
     // + local draft saver + close-guard, which all consume these events) would
     // never see live edits. Confluence persistence is unaffected — that still
     // runs only on the 'save' event.
-    const loadGraph = (xml) => this.sendToFrame({ action: 'load', xml, autosave: 1 });
+    const loadGraph = (xml) => this.loadIntoFrame(xml);
     this.messageListener = async ({ data }) => {
       if (!data) {
         console.warn('Empty message sent to drawio editor.');
@@ -308,6 +352,7 @@ export default {
       }
       else if (payload.event === 'autosave') {
         this.drawioModified = !!payload.modified;
+        if (payload.xml && this.drawioModified) this.mcpPromoXml = payload.xml;
         if (payload.xml) {
           this.setXmlForMode(this.editorMode, payload.xml);
           if (this.drawioModified && this.draftSaver) {
@@ -435,7 +480,7 @@ export default {
       if (payload?.scope !== this.draftScope || !payload?.draft) return;
       if (payload.draft.graphEditorMode && payload.draft.graphEditorMode !== this.editorMode) return;
       try {
-        this.sendToFrame({ action: 'load', xml: payload.draft.code, autosave: 1 });
+        this.loadIntoFrame(payload.draft.code);
         if (payload.draft.title) this.$store.dispatch('updateTitle', payload.draft.title);
         this.drawioModified = true;
         this.setXmlForMode(this.editorMode, payload.draft.code);

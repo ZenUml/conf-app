@@ -589,12 +589,42 @@ def _fuzzy_hosts(domain, auth):
     return []
 
 
+KV_AUTH_FIX = "npx wrangler login"
+
+
+class KvAuthError(RuntimeError):
+    """Remote KV list/get was rejected. The message is the fix to show the user."""
+
+
+def _kv_auth_failure(result):
+    """True when Wrangler exited and the captured output is an auth rejection.
+
+    A stale OAuth access token fails the first keys call with
+    `Authentication error [code: 10000]` / HTTP 401, then Wrangler refreshes the
+    token. The next call can succeed, so callers retry once before reporting this.
+    """
+    if result.returncode == 0:
+        return False
+    blob = f"{result.stderr or ''}\n{result.stdout or ''}"
+    return ("Authentication error" in blob or "AuthenticationError" in blob
+            or "code: 10000" in blob or " 401" in blob or "Unauthorized" in blob)
+
+
 def _kv_run(*a):
-    result = subprocess.run(["npx", "--yes", "wrangler", "kv", *a, "--namespace-id", SPACE_LICENSE_KV_NS,
-                             "--remote"], capture_output=True, text=True, timeout=40)
-    if result.returncode != 0 or not result.stdout.strip():
-        raise RuntimeError("Remote license query failed or returned no readable response")
-    return result.stdout
+    """Run one remote KV command. Retry once after a 401; a second 401 raises KvAuthError."""
+    cmd = ["npx", "--yes", "wrangler", "kv", *a, "--namespace-id", SPACE_LICENSE_KV_NS, "--remote"]
+    auth_failure = None
+    for attempt in range(2):
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=40)
+        if _kv_auth_failure(result):
+            auth_failure = result
+            continue
+        if result.returncode != 0 or not result.stdout.strip():
+            raise RuntimeError("Remote license query failed or returned no readable response")
+        return result.stdout
+    if auth_failure is not None and attempt == 1:
+        raise KvAuthError(KV_AUTH_FIX)
+    raise RuntimeError("Remote license query failed or returned no readable response")
 
 
 def _kv_space_licenses(cloud_id):
@@ -609,6 +639,8 @@ def _kv_space_licenses(cloud_id):
         if not isinstance(keys, list) or any(not isinstance(k, dict) or not isinstance(k.get("name"), str)
                                               or not k["name"].startswith(prefix) for k in keys):
             return None
+    except KvAuthError:
+        raise
     except Exception:
         return None
     out = []
@@ -681,10 +713,16 @@ def cmd_whois(args, auth):
     # Layer B: real Lite paid status lives in Stripe/KV, not Marketplace. Check it (unless skipped,
     # or running against a deterministic local snapshot — KV is a live system).
     layer_b = {}
+    layer_b_auth = None
     kv_checked = has_lite and not getattr(args, "no_kv", False) and not LOCAL["db"]
     if kv_checked:
         for cid in sorted({r.get("cloudId") for r in lics if r.get("addonKey") == LITE and r.get("cloudId")}):
-            layer_b[cid] = _kv_space_licenses(cid)
+            try:
+                layer_b[cid] = _kv_space_licenses(cid)
+            except KvAuthError as e:
+                layer_b[cid] = None
+                layer_b_auth = str(e)
+                break  # the same token will fail every remaining cloudId
     b_records = [sl for recs in layer_b.values() if recs for sl in recs]
     b_paying = any(sl["kind"] == "PAID" for sl in b_records)     # genuine Stripe = revenue
     b_comped = any(sl["kind"] == "COMPED" for sl in b_records)   # support grant = access, $0 revenue
@@ -701,6 +739,7 @@ def cmd_whois(args, auth):
     out = {
         "domain": domain, "cloudIds": cids, "apps": apps,
         "layer_b_space_licenses": (layer_b if kv_checked else None),
+        "layer_b_auth_error": layer_b_auth,
         "any_paying_marketplace": any(x["paying"] for x in apps),
         "paying_any_layer": (True if any(x["paying"] for x in apps) or b_paying else
                              None if has_lite and (not kv_checked or not layer_b or any(v is None for v in layer_b.values())
@@ -730,24 +769,28 @@ def cmd_whois(args, auth):
         line = f"  {x['app']:12} {u:12} status={x['status'] or '?':8} {x['state_desc']}"
         if x["app"] == "Lite" and kv_checked:
             lb = layer_b.get(x["cloudId"])
-            if lb is None:
-                line += "   [Layer B: query failed / unknown]"
+            if lb is None and layer_b_auth:
+                line += "   [space licenses: 401]"
+            elif lb is None:
+                line += "   [space licenses: query failed / unknown]"
             elif not lb:
-                line += "   [Layer B: none]"
+                line += "   [space licenses: none]"
             else:
                 parts = [f"{s['kind']} {s['space']}"
                          + (f" exp {s['expiresAt'][:10]}" if s.get("expiresAt") else "")
                          + (f" via {s['activatedBy']}" if s.get("activatedBy") else "") for s in lb]
-                line += "   [Layer B: " + "; ".join(parts) + "]"
+                line += "   [space licenses: " + "; ".join(parts) + "]"
         print(line)
     verdict = ("PAYMENT RECORD FOUND" if out["paying_any_layer"]
                else "payment evidence incomplete / unknown" if out["paying_any_layer"] is None
                else "no payment record found (comped access present)" if b_comped else "no payment record found")
-    extra = (", +Layer B PAID" if b_paying else
-             ", comped Layer-B grant (=$0 revenue)" if b_comped else "")
+    extra = (", +space license paid" if b_paying else
+             ", comped space license (=$0 revenue)" if b_comped else "")
     print(f"  VERDICT : {verdict}  (marketplace ${out['total_lifetime_vendor']:,.2f}{extra})")
+    if layer_b_auth:
+        print(f"  FIX     : {layer_b_auth}")
     if has_lite and not kv_checked:
-        print("  NOTE    : Lite present but Layer-B (KV) not checked "
+        print("  NOTE    : Lite present but space licenses not checked "
               + ("(local snapshot)" if LOCAL["db"] else "(--no-kv)") + " — real Lite paid status unknown.")
 
 

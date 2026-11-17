@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import ApWrapper2 from './ApWrapper2';
 import { trackEvent } from '@/utils/window';
 import { forgeRequest } from '@/utils/requestUtil';
@@ -66,6 +66,29 @@ describe('ApWrapper2', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     wrapper = new ApWrapper2();
+  });
+
+  describe('getCurrentSpace in the page-banner iframe', () => {
+    afterEach(async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).forgeContext = null;
+    });
+
+    it('does not hand out the previous space after an SPA navigation', async () => {
+      // The admin probe feeds this to SpaceAdminResolver, which prefers `id`. A
+      // stale id would list the previous space's admins and record the verdict
+      // under the new space's key.
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).forgeContext = {
+        extension: {
+          type: 'confluence:pageBanner',
+          space: { key: 'SD', id: '65802' },
+          content: { id: '200' },
+          location: 'https://example-tenant.atlassian.net/wiki/spaces/~abc/pages/200/Title',
+        },
+      };
+      await expect(wrapper.getCurrentSpace()).resolves.toEqual({ key: '~abc' });
+    });
   });
 
   describe('getMacroContentTypes', () => {
@@ -833,6 +856,17 @@ describe('ApWrapper2', () => {
       expect(result.directFetchHttpStatus).toBe(403);
       expect(result.directFetchErrorCode).toBe('FORBIDDEN');
       expect(result.directFetchErrorClass).toBe('structured');
+    });
+
+    it('carries the error name and message of a thrown direct fetch with no HTTP status', async () => {
+      vi.mocked(forgeRequest).mockRejectedValueOnce(new TypeError('Load failed'));
+
+      const result = await wrapper.loadCustomContentWithOrphanRecovery(pageId, orphanId);
+
+      expect(result.directFetchErrorClass).toBe('thrown');
+      expect(result.directFetchHttpStatus).toBeUndefined();
+      expect(result.directFetchErrorName).toBe('TypeError');
+      expect(result.directFetchErrorMessage).toBe('Load failed');
     });
 
     it('classifies a thrown direct fetch as errorClass "thrown"', async () => {

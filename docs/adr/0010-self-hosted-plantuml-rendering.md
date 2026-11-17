@@ -304,11 +304,26 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
    inspected inside the macro iframes over CDP: all three drew as inline SVG, the
    C4 diagram loaded `c4-*.js`, and the iframes logged no CSP message or error.
    `macro_viewed` on the day: 27/27 `local` on staging, 12/12 `local` on
-   production, no `plantuml_local_render_failed`. Customer numbers are still to
-   come. The viewer sends nothing to plantuml.com, but the backup PNG attachment
-   (call site 3, step 6) still fetches `/plantuml/png/` on view; for an anonymous
-   viewer it does so on every load. Lite and Full are not enabled yet; Full has no
-   release containing the renderer.
+   production, no `plantuml_local_render_failed`. Customer views, Oct 31 to Nov 2
+   (internal domains excluded): none; all 39 Diagramly PlantUML views were on
+   internal sites, all `local`. The viewer sends nothing to plantuml.com, but the
+   backup PNG attachment (call site 3, step 6) still fetches `/plantuml/png/` on
+   view; for an anonymous viewer it does so on every load.
+   **Lite done (2026-10-31).** Flag created on development, staging and
+   production at 01:07 UTC. Iframe checks on lite-stg (build `116a17e`) and
+   production (build `v2026.10.271752-lite`), each with a sequence, a class and a
+   C4 diagram, passed as on Diagramly: inline SVG, `c4-*.js` loaded, no CSP message
+   or error, no plantuml.com call from the renderer; the backup PNG still fetched
+   `/plantuml/png/` on first view, and on every view for an anonymous viewer.
+   Customer `macro_viewed` (plantuml), flag time to Nov 2, internal domains
+   excluded: 960 `local`, 5 `server_fallback`, 4 `server` — 99.1% local, against
+   98.7% drawable in the engine-only run. Nov 1–2: 101 users, 32 tenants. All 5
+   `plantuml_local_render_failed` are reason `include`, unresolved include `url`,
+   on one tenant, matching the 5 fallbacks. The 4 `server` views: 1 within the
+   first hour, 3 from 2 tenants on build `v2026.10.312024-lite` (newer than the
+   renderer release), so the flag occasionally does not reach a load. Daily
+   volume matched the prior weekdays (873 views on Monday Nov 2); no spike.
+   Full is not enabled; it has no release containing the renderer.
 6. **Export.** **Done in code (2026-10-31).** `utils/plantuml/png.ts` produces
    the backup PNG (`model/Attachment.ts`), the Export PNG and its preview
    (`ExportModal/`). With the `local` renderer it draws the engine's SVG on a
@@ -330,8 +345,15 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
    the page, and no CSP message appeared. html-to-image (`captureBlob`) also
    captured the inlined local SVG without the old decode failure, which is why
    the DOM-capture fallback for a failed local raster is safe.
-7. **MCP App view.** Bundle the engine into `vite.mcp-app.config.mjs` and remove
-   plantuml.com from `resourceDomains`.
+7. **MCP App view.** **Done in code (2026-11-07, conf-app#1031).** `mcp-app-view.ts`
+   draws with `engine.ts` and shows the engine's SVG as an `<img>` from a data URL,
+   and plantuml.com is gone from `resourceDomains`. **There is no fallback here**,
+   unlike the macro: a diagram the engine cannot draw shows an error, so the render
+   server can say that no third party sees the source. The view has no Forge flag
+   or stored diagrams to protect, and a diagram an agent just wrote can be rewritten.
+   The `<img>` keeps what the old server image gave: nothing in the drawing can run
+   or fetch. `agent_link_app_view_rendered` (posted to `/mcp/view-event`) counts
+   `plantuml_renderer` `local` vs `failed`.
 8. **Remove the egress.** Delete `https://www.plantuml.com` from `manifest.yml`. For
    our Connect-migrated apps that is a minor version (see CLAUDE.md, "major vs
    minor"); the `forge deploy` output confirms it. Then update the P&S questionnaire

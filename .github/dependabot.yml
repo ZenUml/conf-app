@@ -8,35 +8,47 @@ updates:
   # Group npm patch + minor bumps into a single weekly PR each. Cuts the
   # per-bump CI cost (today every dependabot bump triggers its own full
   # pipeline) and review burden, while keeping major bumps as individual PRs.
+  # Development and production packages are grouped apart so that a development-only PR can
+  # qualify for the auto lane (docs/policies/auto-lane.md); a mixed group never can.
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
     groups:
-      npm-minor-and-patch:
+      npm-dev-minor-and-patch:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      npm-prod-minor-and-patch:
+        dependency-type: "production"
         update-types:
           - "minor"
           - "patch"
 
-  - package-ecosystem: "npm"
-    directory: "/forge-console"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    groups:
-      npm-minor-and-patch:
-        update-types:
-          - "minor"
-          - "patch"
+  # No entry for /forge-console: it is a pnpm workspace member with no lockfile of its own, and the
+  # "/" entry above already bumps it together with the root pnpm-lock.yaml (#297, #315). Its own
+  # entry opened PRs that changed forge-console/package.json alone (#295, #1148), and those fail
+  # `pnpm install --frozen-lockfile` with ERR_PNPM_OUTDATED_LOCKFILE.
 
   - package-ecosystem: "npm"
     directory: "/scripts/atlassian-events"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     groups:
-      npm-minor-and-patch:
+      npm-dev-minor-and-patch:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      npm-prod-minor-and-patch:
+        dependency-type: "production"
         update-types:
           - "minor"
           - "patch"

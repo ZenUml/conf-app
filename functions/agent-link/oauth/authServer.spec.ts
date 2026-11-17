@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   completeAuthorization,
   denyAuthorization,
@@ -486,5 +487,80 @@ describe('discovery documents', () => {
 
   it('is null for anything else, so the middleware falls through', () => {
     expect(oauthDiscoveryResponse(`${ORIGIN}/agent-link/mcp`)).toBeNull();
+    expect(oauthDiscoveryResponse(`${ORIGIN}/mcp/render`)).toBeNull();
+    expect(oauthDiscoveryResponse(`${ORIGIN}/.well-known/openai-apps-challenge`)).toBeNull();
+  });
+});
+
+// #1038: /mcp/render shares this origin and needs no sign-in. One test per row
+// of the issue's acceptance table.
+describe('per-resource discovery (#1038)', () => {
+  async function body(res: Response) {
+    expect(res.headers.get('content-type')).toContain('application/json');
+    return (await res.json()) as Record<string, unknown>;
+  }
+
+  it('answers the render server\'s path-specific URLs with a JSON 404, not the SPA', async () => {
+    for (const path of ['/mcp', '/mcp/render']) {
+      const res = oauthDiscoveryResponse(`${ORIGIN}/.well-known/oauth-protected-resource${path}`)!;
+      expect(res).not.toBeNull();
+      expect(res.status).toBe(404);
+      expect((await body(res)).error).toBe('not_found');
+    }
+  });
+
+  it('serves the agent-link document at its path-specific URL', async () => {
+    const res = oauthDiscoveryResponse(`${ORIGIN}/.well-known/oauth-protected-resource/agent-link/mcp`)!;
+    expect(res.status).toBe(200);
+    const doc = await body(res);
+    // RFC 9728 §3.3: the resource matches the URL the document was fetched for
+    expect(doc.resource).toBe(`${ORIGIN}/agent-link/mcp`);
+    expect(doc.authorization_servers).toEqual([ORIGIN]);
+  });
+
+  it('keeps the root protected-resource document by default', async () => {
+    const res = oauthDiscoveryResponse(`${ORIGIN}/.well-known/oauth-protected-resource`)!;
+    expect(res.status).toBe(200);
+    expect((await body(res)).resource).toBe(`${ORIGIN}/agent-link/mcp`);
+    // any value but 'off' keeps it too
+    expect(oauthDiscoveryResponse(`${ORIGIN}/.well-known/oauth-protected-resource`, { rootResourceMetadata: 'on' })!.status).toBe(200);
+  });
+
+  it('retires the root protected-resource document when the flag is off', async () => {
+    const res = oauthDiscoveryResponse(`${ORIGIN}/.well-known/oauth-protected-resource`, { rootResourceMetadata: 'off' })!;
+    expect(res.status).toBe(404);
+    expect((await body(res)).error).toBe('not_found');
+    // the path-specific document is unaffected
+    expect(
+      oauthDiscoveryResponse(`${ORIGIN}/.well-known/oauth-protected-resource/agent-link/mcp`, { rootResourceMetadata: 'off' })!.status,
+    ).toBe(200);
+  });
+
+  it('keeps the authorization server document at the root, whatever the flag', async () => {
+    for (const rootResourceMetadata of [undefined, 'off']) {
+      const res = oauthDiscoveryResponse(`${ORIGIN}/.well-known/oauth-authorization-server`, { rootResourceMetadata })!;
+      expect(res.status).toBe(200);
+      expect((await body(res)).issuer).toBe(ORIGIN);
+    }
+  });
+
+  it('answers path-suffixed authorization server URLs with a JSON 404', async () => {
+    for (const path of ['/mcp/render', '/agent-link/mcp']) {
+      const res = oauthDiscoveryResponse(`${ORIGIN}/.well-known/oauth-authorization-server${path}`)!;
+      expect(res.status).toBe(404);
+      expect((await body(res)).error).toBe('not_found');
+    }
+  });
+
+  it('routes every path under both prefixes to the functions, so none falls through to the SPA', () => {
+    const routes = JSON.parse(readFileSync('public/_routes.json', 'utf8')) as { include: string[] };
+    for (const prefix of ['/.well-known/oauth-protected-resource', '/.well-known/oauth-authorization-server']) {
+      expect(routes.include).toContain(prefix);
+      expect(routes.include).toContain(`${prefix}/*`);
+    }
+  });
+
+  it('does not treat a lookalike prefix as discovery', () => {
+    expect(oauthDiscoveryResponse(`${ORIGIN}/.well-known/oauth-protected-resource-x`)).toBeNull();
   });
 });

@@ -39,7 +39,7 @@ import { localDevUrl } from '../helpers/localDevUrl'
 
 const BASE = localDevUrl('viewer-preview.html')
 
-test.describe('GenericViewer — OverflowMenu trigger + Download debug info', { tag: ['@viewer', '@export'] }, () => {
+test.describe('GenericViewer — OverflowMenu trigger + Download debug info', { tag: ['@viewer', '@export', '@feature:diagnostic-download', '@interface:inline-viewer', '@scenario:diagnostic-download:inline-viewer', '@check:component', '@execution:preview'] }, () => {
   test.use({ viewport: { width: 1100, height: 720 } })
 
   test.beforeEach(async ({ page }) => {
@@ -67,9 +67,10 @@ test.describe('GenericViewer — OverflowMenu trigger + Download debug info', { 
     await page.locator('.viewer-surface').hover()
 
     // Scoped to OverflowMenu's own trigger rather than by accessible name.
-    // `getByRole('button', { name: 'More' })` matches by SUBSTRING, so once
-    // CopyForAiMenu shipped a trigger titled "Copy for AI — more options" the
-    // name matched two buttons and this line failed on a strict-mode violation.
+    // `getByRole('button', { name: 'More' })` matches by SUBSTRING, so when a
+    // sibling menu shipped a trigger titled "… — more options" (the Copy for AI
+    // chevron, since removed) the name matched two buttons and this line
+    // failed on a strict-mode violation.
     // It went unnoticed because this spec only ever ran by hand; its first CI
     // run caught it. The class is the component's own contract and cannot be
     // captured by a sibling's wording.

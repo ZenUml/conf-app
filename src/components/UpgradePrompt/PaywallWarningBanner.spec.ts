@@ -31,9 +31,7 @@ vi.mock('@/utils/paywall/spaceAdminProbe', () => ({
 
 const closeView = vi.fn()
 
-// Keep the real module (enum + bundleClientReferenceId) and stub only the
-// tracker — the component parses client_reference_id off the bundle URL via
-// the real helper at click time.
+// Keep the real module (enum) and stub only the tracker.
 vi.mock('@/utils/upgradeTracking', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/utils/upgradeTracking')>()
   return { ...actual, trackUpgradeEvent: vi.fn() }
@@ -44,7 +42,6 @@ vi.mock('@/composables/useCustomerSuccessService', () => ({
   // { value } stand-ins suffice — no need to import vue's ref into the factory.
   useCustomerSuccessService: () => ({
     upgradeUrl: { value: 'https://upgrade.example.com' },
-    enterpriseBundleUrl: { value: 'https://bundle.example.com/pay?client_reference_id=acme__ENG' },
   }),
   MACROS_LIMIT: 100,
 }))
@@ -82,12 +79,70 @@ describe('PaywallWarningBanner (page banner)', () => {
     }
   })
 
+  it.each([
+    ['SD', '/wiki/spaces/~abc/pages/200/Title', true],
+    ['~abc', '/wiki/spaces/~abc/pages/200/Title', false],
+  ])('reports space_context_stale with context %s and location %s', async (key, path, stale) => {
+    const forgeGlobal = (await import('@/model/globals/forgeGlobal')).default as any
+    forgeGlobal.forgeContext = {
+      extension: {
+        type: 'confluence:pageBanner',
+        space: { key, id: '1' },
+        content: { id: '200' },
+        location: `https://example-tenant.atlassian.net${path}`,
+      },
+    }
+    const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
+    try {
+      mount(PaywallWarningBanner)
+      expect(trackUpgradeEvent).toHaveBeenCalledWith(
+        'paywall_banner_shown',
+        expect.objectContaining({ space_context_stale: stale })
+      )
+    } finally {
+      forgeGlobal.forgeContext = null
+    }
+  })
+
   it('reports show_count 1 and omits the gap on a first impression', async () => {
     const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
     mount(PaywallWarningBanner)
     const call = vi.mocked(trackUpgradeEvent).mock.calls.find(([name]) => name === 'paywall_banner_shown')
     expect(call?.[1]).toEqual(expect.objectContaining({ show_count: 1 }))
     expect(call?.[1]).not.toHaveProperty('hours_since_last_shown')
+  })
+
+  // The event is daily; the banner and the show counter are not.
+  it('shows the banner and counts the display, but sends no event, on a second display the same UTC day', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-06T23:00:00.000Z'))
+    gate.impression = { lastShownAt: '2026-11-06T00:30:00.000Z', showCount: 4 }
+    const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
+    const { recordBannerShown } = await import('@/utils/paywall/warningBanner')
+    try {
+      const wrapper = mount(PaywallWarningBanner)
+      expect(wrapper.find('[data-testid="paywall-warning-banner"]').exists()).toBe(true)
+      expect(recordBannerShown).toHaveBeenCalledOnce()
+      expect(vi.mocked(trackUpgradeEvent).mock.calls.some(([name]) => name === 'paywall_banner_shown')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('sends the event again on the first display of the next UTC day', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-07T00:00:05.000Z'))
+    gate.impression = { lastShownAt: '2026-11-06T23:59:00.000Z', showCount: 9 }
+    const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
+    try {
+      mount(PaywallWarningBanner)
+      expect(trackUpgradeEvent).toHaveBeenCalledWith(
+        'paywall_banner_shown',
+        expect.objectContaining({ show_count: 10, hours_since_last_shown: 0 })
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('renders and records an impression when the gate passes', async () => {
@@ -136,7 +191,8 @@ describe('PaywallWarningBanner (page banner)', () => {
 
   // Phase 5b. Telling a space admin to "copy a message to your admin" is
   // circular, and that relay has produced zero conversions in 15 months. An
-  // admin instead gets the one purchase they can complete unaided.
+  // admin instead gets admin-addressed copy. The banner has no purchase control:
+  // the Forge pageBanner guideline forbids upsell.
   describe('space-admin audience', () => {
     // The audience arrives as a prop from the page-banner host; the component
     // never re-derives it.
@@ -151,35 +207,19 @@ describe('PaywallWarningBanner (page banner)', () => {
       expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]').exists()).toBe(false)
     })
 
-    it('swaps the advocacy relay for a direct purchase CTA', () => {
+    it('space admin banner shows no purchase/checkout control', () => {
+      const wrapper = mount(PaywallWarningBanner, asAdmin)
+      expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]').exists()).toBe(false)
+      const buttonTexts = wrapper.findAll('button').map((b) => b.text())
+      expect(buttonTexts).toEqual(['View plan and usage'])
+      for (const text of buttonTexts) {
+        expect(text).not.toMatch(/unlock|\$|buy|purchase/i)
+      }
+    })
+
+    it('shows the space-admin copy', () => {
       const wrapper = mount(PaywallWarningBanner, asAdmin)
       expect(wrapper.text()).toContain('You administer this space')
-      expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]').exists()).toBe(true)
-    })
-
-    it('quotes the bundle price on the CTA', () => {
-      const wrapper = mount(PaywallWarningBanner, asAdmin)
-      expect(wrapper.find('[data-testid="paywall-banner-unlock-space"]').text()).toContain('$299')
-    })
-
-    it('opens the bundle checkout and tracks the click with the price', async () => {
-      const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
-      const { openUrl } = await import('@/model/globals/forgeGlobal')
-      const wrapper = mount(PaywallWarningBanner, asAdmin)
-
-      await wrapper.find('[data-testid="paywall-banner-unlock-space"]').trigger('click')
-
-      expect(trackUpgradeEvent).toHaveBeenCalledWith(
-        'paywall_bundle_cta_clicked',
-        expect.objectContaining({
-          surface: 'page_banner',
-          bundle_price_usd: 299,
-          is_space_admin: true,
-          banner_audience: 'space_admin',
-          client_reference_id: 'acme__ENG',
-        })
-      )
-      expect(openUrl).toHaveBeenCalledWith('https://bundle.example.com/pay?client_reference_id=acme__ENG')
     })
 
     it('tags the impression as the space_admin audience', async () => {

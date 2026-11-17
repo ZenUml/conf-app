@@ -15,18 +15,18 @@ Record these fields from current original sources. A missing field is **unknown*
 |---|---|---|
 | Recipient, verified first name, role, reseller | Existing thread, Marketplace/tenant record, referral | A technical contact is not automatically a site admin. |
 | Last exchange and unresolved issue | Gmail draft/thread or support ticket | Acknowledge what they asked, declined or were promised. |
-| One customer-specific reason | Mixpanel engagement, macro-count inventory, or their request/feedback | Use one or two facts, with product, complete window and snapshot date. |
+| One customer-specific reason | Their request/feedback or prior correspondence | Use their stated need; apply the contact policy to disclosure. |
 | License, seats and offer | Marketplace/tenant, current pricing implementation | Full for site admin/licensing owner; single-space only for verified space user and need. |
 | Current allowance/access | Product rule; tenant paywall/exemption evidence if claiming a block | Over 100 reported macros does **not** by itself mean editing is blocked. |
 | Links | Verified tenant Plan and usage URL and current Full Marketplace listing | Explain what each link does; never invent a tenant deep link. |
 
 If there is no verified customer-specific reason, recommend against an unsolicited upgrade pitch. Do not pitch over an unresolved support issue; address it first. If the user still asks for a draft, write a low-pressure version without invented numbers or urgency. For a missing material claim, query only the relevant `marketplace`/`tenant`, `mixpanel`, `macro-count`, Gmail or support-ticket source. Do not redo customer ranking.
 
-Distinguish **unique known accounts**, **diagram views**, **creates/updates**, and **reported macro stock**. Mixpanel creates are not current inventory. Pick a fair complete 7-, 30- or 90-day window and state its dates and product scope. For growth, compare equal-length windows with the same event and account definitions; give a percentage only when the baseline is meaningful. A Marketplace click, trial end, free licence or technical-contact label is not buying intent or decision authority.
+Keep usage and inventory checks in the private brief under the shared evidence rules; apply the contact policy when writing. A Marketplace click, trial end, free licence or technical-contact label is not buying intent or decision authority.
 
 ## 2. Choose one starting template
 
-Replace every placeholder, delete unsupported optional sentences, then edit for the real thread. If a template's required metric is unavailable, substitute another verified customer-specific fact or choose a different template. These are **starting copy**, not permission to assert example facts. Keep one primary reply request. For a reply, preserve the thread's natural greeting and context.
+Replace every placeholder, delete unsupported optional sentences, then edit for the real thread. Use a verified customer-provided need as context; choose another template when it does not fit. These are **starting copy**, not permission to assert example facts. Keep one primary reply request. For a reply, preserve the thread's natural greeting and context.
 
 ### A. First Full approach to a verified site administrator or licensing owner
 
@@ -36,7 +36,7 @@ Do **not** mention the $299 single-space option.
 >
 > Hi [FIRST NAME],
 >
-> I'm [SENDER NAME] from ZenUML, the diagramming app your team uses in Confluence. During [COMPLETE WINDOW], [VERIFIED ACCOUNTS] accounts viewed ZenUML diagrams across your site. [OPTIONAL SECOND FACT: dated space inventory or customer request.]
+> I'm [SENDER NAME] from ZenUML, the diagramming app for Confluence. [BRIEF CUSTOMER-PROVIDED NEED OR PRIOR REQUEST.]
 >
 > ZenUML Full is the site-wide option for teams using ZenUML across Confluence. [IF THE 100-MACRO ALLOWANCE IS RELEVANT, REPLACE THIS SENTENCE WITH THE ALLOWANCE BLOCK BELOW.]
 >
@@ -56,7 +56,7 @@ Use a known request or relationship; ask for a hand-off without calling this per
 >
 > I'm [SENDER NAME] from ZenUML. [KNOWN COLLEAGUE/YOU] previously contacted us about [SPECIFIC SPACE OR REQUEST], so I wanted to share why ZenUML Full may now be relevant to your Confluence site.
 >
-> During [COMPLETE WINDOW], [VERIFIED ACCOUNTS] accounts viewed ZenUML diagrams across the site. The latest report for **[SPACE]** shows [VERIFIED MACRO STOCK] diagram macros, reported on [DATE]. ZenUML Full would cover the whole Confluence site. [IF THE 100-MACRO ALLOWANCE IS RELEVANT, REPLACE THIS SENTENCE WITH THE ALLOWANCE BLOCK BELOW.]
+> ZenUML Full would cover the whole Confluence site for the needs you described. [IF THE 100-MACRO ALLOWANCE IS RELEVANT, REPLACE THIS SENTENCE WITH THE ALLOWANCE BLOCK BELOW.]
 >
 > [INSERT THE VERIFIED PRICE/RESELLER BLOCK IF USEFUL.] [INSERT THE TWO-LINK BLOCK IF BOTH URLS ARE VERIFIED.]
 >
@@ -66,13 +66,13 @@ Use a known request or relationship; ask for a hand-off without calling this per
 
 ### C. Follow-up in an existing conversation
 
-Check the latest reply and earlier promise. Prefer the **change since the last exchange** to a second generic pitch. Omit the growth sentence if the comparison is invalid.
+Check the latest reply and earlier promise. Address their stated need and explain progress on our promise.
 
 > **Subject:** [EXISTING SUBJECT]
 >
 > Hi [FIRST NAME],
 >
-> Following up on [SPECIFIC PRIOR QUESTION OR REQUEST]. Since our last exchange on [DATE], [METRIC] changed from [BASELINE] to [LATEST] over comparable [WINDOW]-day periods ([PERCENT]% increase). [OPTIONAL: one dated space-inventory fact.]
+> Following up on [SPECIFIC PRIOR QUESTION OR REQUEST]. [RELEVANT RESPONSE OR UPDATE ON OUR PROMISE.]
 >
 > Full would be the site-wide upgrade. [IF THE 100-MACRO ALLOWANCE IS RELEVANT, REPLACE THIS SENTENCE WITH THE ALLOWANCE BLOCK BELOW.] [INSERT THE TWO-LINK BLOCK IF THE LINKS HELP THIS DECISION.]
 >
@@ -88,7 +88,7 @@ Use only when this person actually uses or owns the named space and the current 
 >
 > Hi [FIRST NAME],
 >
-> Following up on your [SPECIFIC REQUEST] for **[SPACE]**. The latest report for that space shows [VERIFIED MACRO STOCK] diagram macros as of [DATE], so I wanted to check what would work best for your team.
+> Following up on your [SPECIFIC REQUEST] for **[SPACE]**. I wanted to check what would work best for your team.
 >
 > A single-space plan would cover **[SPACE]** at [VERIFIED CURRENT PRICE AND PERIOD]. If your team also needs other spaces covered, ZenUML Full is the site-wide option. [ADD A PLAN-AND-USAGE LINK ONLY IF VERIFIED AND HELPFUL.]
 >
@@ -98,9 +98,9 @@ Use only when this person actually uses or owns the named space and the current 
 
 ## 3. Insert only supported blocks
 
-**Allowance block — only when a verified space is at/near 100 macros or expansion makes the limit relevant:**
+**Allowance block — when the customer asks about the allowance or expansion makes it relevant:**
 
-> ZenUML Lite has a standard allowance of 100 diagram macros per Confluence space. The latest report for **[SPACE]** shows [COUNT] as of [DATE]. This may not affect your team today, but we may enforce the allowance in the future. Full removes this per-space limit across the site.
+> ZenUML Lite has a standard allowance of 100 diagram macros per Confluence space. Full removes this per-space limit across the site.
 
 Check the current product rule before using it. To say the customer **is blocked**, also check this tenant's actual paywall and exemption state using [paywall](../paywall/SKILL.md). Never invent an enforcement date or use a threat. Avoid repeating “Full removes the per-space limit” if the template already says it.
 
@@ -112,7 +112,7 @@ The first URL must belong to the customer's Confluence site and Lite production 
 
 **Price/reseller block — only with current verified seats and price:**
 
-> At your current [SEATS] seats, the public annual list price for ZenUML Full is [CURRENCY/AMOUNT]; your existing reseller can confirm the final quote.
+> The public annual list price for ZenUML Full for your site is [CURRENCY/AMOUNT]; your existing reseller can confirm the final quote.
 
 Use current Marketplace pricing implementation and distinguish public list price from the partner's final quote. Never promise a discount, hardcode a break-even seat threshold, or calculate annual price as ten monthly payments. For a direct customer without a reseller, remove the reseller clause. The single-space price is an internal reference until its current checkout/quote is verified.
 
@@ -120,7 +120,7 @@ Use current Marketplace pricing implementation and distinguish public list price
 
 1. Check the latest original thread, current draft, actual To/Cc, subject and any scheduled version. Do not create a duplicate draft. A send/schedule request is separate from a draft request.
 2. Read as a recipient with no CRM context. Identify ZenUML **for Confluence**, why this customer is being contacted, the proposed offer, and **one** easy way to reply. Remove internal shorthand, unsupported rankings, stale facts and duplicate asks.
-3. Check every number's source, product/version, complete window and source timestamp. Check role, price, limit claim, reseller wording and link destinations. After a long gap or on first contact, include the verified Confluence app name and Marketplace listing link. Use a verified first name; otherwise use a neutral greeting. Match the sender name and sign-off to the sending account.
+3. Apply the contact policy to the final text; check role, price, limit claim, reseller wording and link destinations. After a long gap or on first contact, include the verified Confluence app name and Marketplace listing link. Use a verified first name; otherwise use a neutral greeting. Match the sender name and sign-off to the sending account.
 4. Make one HTML `<p>` per paragraph, with **no hard line break inside a paragraph**. Create a plain-text alternative. Render space keys in **UPPERCASE AND BOLD** in HTML (`<strong>SPACE</strong>`), uppercase in plain text; do not change case-sensitive keys inside URLs or source records.
 5. When asked to write or modify, update the existing Gmail draft using authenticated `gws` CLI for supported actions. When asked only for an opinion or review, give the review without silently changing the draft. Close an open compose window before a CLI edit so browser autosave cannot overwrite it. Preserve recipients and thread, then read back the saved MIME; use UI to verify rendering if useful. If CLI auth/scopes fail, report the specific error and stop this write rather than silently switching to UI.
 6. Send or schedule only within the user's actual authorisation. Before either, recheck final draft, latest reply, recipients and existing scheduled messages; for scheduling verify the recipient's timezone and date. Verify the resulting Gmail state. Pass verified state, evidence dates and message link to [customer-tracker](../customer-tracker/SKILL.md) for any requested or workflow-required record update. Report **draft / scheduled / sent** accurately.

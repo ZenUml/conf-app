@@ -1,5 +1,4 @@
 import {Diagram, DiagramType} from "@/model/Diagram/Diagram";
-import {CustomContentStorageProvider} from "@/model/ContentProvider/CustomContentStorageProvider";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import type { MacroTypeValue } from "@/utils/analytics/catalog";
 import ApWrapper2 from "@/model/ApWrapper2";
@@ -16,6 +15,7 @@ import { getEditorMutationSummary } from '@/utils/analytics/editorMutationTeleme
 import { markEditorSaved } from '@/utils/analytics/editorCloseOutcome';
 import { recordPublishStep } from '@/utils/analytics/publishTiming';
 import { toMacroType } from '@/utils/byline/pageDiagrams';
+import { activateEditRecoveryAfterSave } from '@/utils/paywall/editRecoveryActivation';
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -55,8 +55,13 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   const saveStartedAt = performance.now();
 
   console.log('Saving diagram to platform content provider', diagram);
-  const customContentStorageProvider = new CustomContentStorageProvider(apWrapper);
-  const customContent = await customContentStorageProvider.save(diagram);
+  // Update in place only for an existing custom-content diagram. A page copy
+  // (isCopy) keeps the SOURCE id but must create a fresh record, never
+  // overwrite the original.
+  const customContent: any =
+    diagram?.source === 'custom-content' && diagram?.id && !diagram?.isCopy
+      ? await apWrapper.saveCustomContentV2(diagram.id, diagram)
+      : await apWrapper.createCustomContentV2(diagram);
 
   // conf-app#320 boundary invariant: never treat a save as successful without a
   // usable id. createCustomContentV2/updateCustomContentV2 now throw on an
@@ -207,6 +212,10 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   const mirrorSyncStartedAt = performance.now();
   await syncCustomContent(customContent, diagram.diagramType, macroUuid);
   recordPublishStep('mirror_sync_ms', mirrorSyncStartedAt);
+
+  // First successful save after an edit request starts the 7-day edit grant. Bounded and
+  // swallowed inside: it must never fail or noticeably delay a save that already succeeded.
+  try { await activateEditRecoveryAfterSave(); } catch { /* never fails a save */ }
 
   return String(customContent.id);
 }

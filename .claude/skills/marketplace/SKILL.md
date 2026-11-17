@@ -101,7 +101,7 @@ Unit check (no network, no credentials): `python3 .claude/skills/marketplace/scr
 | `client <name>` | Full license + transaction history for one tenant (text search on company/slug). Use for "did they ever pay / how much / what plan". |
 | `revenue [--period] [--top N]` | Top paying clients by lifetime vendor $, with billing period and paid-through. `--period annual\|monthly`. |
 | `tier <domain>` | Quick tier + license-type + status for a tenant (the number that drives Full-plan pricing). |
-| `whois <domain>` | One card across installed apps: identity, users, license state and transaction-based summaries. Joins cloudId + product; verify entitlement, raw status and source IDs from exports before payment conclusions (see helper limitation above). Lite automatically checks remote Stripe/KV; `--no-kv` / `--local` explicitly leave that layer unchecked. On a slug miss, suggests near-match hosts; cloudId can fall back to `_edge/tenant_info`. |
+| `whois <domain>` | One card across installed apps: identity, users, license state and transaction-based summaries. Joins cloudId + product; verify entitlement, raw status and source IDs from exports before payment conclusions (see helper limitation above). Lite automatically checks remote Stripe/KV space licenses; `--no-kv` / `--local` leave that check undone. On 401 the card prints `FIX: npx wrangler login`. On a slug miss, suggests near-match hosts; cloudId can fall back to `_edge/tenant_info`. |
 | `sync` | Snapshot **all** apps' licenses + transactions into a local SQLite DB (`scripts/marketplace.db`, ~1.7k licenses + ~5k tx, ~14s). Then add `--local` to ANY command to run against the snapshot (sub-100ms, offline, no creds). |
 
 ### Local snapshot (`sync` + `--local`) — for batch & cross-source joins

@@ -4,9 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import FeedbackHost from './FeedbackHost.vue'
 import feedbackHostSource from './FeedbackHost.vue?raw'
 import type { FeedbackContext } from './feedbackSession'
-import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { getSessionReplayId, registerAnalyticsSuperProperties, trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
-vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
+  trackAnalyticsEvent: vi.fn(),
+  getSessionReplayId: vi.fn().mockResolvedValue(undefined),
+  registerAnalyticsSuperProperties: vi.fn().mockResolvedValue(undefined),
+}))
 
 const context: FeedbackContext = {
   surface: 'viewer', hostModule: 'zenuml-macro', diagramType: 'mermaid', diagramTitle: 'Example',
@@ -91,6 +95,26 @@ describe('FeedbackHost', () => {
       context: expect.objectContaining({ macroMode: 'feedback', feedbackContext: context }),
     }))
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  it('passes the viewer replay id and registers the feedback token before opening the modal', async () => {
+    vi.mocked(getSessionReplayId).mockResolvedValueOnce('replay-viewer-1')
+    const openViewModal = vi.fn().mockResolvedValue(undefined)
+    const wrapper = show({ props: { context, openViewModal } })
+    await wrapper.get('[data-testid="feedback-trigger"]').trigger('click')
+    await flushPromises()
+    const modalContext = openViewModal.mock.calls[0][0].context
+    expect(modalContext.viewerReplayId).toBe('replay-viewer-1')
+    expect(typeof modalContext.feedbackToken).toBe('string')
+    expect(registerAnalyticsSuperProperties).toHaveBeenCalledWith({ feedback_token: modalContext.feedbackToken })
+  })
+
+  it('omits viewerReplayId when the viewer is not recording', async () => {
+    const openViewModal = vi.fn().mockResolvedValue(undefined)
+    const wrapper = show({ props: { context, openViewModal } })
+    await wrapper.get('[data-testid="feedback-trigger"]').trigger('click')
+    await flushPromises()
+    expect(openViewModal.mock.calls[0][0].context).not.toHaveProperty('viewerReplayId')
   })
 
   it('starts feedback replay from the surface trigger with its macro context', async () => {

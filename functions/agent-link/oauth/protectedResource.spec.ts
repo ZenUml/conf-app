@@ -109,6 +109,12 @@ describe('buildWwwAuthenticate', () => {
       `https://zenapi.zenuml.com${PROTECTED_RESOURCE_METADATA_PATH}`,
     );
   });
+
+  it('metadataUrlFor appends a resource path for the RFC 9728 path-specific URL', () => {
+    expect(metadataUrlFor('https://zenapi.zenuml.com', '/agent-link/mcp')).toBe(
+      'https://zenapi.zenuml.com/.well-known/oauth-protected-resource/agent-link/mcp',
+    );
+  });
 });
 
 describe('audienceMatches', () => {

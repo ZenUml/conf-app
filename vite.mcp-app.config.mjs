@@ -4,8 +4,9 @@
 // capped at 5000 files, and a root HTML entry in vite.config.mjs makes Rollup
 // re-split the whole Confluence app: the first attempt broke `Deploy: Lite`
 // with "Each resource can only have up to 5000 files", mostly from the app's
-// own chunks re-hashed. Built here, the view adds a dozen files under
-// dist/mcp-app/ and leaves the app's chunks exactly as they were.
+// own chunks re-hashed. Built here, the view adds about 70 files under
+// dist/mcp-app/ (most of them mermaid's per-diagram chunks) and leaves the
+// app's chunks exactly as they were.
 //
 // It runs AFTER the main build (see the build:* scripts), because that build
 // empties dist/. This one empties only its own outDir.
@@ -23,7 +24,22 @@ const RENDERERS = [
   ['zenuml', '/@zenuml/'],
   ['mermaid', '/mermaid/'],
   ['openapi', '/swagger-ui/'],
+  // Our own renderers. Their files stay in their own chunks (the rule below
+  // only assigns node_modules), but naming them here sends what they share
+  // with swagger-ui (js-yaml, React) to a shared-* chunk, instead of making a
+  // Markdown or AsyncAPI view download swagger-ui.
+  ['asyncapi', '/src/utils/asyncapi/'],
+  ['markdown', '/src/utils/markdown/'],
 ];
+
+/**
+ * Renderers whose code Rollup splits by itself rather than into one chunk.
+ * Mermaid's diagram types sit behind its own import()s, so its natural split
+ * is a small core plus a chunk per diagram family: about 60 more files under
+ * dist/mcp-app/, which count toward Forge's 5000-file resource limit together
+ * with the app's own dist/ (#1038 records the total).
+ */
+const LAZY_RENDERERS = new Set(['mermaid']);
 
 /** Whether `id` is imported, directly or transitively, by a module whose path contains `pkg`. */
 function reachedFrom(id, pkg, getModuleInfo, seen = new Set()) {
@@ -59,10 +75,10 @@ export default defineConfig({
       input: resolve(__dirname, 'mcp-app/view.html'),
       output: {
         // One chunk per renderer, loaded only when that diagram type arrives,
-        // plus one for what both pull in. Left to itself Rollup splits mermaid
-        // into dozens of files, which is the file count this build exists to
-        // avoid; lumping everything into one renderer chunk instead made a
-        // sequence diagram download mermaid too.
+        // plus one for what both pull in, except mermaid (LAZY_RENDERERS),
+        // which Rollup splits along mermaid's own per-diagram import()s.
+        // Lumping everything into one renderer chunk made a sequence diagram
+        // download mermaid too.
         manualChunks(id, { getModuleInfo }) {
           // Rollup/Vite helpers (preload, commonjs interop). Left unassigned
           // they are hoisted into whichever renderer chunk uses them first,
@@ -70,13 +86,17 @@ export default defineConfig({
           if (id === '\0vite/preload-helper.js' || id === '\0commonjsHelpers.js') return 'runtime';
           if (!id.includes('node_modules')) return undefined;
           const own = RENDERERS.find(([, pkg]) => id.includes(pkg));
-          if (own) return own[0];
+          // Mermaid is left to Rollup (#1038): mermaid itself loads each diagram
+          // type's code with import(), and forcing all of it into one chunk made
+          // a flowchart download mindmap, treemap, cytoscape, elk and KaTeX too
+          // (869 KB brotli; 204 KB split). See LAZY_RENDERERS for the file cost.
+          if (own) return LAZY_RENDERERS.has(own[0]) ? undefined : own[0];
           // A dependency goes with the renderer that uses it; one used by
           // several goes in a chunk named for exactly those, so no renderer
           // downloads another's code (mermaid and swagger-ui share dompurify).
           const users = RENDERERS.filter(([, pkg]) => reachedFrom(id, pkg, getModuleInfo)).map(([name]) => name);
           if (users.length > 1) return `shared-${users.join('-')}`;
-          if (users.length === 1) return users[0];
+          if (users.length === 1) return LAZY_RENDERERS.has(users[0]) ? undefined : users[0];
           return undefined; // the view's own small deps (pako, lzutf8) stay in their own chunks
         },
       },

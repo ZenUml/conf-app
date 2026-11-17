@@ -48,27 +48,6 @@ export const EVENT_SAMPLE_RATES: Record<string, number> = {
   // a rate, not a census, so 5% plus `sample_rate` extrapolation answers it.
   diagram_attribution_shown: 0.05,
 
-  // --- Quota reduction 2026-09-07 -------------------------------------------
-  // Fires once per eligible viewer INSTANCE, so a page of macros produces one
-  // per macro: 80,912 occurrences from 4,414 unique users in the 30 days to
-  // 2026-09-07 — 18.3 each, and 19.4% of all billable event volume, which is
-  // most of the month's projected overage on its own.
-  //
-  // Its only consumer is the Copy for AI discovery rate (clicks ÷ impressions),
-  // a rate rather than a census, and the click side stays at full fidelity.
-  // The rate this event was built to produce is 3.76% (166 ÷ 4,414), first
-  // computed on 2026-09-07 — after the demand test it was meant to inform had
-  // already concluded on its own denominator.
-  //
-  // Caveat for whoever reads it next: `sample_rate` extrapolates EVENT counts,
-  // not UNIQUE-USER counts. At 10% a user averaging 18.3 impressions still has
-  // an ~86% chance of keeping at least one, so the unique-user denominator
-  // shrinks by roughly a seventh rather than by nine tenths — but the loss
-  // falls hardest on users with a single impression, which biases the
-  // denominator toward heavier viewers and makes the measured discovery rate a
-  // slight UNDER-estimate. Take the pre-sampling 3.76% as the reference point.
-  copy_for_ai_impression: 0.1,
-
   // --- Quota reduction 2026-10-31 -------------------------------------------
   // PNG lifecycle diagnostic (docs/features/png-export-state.md), added
   // 2026-10-19 unsampled. 29,438 events in the 7 days to 2026-10-30 across
@@ -80,6 +59,19 @@ export const EVENT_SAMPLE_RATES: Record<string, number> = {
   // fault. `png_export_state_persistence_failed` stays unsampled.
   png_export_state_persistence_skipped: 0.1,
 };
+
+// macro_viewed stays at rate 1 in the tables above and below: its sampling is
+// per occurrence, not per name. trackRenderTime sends the first render of a
+// macro per browser per UTC day and this fraction of the repeats
+// (utils/analytics/macroViewOfDay.ts).
+export const MACRO_VIEWED_REPEAT_SAMPLE_RATE = 0.1;
+
+// title_draft_requested is also sampled per occurrence (features/titleDraft/
+// offer.ts): `ready` is the offer's denominator and stays at 100%; `pending`
+// and `no_diagram` are sent at this rate with `sample_rate`. On 2026-11-09 the
+// event was 3,917 of 34,285 billable events (11%), 74% `pending`, 24%
+// `no_diagram`, 2% `ready`.
+export const TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE = 0.1;
 
 // Prefix rules apply when no exact match is found. `create_attachment` is
 // emitted as `create_attachment<diagramType>` (e.g. create_attachmentmermaid)
@@ -93,7 +85,6 @@ const PREFIX_RULES: ReadonlyArray<readonly [string, number]> = [
 // names are stopped. Other products in the shared Mixpanel project are unaffected.
 export const OCTOBER_STOP_EVENTS = new Set<string>([
   "cohorts_refreshed",
-  "copy_for_ai_impression",
   "editor_global_replace_observed",
   "report_macro_metrics",
   "snapshot_backfill_skipped",
@@ -104,12 +95,26 @@ export const OCTOBER_STOP_EVENTS = new Set<string>([
 // The reviewed core/error list is explicit so an expanded success/info
 // allowlist cannot silently reduce a protected event during this budget.
 export const OCTOBER_RETAINED_EVENTS = new Set<string>([
+  "title_draft_requested",
+  "title_draft_flag_shown",
+  "title_draft_not_now",
+  "title_draft_preview_opened",
+  "title_draft_preview_closed",
+  "title_draft_added",
+  "title_draft_add_failed",
+  "title_draft_undone",
+  "title_draft_undo_failed",
+  "title_draft_edit_clicked",
   "agent_link_edit_failed",
-  "ai_repair_failed",
   "ai_title_generation_failed",
   "attachment_upload_async_failed",
   "attachment_upload_failed",
   "cohorts_refresh_failed",
+  // Rare, and the only read on whether the placement picker earns its extra
+  // step: at 10% a typical week would leave only a handful of events.
+  "diagram_added_to_page",
+  "placement_picker_opened",
+  "placement_picker_dismissed",
   "diagram_audience_registration_failed",
   "export_png_failed",
   "feedback_link_clicked",
@@ -160,8 +165,35 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   "update_custom_content_error",
   "view_submit_failed",
   "viewer_load_failed",
-  // Low-volume action signal with an existing E2E wire assertion.
-  "copy_for_ai_clicked",
+  // Preserve the low-volume AI Chat and AI Repair event families end to end. Sampling
+  // requests, successes, applications, or outcomes makes usage and conversion
+  // rates unknowable; keeping only failures would also bias health reporting.
+  "ai_chat_button_shown",
+  "ai_chat_opened",
+  "ai_chat_closed",
+  "ai_chat_suggestion_selected",
+  "ai_chat_prompt_submitted",
+  "ai_chat_no_change",
+  "ai_chat_change_applied",
+  "ai_chat_prompt_failed",
+  "ai_chat_prompt_cancelled",
+  "ai_chat_code_visibility_toggled",
+  "ai_chat_syntax_issue_shown",
+  "ai_chat_syntax_repair_requested",
+  "ai_chat_diff_toggled",
+  "ai_chat_history_opened",
+  "ai_chat_history_load_succeeded",
+  "ai_chat_history_load_failed",
+  "ai_chat_version_restore_requested",
+  "ai_chat_version_restored",
+  "ai_chat_change_undone",
+  "ai_chat_version_restore_failed",
+  "ai_repair_button_shown",
+  "ai_repair_requested",
+  "ai_repair_succeeded",
+  "ai_repair_failed",
+  "ai_repair_applied",
+  "ai_repair_dismissed",
   // Connect MCP discovery denominator. Deduplicated to one per viewer per
   // UTC day in the viewer, so it stays low-volume at full rate.
   "agent_link_mcp_button_shown",
@@ -228,28 +260,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "ai_title_dismissed",
   "ai_title_accepted",
   "ai_title_modified",
-  "ai_chat_button_shown",
-  "ai_chat_opened",
-  "ai_chat_closed",
-  "ai_chat_suggestion_selected",
-  "ai_chat_prompt_submitted",
-  "ai_chat_no_change",
-  "ai_chat_change_applied",
-  "ai_chat_prompt_cancelled",
-  "ai_chat_code_visibility_toggled",
-  "ai_chat_syntax_issue_shown",
-  "ai_chat_syntax_repair_requested",
-  "ai_chat_diff_toggled",
-  "ai_chat_history_opened",
-  "ai_chat_history_load_succeeded",
-  "ai_chat_version_restore_requested",
-  "ai_chat_version_restored",
-  "ai_chat_change_undone",
-  "ai_repair_button_shown",
-  "ai_repair_requested",
-  "ai_repair_succeeded",
-  "ai_repair_applied",
-  "ai_repair_dismissed",
   "magic_writeback_requested",
   "magic_writeback_skipped",
   "magic_availability_checked",
@@ -277,7 +287,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "mermaid_highlight_preference_changed",
   "mermaid_highlight_hint_shown",
   "mermaid_highlight_hint_dismissed",
-  "copy_for_ai_menu_opened",
   "viewer_more_menu_opened",
   "create_guide_impression",
   "create_guide_opened",
@@ -302,7 +311,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "whats_new_banner_expanded",
   "whats_new_banner_dismissed",
   "whats_new_link_clicked",
-  "diagram_added_to_page",
   "diagram_revealed",
   "snapshot_fallback_rendered",
   "diagram_attribution_shown",
@@ -348,6 +356,7 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "agent_link_mcp_dialog_opened",
   "agent_link_mcp_dialog_copied",
   "agent_link_mcp_dialog_closed",
+  "agent_link_mcp_promo_dismissed",
   "agent_link_mcp_initialized",
   "activation_nudge_clicked",
   "activation_served",

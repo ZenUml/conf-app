@@ -1,0 +1,256 @@
+name: Render MCP Worker
+
+on:
+  pull_request:
+    paths: &mcp-paths
+      - 'workers/render-mcp/**'
+      - '.github/workflows/render-mcp-deploy.yml'
+      - 'scripts/ci/check-render-mcp.mjs'
+      - 'scripts/ci/wait-for-render-mcp*'
+      - 'functions/**'
+      - 'src/**'
+      - 'mcp-app/**'
+      - 'public/drawio/**'
+      - 'vite.mcp-app.config.mjs'
+      - 'vite.config.mjs'
+      - 'vitest.config.*'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.npmrc'
+  push:
+    branches: ['**']
+    paths: *mcp-paths
+  workflow_dispatch:
+    inputs:
+      target:
+        type: choice
+        options: [preview, production]
+        default: preview
+        required: true
+        description: Deployment environment (production never runs automatically)
+      source-sha:
+        type: string
+        description: For production, enter the full SHA of the selected main commit
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  select:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.select.outputs.sha }}
+      target: ${{ steps.select.outputs.target }}
+      deploy: ${{ steps.select.outputs.deploy }}
+    steps:
+      - uses: actions/github-script@v7
+        id: select
+        env:
+          REQUESTED_TARGET: ${{ inputs.target }}
+          REQUESTED_SHA: ${{ inputs.source-sha }}
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const sha = pr?.head.sha || context.sha;
+            const target = process.env.REQUESTED_TARGET || 'preview';
+            let deploy = false;
+            if (context.eventName === 'workflow_dispatch') {
+              if (target === 'production' && (context.ref !== 'refs/heads/main' || process.env.REQUESTED_SHA !== sha)) {
+                throw new Error('Production requires main and source-sha equal to the full dispatched main SHA');
+              }
+              deploy = true;
+            } else if (pr) {
+              deploy = pr.head.repo.full_name === context.payload.repository.full_name;
+            } else if (context.eventName === 'push' && context.ref !== 'refs/heads/main') {
+              // The PR event owns deployment once a branch has an open PR.
+              const branch = context.ref.replace('refs/heads/', '');
+              const pulls = await github.rest.pulls.list({ ...context.repo, state: 'open', head: `${context.repo.owner}:${branch}` });
+              deploy = pulls.data.length === 0;
+            }
+            core.setOutput('sha', sha);
+            core.setOutput('target', target);
+            core.setOutput('deploy', String(deploy));
+
+  check:
+    needs: select
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.select.outputs.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Test independent Worker and shared MCP contracts
+        run: pnpm exec vitest run scripts/ci/wait-for-render-mcp.spec.mjs workers/render-mcp/index.spec.ts functions/mcp/index.spec.ts functions/agent-link/oauth/mcpApps.spec.ts functions/agent-link/oauth/headlessMcp.spec.ts functions/agent-link/renderMcp.spec.ts functions/agent-link/renderRateLimit.spec.ts functions/agent-link/detectDiagramType.spec.ts src/mcp-app-view.spec.ts
+      - name: Build independent renderer assets
+        env:
+          SOURCE_SHA: ${{ needs.select.outputs.sha }}
+        run: GITHUB_SHA="$SOURCE_SHA" node workers/render-mcp/build.mjs
+      - name: Compile independent Worker without credentials or deployment
+        run: pnpm exec wrangler deploy --dry-run --config workers/render-mcp/wrangler.toml --env preview --outdir /tmp/render-mcp-dry-run --metafile /tmp/render-mcp-bundle.json
+      - name: Require a bundle without Forge or authenticated Confluence tools
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const meta = JSON.parse(readFileSync('/tmp/render-mcp-bundle.json', 'utf8'));
+          const forbidden = Object.keys(meta.inputs).filter(path => /(?:headlessMcp|headlessTools)\.ts$|@forge[/+]/.test(path));
+          if (forbidden.length) throw new Error(`Independent MCP bundle contains forbidden dependencies: ${forbidden.join(', ')}`);
+          console.log(`Independent MCP bundle: ${Object.keys(meta.inputs).length} inputs; no Forge or authenticated Confluence tools`);
+          NODE
+      - name: Preserve bundle isolation evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: render-mcp-bundle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/render-mcp-bundle.json
+          if-no-files-found: error
+      - name: Preserve exact tested assets
+        uses: actions/upload-artifact@v6
+        with:
+          name: render-mcp-assets-${{ github.run_id }}-${{ github.run_attempt }}
+          path: workers/render-mcp/dist/assets
+          if-no-files-found: error
+
+  deploy:
+    needs: [select, check]
+    if: needs.select.outputs.deploy == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # A single preview Worker is shared by all same-repository branches.
+    concurrency:
+      group: render-mcp-${{ needs.select.outputs.target }}
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TARGET: ${{ needs.select.outputs.target }}
+      SOURCE_SHA: ${{ needs.select.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.select.outputs.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@v6
+        with:
+          name: render-mcp-assets-${{ github.run_id }}-${{ github.run_attempt }}
+          path: workers/render-mcp/dist/assets
+      - name: Verify pre-provisioned signing secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec wrangler secret list --config workers/render-mcp/wrangler.toml --env "$TARGET" > /tmp/render-mcp-secret-names.json
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const names = JSON.parse(readFileSync('/tmp/render-mcp-secret-names.json', 'utf8')).map(secret => secret.name);
+          const required = process.env.TARGET === 'production' ? ['OAUTH_GRANT_SECRET', 'MIXPANEL_TOKEN'] : ['OAUTH_GRANT_SECRET'];
+          for (const name of required) if (!names.includes(name)) throw new Error(`Provision ${name} before deployment`);
+          if (process.env.TARGET === 'preview' && names.includes('MIXPANEL_TOKEN')) throw new Error('Preview must not have a Mixpanel token');
+          NODE
+      - name: Avoid duplicate push and PR preview deployments
+        id: preview
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          let current = false;
+          if (process.env.TARGET === 'preview' && process.env.EVENT_NAME !== 'workflow_dispatch') {
+            try {
+              const response = await fetch('https://zenuml-render-mcp-preview.zenuml.workers.dev/mcp/health', { redirect: 'manual', signal: AbortSignal.timeout(15000) });
+              const health = response.ok ? await response.json() : null;
+              current = health?.commit === process.env.SOURCE_SHA && health?.dirty === false;
+            } catch { /* An unavailable or older preview must be deployed. */ }
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `current=${current}\n`);
+          NODE
+      - name: Apply independent MCP database migrations
+        if: steps.preview.outputs.current != 'true'
+        run: pnpm exec wrangler d1 migrations apply DB --remote --config workers/render-mcp/wrangler.toml --env "$TARGET"
+      - name: Deploy tested source and assets
+        if: steps.preview.outputs.current != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Preserve pre-provisioned secrets; never replace them with --var.
+          if [ "$TARGET" = production ]; then
+            # Routes are bootstrapped separately with existing admin OAuth.
+            # Version uploads include ASSETS but do not publish zone routes.
+            export MCP_VERSION_OUTPUT="$RUNNER_TEMP/render-mcp-version-upload.jsonl"
+            rm -f "$MCP_VERSION_OUTPUT"
+            WRANGLER_OUTPUT_FILE_PATH="$MCP_VERSION_OUTPUT" pnpm exec wrangler versions upload --config workers/render-mcp/wrangler.toml --env production --message "source $SOURCE_SHA"
+            MCP_VERSION_ID=$(node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const records = readFileSync(process.env.MCP_VERSION_OUTPUT, 'utf8').split(/\r?\n/).filter(line => line.trim()).map(line => JSON.parse(line));
+          const uploads = records.filter(record => record.type === 'version-upload');
+          if (uploads.length !== 1) throw new Error('Expected exactly one uploaded Worker version');
+          const upload = uploads[0];
+          if (upload.version !== 1 || upload.worker_name !== 'zenuml-render-mcp' || upload.wrangler_environment !== 'production' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(upload.version_id ?? '')) {
+            throw new Error('Unexpected production Worker version upload record');
+          }
+          writeFileSync('render-mcp-deployment.json', `${JSON.stringify({ target: 'production', sourceSha: process.env.SOURCE_SHA, workerName: upload.worker_name, versionId: upload.version_id, stage: 'uploaded' }, null, 2)}\n`);
+          process.stdout.write(upload.version_id);
+          NODE
+            )
+            pnpm exec wrangler versions deploy "$MCP_VERSION_ID@100%" --config workers/render-mcp/wrangler.toml --env production --yes --message "source $SOURCE_SHA"
+            node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const deployment = JSON.parse(readFileSync('render-mcp-deployment.json', 'utf8'));
+          writeFileSync('render-mcp-deployment.json', `${JSON.stringify({ ...deployment, stage: 'deployed', trafficPercent: 100 }, null, 2)}\n`);
+          NODE
+          else
+            pnpm exec wrangler deploy --config workers/render-mcp/wrangler.toml --env "$TARGET"
+          fi
+      - name: Wait for exact deployed commit to reach health
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$TARGET" = production ]; then
+            HEALTH_URL=https://zenuml.com/mcp/health
+          else
+            HEALTH_URL=https://zenuml-render-mcp-preview.zenuml.workers.dev/mcp/health
+          fi
+          node scripts/ci/wait-for-render-mcp.mjs --sha "$SOURCE_SHA" --output render-mcp-readiness.json "$HEALTH_URL"
+      - name: Verify deployed commit, MCP resources, and assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$TARGET" = production ]; then
+            node scripts/ci/check-render-mcp.mjs --sha "$SOURCE_SHA" --output render-mcp-smoke.json https://zenuml.com/mcp https://conf-lite.zenuml.com/mcp https://conf-lite.zenuml.com/mcp/render
+          else
+            node scripts/ci/check-render-mcp.mjs --sha "$SOURCE_SHA" --output render-mcp-smoke.json https://zenuml-render-mcp-preview.zenuml.workers.dev/mcp
+          fi
+      - name: Preserve deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: render-mcp-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            render-mcp-deployment.json
+            render-mcp-readiness.json
+            render-mcp-smoke.json
+          if-no-files-found: warn
+      - name: Write deployment summary
+        if: always()
+        env:
+          DEPLOY_STATUS: ${{ job.status }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+          const smoke = existsSync('render-mcp-smoke.json') ? JSON.parse(readFileSync('render-mcp-smoke.json', 'utf8')) : null;
+          const readiness = existsSync('render-mcp-readiness.json') ? JSON.parse(readFileSync('render-mcp-readiness.json', 'utf8')) : null;
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Render MCP Worker\n\nEnvironment: ${process.env.TARGET}\n\nCommit: \`${process.env.SOURCE_SHA}\`\n\nStatus: ${process.env.DEPLOY_STATUS}\n\nHealth readiness: ${readiness?.ok ? 'passed' : 'not passed'} (${readiness?.attempts?.length ?? 0} request(s))\n\nSmoke: ${smoke?.ok ? 'passed' : 'not passed'}\n\nThis pipeline deploys the independent Worker; it does not deploy Forge.\n`);
+          NODE

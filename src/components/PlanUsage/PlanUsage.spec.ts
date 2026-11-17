@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import PlanUsage from './PlanUsage.vue'
+import { getSpaceStatuses } from '@/apis/spaceStatuses'
+import { openUrl } from '@/model/globals/forgeGlobal'
+vi.mock('@/apis/spaceStatuses', () => ({ getSpaceStatuses: vi.fn() }))
 import { getFullscreenRecovery, requestFullscreenRecovery, activateFullscreenRecovery } from '@/apis/fullscreenRecovery'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
@@ -51,7 +54,43 @@ async function mountPage(body: unknown) {
 describe('PlanUsage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(getSpaceStatuses).mockResolvedValue({ ENG: { isPaid: false, decisionKnown: true } })
     forgeGlobal.forgeContext = undefined
+  })
+
+  it('offers checkout only for confirmed unpaid rows, including the exact limit and personal spaces', async () => {
+    vi.mocked(getSpaceStatuses).mockResolvedValue({ ENG: { isPaid: false, decisionKnown: true }, '~abc123': { isPaid: false, decisionKnown: true }, PAID: { isPaid: true, decisionKnown: true }, USER: { isPaid: true, decisionKnown: false }, UNKNOWN: { isPaid: false, decisionKnown: false } })
+    const w = await mountPage(usageBody({ overLimitSpaces: [{ spaceKey: 'ENG', macroCount: 143 }, { spaceKey: '~abc123', macroCount: 100 }, { spaceKey: 'PAID', macroCount: 400 }, { spaceKey: 'USER', macroCount: 400 }, { spaceKey: 'UNKNOWN', macroCount: 143 }] }))
+    expect(w.findAll('.space-purchase button')).toHaveLength(2)
+    expect(w.findAll('.license-state').map(x => x.text())).toEqual(['Covered by a paid license', 'Covered by a paid license', 'License status unavailable'])
+    await w.get('button[aria-label="Unlock this space: ENG"]').trigger('click')
+    expect(openUrl).toHaveBeenCalledWith('https://buy.stripe.com/cNifZifkN7hzavK12H7IY05?client_reference_id=example-tenant__ENG')
+    await w.get('button[aria-label="Unlock this space: ~abc123"]').trigger('click')
+    expect(openUrl).toHaveBeenCalledWith('https://buy.stripe.com/cNifZifkN7hzavK12H7IY05?client_reference_id=example-tenant___abc123')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('paywall_bundle_cta_clicked', expect.objectContaining({ surface: 'dashboard', space_key: '~abc123', macro_count: 100, macro_limit: 100, bundle_price_usd: 299, client_reference_id: 'example-tenant___abc123' }))
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('plan_usage_viewed', expect.objectContaining({ purchasable_space_count: 2 }))
+  })
+
+  it('keeps counts and rows when paid lookup fails', async () => {
+    vi.mocked(getSpaceStatuses).mockRejectedValue(new Error('offline'))
+    const w = await mountPage(usageBody())
+    expect(w.text()).toContain('Purchase options are unavailable for now.')
+    expect(w.text()).toContain('118 / 100')
+    expect(w.findAll('.space-purchase button')).toHaveLength(0)
+    expect(w.text()).toContain('License status unavailable')
+  })
+
+  it('shows pending license checks without purchase options', async () => {
+    vi.mocked(getSpaceStatuses).mockReturnValue(new Promise(() => {}))
+    const w = await mountPage(usageBody())
+    expect(w.text()).toContain('Checking license…')
+    expect(w.findAll('.space-purchase button')).toHaveLength(0)
+  })
+
+  it('does not fetch licenses or render a table for no over-limit spaces', async () => {
+    const w = await mountPage(usageBody({ overLimitSpaces: [] }))
+    expect(w.find('.space-table').exists()).toBe(false)
+    expect(getSpaceStatuses).not.toHaveBeenCalled()
   })
 
   it('uses the viewer snapshot, not the query request id, and writes a Fullscreen reason', async () => {
@@ -62,6 +101,9 @@ describe('PlanUsage', () => {
       grant: { id: 'grant', activatedAt: '2026-10-01T00:00:00Z', expiresAt: '2026-10-08T00:00:00Z' },
     })
     const w = await mountPage(usageBody())
+    expect(w.get('button[aria-label="Unlock this space: ENG"]').text()).toBe('Unlock this space')
+    await w.get('button[aria-label="Unlock this space: ENG"]').trigger('click')
+    expect(openUrl).toHaveBeenCalledWith('https://buy.stripe.com/cNifZifkN7hzavK12H7IY05?client_reference_id=example-tenant__ENG')
     expect(w.get('[data-testid="plan-usage-fullscreen-context"]').text()).toContain('Discuss it with colleagues')
     expect(w.get('[data-testid="plan-usage-fullscreen-context"]').text()).not.toContain('foreign-id')
     expect(w.get('.upgrade-block h2').text()).toBe('Explore a plan for your Fullscreen use')

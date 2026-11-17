@@ -345,6 +345,35 @@ describe('Mermaid render retry when the document has no layout', () => {
     expect(viewerLoadFailedCalls()).toHaveLength(0);
   });
 
+  it('waits for layout and retries a hidden state diagram that cannot place its edge labels', async () => {
+    const render = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Could not find a suitable point for the given distance'))
+      .mockResolvedValueOnce({ svg: '<svg>state</svg>' });
+    loadMermaidMock.mockResolvedValue({ render });
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(wrapper.vm.svg).toBe('<svg>state</svg>'));
+
+    expect(awaitSvgTextLayoutMock).toHaveBeenCalledTimes(1);
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+
+  it('reports the edge-label failure when it persists after layout', async () => {
+    const render = vi.fn(() => Promise.reject(new Error('Could not find a suitable point for the given distance')));
+    loadMermaidMock.mockResolvedValue({ render });
+
+    mount(Mermaid, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(viewerLoadFailedCalls()).toHaveLength(1));
+
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(viewerLoadFailedCalls()[0][1]).toMatchObject({
+      failure_stage: 'render_crash',
+      failure_reason: 'Could not find a suitable point for the given distance',
+    });
+  });
+
   it('retries a transient non-invertible SVG matrix failure once', async () => {
     const render = vi
       .fn()

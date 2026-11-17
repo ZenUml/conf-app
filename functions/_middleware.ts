@@ -22,6 +22,8 @@ function serverErrorResponse(): Response {
 
 interface Env extends OpenAiAppsChallengeEnv {
   SENTRY_DSN?: string;
+  /** 'off' stops serving the agent-link document at the bare RFC 9728 path (#1038). */
+  OAUTH_ROOT_RESOURCE_METADATA?: string;
 }
 
 export const AUTHENTICATED_PATHS = [
@@ -32,6 +34,10 @@ export const AUTHENTICATED_PATHS = [
   '/deeplink-ticket',
   '/activation-prepared',
   '/magic-writeback',
+  '/api/title-draft',
+  // FIT only. Guest and anonymous viewers send no user token, so the handler
+  // must never ask for one.
+  '/graph-icon-proxy',
   '/api/diagram-impact',
   '/api/architecture-tokens',
   '/api/feedback-report',
@@ -116,7 +122,9 @@ export const authMiddleware: PagesFunction<Env, string, ForgeRequestData> = asyn
     // received a request (verified 2026-09-25; the SPA answered instead).
     // They are public by definition: a client that has never authenticated has
     // to be able to read them to find out how to authenticate.
-    const discovery = oauthDiscoveryResponse(request.url);
+    const discovery = oauthDiscoveryResponse(request.url, {
+      rootResourceMetadata: env.OAUTH_ROOT_RESOURCE_METADATA,
+    });
     if (discovery) return discovery;
 
     // ChatGPT's directory domain check, public for the same reason.

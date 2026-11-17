@@ -15,7 +15,7 @@ async function present(row: FullscreenRecoveryRequestRow, key: string) {
     decryptRecoveryField(row.noteCiphertext, key),
   ]);
   return {
-    id: row.id, cloudId: row.cloudId, accountId: row.accountId,
+    id: row.id, feature: row.feature, cloudId: row.cloudId, accountId: row.accountId,
     scenarios: JSON.parse(row.scenariosJson), note, email,
     createdAt: row.createdAt, activatedAt: row.activatedAt, expiresAt: row.expiresAt,
     supportOutcome: row.supportOutcome, supportOutcomeAt: row.supportOutcomeAt,

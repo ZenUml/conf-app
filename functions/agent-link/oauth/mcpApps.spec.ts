@@ -105,7 +105,7 @@ describe('withUiMeta', () => {
   it('carries each deploy its own origin, so staging never advertises prod', () => {
     const [stg] = uiResourceList('https://conf-stg-lite.zenuml.com') as
       Array<{ _meta: { ui: { csp: { resourceDomains: string[] } } } }>;
-    expect(stg._meta.ui.csp.resourceDomains).toEqual(['https://conf-stg-lite.zenuml.com', 'https://www.plantuml.com']);
+    expect(stg._meta.ui.csp.resourceDomains).toEqual(['https://conf-stg-lite.zenuml.com']);
   });
 });
 
@@ -238,14 +238,14 @@ describe('readUiResource', () => {
 describe('csp placement', () => {
   it('puts the csp on the resources/list entry', () => {
     const [entry] = uiResourceList(ORIGIN) as Array<{ _meta?: { ui?: { csp?: { resourceDomains: string[] } } } }>;
-    expect(entry._meta?.ui?.csp?.resourceDomains).toEqual([ORIGIN, 'https://www.plantuml.com']);
+    expect(entry._meta?.ui?.csp?.resourceDomains).toEqual([ORIGIN]);
   });
 
   it('puts the csp on the resources/read contents, which is the one enforced', async () => {
     const res = await readUiResource(DIAGRAM_VIEW_URI, ORIGIN, async () => ok(VIEW_HTML));
     expect(res.ok).toBe(true);
     const contents = (res as { contents: Array<{ _meta?: { ui?: { csp?: { resourceDomains: string[] } } } }> }).contents;
-    expect(contents[0]._meta?.ui?.csp?.resourceDomains).toEqual([ORIGIN, 'https://www.plantuml.com']);
+    expect(contents[0]._meta?.ui?.csp?.resourceDomains).toEqual([ORIGIN]);
   });
 
   it('keeps the tool meta to the association only', () => {

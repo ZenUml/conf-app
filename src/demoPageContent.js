@@ -35,7 +35,7 @@ paths:
         '200':
           description: OK`;
 
-// Body shapes mirror what CustomContentStorageProvider.save() writes for each
+// Body shapes mirror what saveToPlatform writes for each
 // diagram type (see tests/e2e-tests/utils/page-creator.ts for the canonical
 // per-type shape — that recipe is proven to render in the E2E suite).
 export const MACROS = [

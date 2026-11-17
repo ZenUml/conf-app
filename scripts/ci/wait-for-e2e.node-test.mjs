@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createApi, dispatchBody, findChild, closeChild, verifyParent, verifyParentWithRetry, verifyChildRun } from './wait-for-e2e.mjs';
+import { createApi, dispatchBody, findChild, closeChild, discoverChild, discoveryWindowMs, verifyParent, verifyParentWithRetry, verifyChildRun } from './wait-for-e2e.mjs';
 import { largeRunListing, withFakeGh } from './fake-gh.mjs';
 
 test('dispatch serializes regex without changing its escapes', () => {
@@ -184,4 +184,139 @@ test('parent verification does not retry real provenance errors', async () => {
   await assert.rejects(verifyParentWithRetry(state, 6, async () => { pauses++; }), /source does not match/);
   assert.equal(fetches, 1);
   assert.equal(pauses, 0);
+});
+
+
+test('a definitively rejected dispatch skips cleanup discovery', async () => {
+  const { dispatchWithRecord, cleanupWithRecord } = await import('./wait-for-e2e.mjs');
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'dispatch-record-'));
+  const marker = join(dir, 'dispatch');
+  try {
+    const reject = () => { const error = new Error('dispatch failed'); error.status = 1; error.stderr = 'gh: No ref found for: deleted (HTTP 422)\n'; throw error; };
+    assert.throws(() => dispatchWithRecord(reject, 'child.yml', {}, marker), /dispatch failed/);
+    let lookups = 0;
+    await cleanupWithRecord(() => { lookups++; }, 'title', 'child.yml', async () => {}, marker);
+    assert.equal(lookups, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('ambiguous dispatch errors still discover and cancel a possible child', async () => {
+  const { dispatchWithRecord, cleanupWithRecord } = await import('./wait-for-e2e.mjs');
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'dispatch-record-'));
+  const marker = join(dir, 'dispatch');
+  try {
+    assert.throws(() => dispatchWithRecord(() => { throw new Error('connection reset'); }, 'child.yml', {}, marker), /connection reset/);
+    let cancelled = false;
+    const api = path => {
+      if (path.includes('/runs?')) return { workflow_runs: [{ id: 5, display_title: 'title', status: 'in_progress' }] };
+      if (path.endsWith('/cancel')) { cancelled = true; return null; }
+      return { status: 'completed' };
+    };
+    await cleanupWithRecord(api, 'title', 'child.yml', async () => {}, marker);
+    assert.equal(cancelled, true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test('CLI records the actual gh missing-ref response across workflow steps', async () => {
+  const { mkdtempSync, rmSync, writeFileSync, chmodSync, readFileSync } = await import('node:fs');
+  const { spawnSync } = await import('node:child_process');
+  const { tmpdir } = await import('node:os');
+  const { join, delimiter } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'dispatch-cli-'));
+  try {
+    const gh = join(dir, 'gh');
+    const calls = join(dir, 'calls');
+    writeFileSync(gh, `#!/bin/sh\necho call >> "$FAKE_GH_CALLS"\necho 'gh: No ref found for: deleted (HTTP 422)' >&2\nexit 1\n`);
+    chmodSync(gh, 0o755);
+    const env = { ...process.env, PATH: `${dir}${delimiter}${process.env.PATH}`, FAKE_GH_CALLS: calls,
+      RUNNER_TEMP: dir, GITHUB_REPOSITORY: 'example/repo', GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '1',
+      CHILD_WORKFLOW: 'child.yml', CHILD_TITLE: 'Child', SOURCE_SHA: 'abc', DISPATCH_REF: 'deleted' };
+    const script = new URL('./wait-for-e2e.mjs', import.meta.url).pathname;
+    const dispatch = spawnSync(process.execPath, [script], { env, encoding: 'utf8', timeout: 3000 });
+    assert.equal(dispatch.status, 1);
+    const cleanup = spawnSync(process.execPath, [script, '--cleanup'], { env, encoding: 'utf8', timeout: 3000 });
+    assert.equal(cleanup.status, 0, cleanup.stderr);
+    assert.equal(readFileSync(calls, 'utf8'), 'call\n');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('cleanup skips discovery when dispatch was never attempted', async () => {
+  const { cleanupWithRecord } = await import('./wait-for-e2e.mjs');
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'dispatch-not-attempted-'));
+  let lookups = 0;
+  try {
+    await cleanupWithRecord(() => { lookups++; return { workflow_runs: [] }; }, 'title', 'child.yml',
+      async () => { throw new Error('unexpected discovery wait'); }, join(dir, 'dispatch'));
+    assert.equal(lookups, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('legacy PR dispatch does not gain new required inputs', () => {
+  const { inputs } = dispatchBody({ CHILD_KIND: 'pr', SOURCE_SHA: 'abc', MODE: 'all', GITHUB_RUN_ID: '1', GITHUB_RUN_ATTEMPT: '1' });
+  assert.equal('pr-number' in inputs, false);
+  assert.equal('decision-id' in inputs, false);
+});
+
+// Fake clock: pause() advances time instead of sleeping.
+function fakeClock() {
+  let t = 1_000_000;
+  return { now: () => t, pause: async () => { t += 5000; }, at: () => t };
+}
+
+test('creation discovery finds a child that becomes visible only after 3.5 minutes', async () => {
+  const clock = fakeClock();
+  const start = clock.now();
+  const api = () => ({ workflow_runs: clock.now() - start >= 210000 ? [{ id: 9, display_title: 'target', status: 'queued' }] : [] });
+  const logs = [];
+  const child = await discoverChild(api, 'dia.yml', 'target', clock.pause, start + discoveryWindowMs({}),
+    { now: clock.now, log: line => logs.push(line) });
+  assert.equal(child.id, 9);
+  assert.equal(logs.length, 3, 'one progress line per minute, not per poll');
+});
+
+test('creation discovery gives up only after the configured window', async () => {
+  const clock = fakeClock();
+  const start = clock.now();
+  const child = await discoverChild(() => ({ workflow_runs: [] }), 'dia.yml', 'target', clock.pause,
+    start + discoveryWindowMs({ CHILD_DISCOVERY_SECONDS: '300' }), { now: clock.now, log: () => {} });
+  assert.equal(child, undefined);
+  assert.ok(clock.now() - start >= 300000 && clock.now() - start < 310000);
+});
+
+test('discovery window defaults to 10 minutes and rejects bad values', () => {
+  assert.equal(discoveryWindowMs({}), 600000);
+  assert.equal(discoveryWindowMs({ CHILD_DISCOVERY_SECONDS: '90' }), 90000);
+  assert.throws(() => discoveryWindowMs({ CHILD_DISCOVERY_SECONDS: 'abc' }), /Invalid child discovery window/);
+  assert.throws(() => discoveryWindowMs({ CHILD_DISCOVERY_SECONDS: '0' }), /Invalid child discovery window/);
+});
+
+test('cleanup discovery honours the same window and still cancels a late-visible child', async () => {
+  const clock = fakeClock();
+  const start = clock.now();
+  let cancelled = false;
+  const api = path => {
+    if (path.includes('/runs?')) return { workflow_runs: clock.now() - start >= 240000 ? [{ id: 9, display_title: 'target', status: 'queued' }] : [] };
+    if (path.endsWith('/cancel')) { cancelled = true; return null; }
+    return { id: 9, status: 'completed' };
+  };
+  await closeChild(api, 'target', 'dia.yml', clock.pause, undefined, true, { now: clock.now, log: () => {} });
+  assert.equal(cancelled, true);
+});
+
+test('cleanup stops looking after the window when the child never appears', async () => {
+  const clock = fakeClock();
+  const start = clock.now();
+  await assert.rejects(closeChild(() => ({ workflow_runs: [] }), 'target', 'dia.yml', clock.pause, undefined, true,
+    { now: clock.now, discoveryMs: 120000, log: () => {} }), /Dispatched child not found/);
+  assert.ok(clock.now() - start >= 120000 && clock.now() - start < 130000);
 });

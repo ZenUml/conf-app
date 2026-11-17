@@ -97,3 +97,22 @@ describe('restoreDraftBanner analytics', () => {
     expect(names).toEqual(['draft_banner_shown', 'draft_banner_shown']);
   });
 });
+
+describe('restoreDraftBanner visibility', () => {
+  it('announces when it appears and when it goes away', () => {
+    installRestoreDraftBanner();
+    const seen: boolean[] = [];
+    const listener = (visible: boolean) => seen.push(visible);
+    EventBus.$on('draft-banner-visibility', listener);
+
+    EventBus.$emit('draft-available', { scope: 'edit:1', draft: { code: 'x', title: 't', savedAt: Date.now() } });
+    // An earlier test's banner may be replaced first (false, then true).
+    expect(seen.at(-1)).toBe(true);
+
+    seen.length = 0;
+    (document.querySelector('[aria-label="Keep draft for later"]') as HTMLButtonElement).click();
+    expect(seen).toEqual([false]);
+
+    EventBus.$off('draft-banner-visibility', listener);
+  });
+});

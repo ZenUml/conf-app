@@ -13,7 +13,7 @@ import {
   reportLegacyContentPropertyValueUnexpected,
 } from '@/utils/legacyContentPropertyTelemetry';
 import { bootstrapForgeViewer, type ViewerLoadDiagramResult } from '@/utils/viewerBootstrap';
-import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
+import { ensureDrawioViewerLoaded, whenDrawioMathSettled } from '@/utils/drawio/loadDrawioViewer';
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { mapCustomContentLoadError } from '@/utils/viewerLoadOutcome';
 import { guardEditClick } from '@/utils/guardEditClick';
@@ -172,6 +172,12 @@ function afterLoad(doc: Diagram | undefined) {
       // returns early. Per-callsite fast paths previously here suppressed
       // that central event, hiding the highest-volume class of skips.
       if(globals.apWrapper.isDisplayMode() && await globals.apWrapper.canUserEdit()) {
+        // A PNG with blank labels would stay: the content hash stops a later
+        // upload. Skipping leaves the hash unset, so a later view tries again.
+        if (!(await whenDrawioMathSettled())) {
+          trackEvent('graph_math_not_ready', 'create_attachment', 'warning');
+          return;
+        }
         await createAttachmentIfContentChanged(graphXml ?? '', 'graph');
       } else {
         console.debug("Attachment will no be created as it's not in view mode or the user is unauthorized to edit.");

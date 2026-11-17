@@ -27,8 +27,6 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "macro_edit_cancelled",
   "macro_save_succeeded",
   "macro_save_failed",
-  "copy_for_ai_impression",
-  "copy_for_ai_menu_opened",
   "editor_global_replace_observed",
   "macro_export_requested",
   "macro_export_succeeded",
@@ -58,6 +56,8 @@ export const CANONICAL_EVENT_NAME_LIST = [
   // unemitted until phase 2 puts conversion in front of a user.
   "macro_convert_job_claimed",
   "macro_convert_job_completed",
+  // Site install, from functions/forge-installed.ts (#1102). See catalog.ts.
+  "app_installed",
   // JSM support-agent manual action lifecycle. The target is intentionally
   // absent from this runtime list's comments/properties: ticket keys and raw
   // request descriptions must never enter Mixpanel.
@@ -76,6 +76,7 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "agent_link_oauth_authorize_routed",
   "agent_link_app_view_requested",
   "agent_link_app_view_failed",
+  "agent_link_app_view_rendered",
   "agent_link_mcp_initialized",
   // Our refresh-token chain revoked on reuse or a client mismatch
   // (oauth/authServer.ts handleToken).

@@ -1,4 +1,5 @@
-// The public half of the MCP surface: POST /mcp/render (route: functions/mcp/render.ts).
+// The public half of the MCP surface: POST /mcp (functions/mcp/index.ts), also
+// served at its original path /mcp/render (functions/mcp/render.ts).
 //
 // /agent-link/mcp reads and writes diagrams in Confluence, so every call there
 // needs a token tied to an Atlassian account (headless OAuth, or the relay's
@@ -16,8 +17,9 @@
 // No diagram is stored. The only write is a per-address call counter in D1
 // (renderRateLimit.ts), and the only outbound call is fetching our own built
 // view. The diagram is drawn in the host's frame, by the
-// same view the headless tools use; PlantUML goes from that frame to
-// www.plantuml.com, as it does in Confluence.
+// same view the headless tools use, PlantUML included: no diagram source
+// reaches a third party, and a diagram the engine cannot draw shows an error
+// rather than falling back to plantuml.com as the Confluence macro does.
 //
 // What the server adds over a plain echo is the parse check (parseDsl.ts): the
 // agent gets ZenUML and Mermaid errors with line and column, and a structural
@@ -33,7 +35,7 @@ import {
   uiMeta,
   uiResourceList,
 } from './oauth/mcpApps';
-import { clientDeclaresUi, negotiateProtocolVersion, withTimeout } from './oauth/headlessMcp';
+import { clientDeclaresUi, negotiateProtocolVersion, withTimeout } from './mcpProtocol';
 import { checkRenderRate, RENDER_LIMIT, RENDER_WINDOW_SECONDS, type RateEnv } from './renderRateLimit';
 import { mixpanelTrack } from '../service/mixpanelService';
 import { json } from '../OkResponse';
@@ -57,7 +59,7 @@ type JsonRpcId = string | number | null;
  * The types the view can draw (mcpApps.ts RENDERABLE_TYPES), under the names
  * the agent sends. Lower case, because that is what the view compares against.
  */
-export const RENDER_TYPES = ['sequence', 'mermaid', 'plantuml', 'graph', 'openapi'] as const;
+export const RENDER_TYPES = ['sequence', 'mermaid', 'plantuml', 'markdown', 'graph', 'openapi', 'asyncapi'] as const;
 export type RenderType = (typeof RENDER_TYPES)[number];
 
 /**
@@ -72,9 +74,10 @@ export const RENDER_TOOL = {
   title: 'Render diagram',
   description:
     'Draw a diagram from its source and show it to the user. Nothing is saved anywhere. The source may be ' +
-    'a ZenUML sequence diagram, Mermaid, PlantUML (@startuml … @enduml), draw.io / diagrams.net XML, or an OpenAPI or ' +
-    'Swagger spec (YAML or JSON). diagramType is optional: leave it out and the language is detected from the source ' +
-    '(a source with no recognised header is read as ZenUML), or pass it to be explicit. The result says which type was ' +
+    'a ZenUML sequence diagram, Mermaid, PlantUML (@startuml … @enduml), Markdown (with ```mermaid code blocks drawn ' +
+    'as diagrams), draw.io / diagrams.net XML, an OpenAPI or Swagger spec, or an AsyncAPI spec (YAML or JSON). ' +
+    'diagramType is optional: leave it out and the language is detected from the source (a source with no recognised ' +
+    'header is read as ZenUML, so pass markdown explicitly), or pass it to be explicit. The result says which type was ' +
     'used and whether the source parsed; when it did not, ' +
     'it lists the errors with line and column, so fix them and call again.',
   annotations: {
@@ -101,7 +104,7 @@ export const RENDER_TOOL = {
 
 const INSTRUCTIONS =
   'Use render_diagram to draw a diagram for the user from its source: a ZenUML sequence diagram, Mermaid, PlantUML, ' +
-  'draw.io XML, or an OpenAPI spec. No Atlassian site or sign-in is involved and nothing is saved. Prefer `sequence` ' +
+  'Markdown, draw.io XML, or an OpenAPI or AsyncAPI spec. No Atlassian site or sign-in is involved and nothing is saved. Prefer `sequence` ' +
   '(ZenUML) for sequence diagrams. If the result reports parse errors, fix the source and call render_diagram again. ' +
   'The zenuml://, mermaid://, plantuml:// and openapi:// dsl-guide resources give the rules of each language.';
 
@@ -206,6 +209,9 @@ async function track(env: RenderEnv, props: Record<string, unknown>): Promise<vo
   }
 }
 
+/** Sent by scripts/ci/check-render-mcp.mjs. Spoofing it only hides the sender's own calls. */
+const INTERNAL_PROBE_HEADER = 'x-zenuml-internal-probe';
+
 function clip(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value.slice(0, 64) : undefined;
 }
@@ -217,6 +223,9 @@ export async function handleRenderRpc(
   body: { id?: JsonRpcId; method?: string; params?: unknown },
   deps: RenderMcpDeps = {},
 ): Promise<Response> {
+  // Our own smoke checks say so: this path has no user or site that could.
+  const internalProbe = request.headers.get(INTERNAL_PROBE_HEADER) ? { internal_probe: true } : {};
+  const trackEvent = (props: Record<string, unknown>) => track(env, { ...internalProbe, ...props });
   const id = body.id ?? null;
   const origin = new URL(request.url).origin;
   const fetchImpl = deps.fetchImpl ?? ((url: string, init?: RequestInit) => fetch(url, init));
@@ -238,7 +247,7 @@ export async function handleRenderRpc(
       );
       const info = (body.params as { clientInfo?: { name?: unknown; version?: unknown } } | undefined)?.clientInfo;
       await defer(
-        track(env, {
+        trackEvent({
           event: 'agent_link_mcp_initialized',
           client_declares_ui: clientDeclaresUi(body.params),
           protocol_version: negotiated,
@@ -268,7 +277,7 @@ export async function handleRenderRpc(
       if (uri === DIAGRAM_VIEW_URI) {
         const read = await readUiResource(uri, origin, (u) => fetchImpl(u));
         await defer(
-          track(env, {
+          trackEvent({
             event: read.ok ? 'agent_link_app_view_requested' : 'agent_link_app_view_failed',
             ...(read.ok ? {} : { reason: read.reason, ...(read.detail ? { detail: read.detail.slice(0, 120) } : {}) }),
           }),
@@ -289,7 +298,7 @@ export async function handleRenderRpc(
       const startedMs = now();
       const trackCall = (outcome: ToolOutcome, extra: Record<string, unknown> = {}) =>
         defer(
-          track(env, {
+          trackEvent({
             event: 'agent_link_mcp_tool_called',
             mcp_tool: outcome === 'unknown_tool' ? 'unknown' : params.name,
             mcp_tool_outcome: outcome,

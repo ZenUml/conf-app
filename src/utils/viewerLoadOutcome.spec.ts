@@ -156,6 +156,22 @@ describe('viewerLoadOutcome', () => {
     });
   });
 
+  it('maps the name and message of a thrown direct fetch', () => {
+    expect(
+      mapCustomContentLoadError({
+        directFetchStatus: 'other_error',
+        directFetchErrorClass: 'thrown',
+        directFetchErrorName: 'TypeError',
+        directFetchErrorMessage: 'Load failed',
+      }),
+    ).toEqual({
+      directFetchStatus: 'other_error',
+      errorClass: 'thrown',
+      errorName: 'TypeError',
+      errorMessage: 'Load failed',
+    });
+  });
+
   it('returns null when a custom-content load carries no error metadata', () => {
     expect(mapCustomContentLoadError({})).toBeNull();
   });

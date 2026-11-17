@@ -5,6 +5,8 @@
 
 import React from 'react'
 import { createRoot } from 'react-dom/client'
+import { createApp, defineComponent, h, ref } from 'vue'
+import EditorMcpPromo from '@/components/AgentLink/EditorMcpPromo.vue'
 
 import globals from '@/model/globals'
 import { getContext as initForgeContext, getView, isInserting, isConfiguring } from '@/model/globals/forgeGlobal'
@@ -245,9 +247,26 @@ async function initializeMacro() {
       getMacroType: () => 'asyncapi',
       operationMode: customContentId ? 'edit' : 'create',
     })
+    // MCP promo (EditorMcpPromo): fed from the Studio's spec changes, starting
+    // from the spec it opened with. Bottom right keeps clear of the Studio's
+    // left-hand navigation.
+    const promoSpec = ref(initialSpec)
+    const promoHost = document.createElement('div')
+    document.body.appendChild(promoHost)
+    createApp(defineComponent({
+      setup() {
+        return () => h(EditorMcpPromo, {
+          diagramType: 'AsyncAPI',
+          code: promoSpec.value,
+          diagramId: customContentId ?? '',
+          diagramTitle: existing?.title || '',
+        })
+      },
+    })).mount(promoHost)
     createRoot(target).render(
       React.createElement(AsyncApiStudioEditor, {
         initialSpec,
+        onSpecChange: (spec: string) => { promoSpec.value = spec },
         onSave: handleSave,
         onCancel: handleCancel,
         ownTitleBar: false,

@@ -76,7 +76,7 @@
                   >{{ copyLabel('setup_command') }}</button>
                 </div>
                 <p v-if="client === 'codex'" class="connect-mcp-hint" data-testid="connect-mcp-codex-login">
-                  Codex opens your browser to sign in. If it doesn't, run <code>codex mcp login {{ serverName }}</code>.
+                  It then opens your browser to sign in with Atlassian. If it doesn't, run <code>codex mcp login {{ serverName }}</code>.
                 </p>
               </template>
               <template v-else>
@@ -118,7 +118,7 @@
                   >{{ copyLabel('server_url') }}</button>
                 </div>
               </template>
-              <p class="connect-mcp-hint">
+              <p v-if="client !== 'codex'" class="connect-mcp-hint">
                 The first time, your client asks you to sign in with Atlassian.
               </p>
             </div>
@@ -517,12 +517,11 @@ onBeforeUnmount(() => {
 .connect-mcp-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
   margin: 0 0 8px;
   border-bottom: 1px solid #E5E7EB;
 }
 .connect-mcp-tab {
-  padding: 5px 10px;
+  padding: 5px 7px;
   margin-bottom: -1px;
   background: transparent;
   color: #4B5563;

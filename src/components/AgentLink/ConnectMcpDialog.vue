@@ -64,17 +64,20 @@
               :data-client="client"
               data-testid="connect-mcp-client-panel"
             >
-              <template v-if="client === 'claude_code'">
+              <template v-if="cliCommand">
                 <p class="connect-mcp-hint connect-mcp-hint--lead">Run this in your terminal:</p>
                 <div class="connect-mcp-code-row">
-                  <pre class="connect-mcp-code" data-testid="connect-mcp-setup-command">{{ setupCommand }}</pre>
+                  <pre class="connect-mcp-code" data-testid="connect-mcp-setup-command">{{ cliCommand }}</pre>
                   <button
                     type="button"
                     class="connect-mcp-copy"
                     data-testid="connect-mcp-copy-setup"
-                    @click="copy('setup_command', setupCommand)"
+                    @click="copy('setup_command', cliCommand)"
                   >{{ copyLabel('setup_command') }}</button>
                 </div>
+                <p v-if="client === 'codex'" class="connect-mcp-hint" data-testid="connect-mcp-codex-login">
+                  It then opens your browser to sign in with Atlassian. If it doesn't, run <code>codex mcp login {{ serverName }}</code>.
+                </p>
               </template>
               <template v-else>
                 <div
@@ -115,7 +118,7 @@
                   >{{ copyLabel('server_url') }}</button>
                 </div>
               </template>
-              <p class="connect-mcp-hint">
+              <p v-if="client !== 'codex'" class="connect-mcp-hint">
                 The first time, your client asks you to sign in with Atlassian.
               </p>
             </div>
@@ -162,6 +165,7 @@ import {
   buildInstallPrompt,
   mcpAddCommand,
   cursorInstallUrl,
+  codexAddCommand,
   vscodeInstallUrl,
   rememberedMcpClient,
   rememberMcpClient,
@@ -226,8 +230,21 @@ const installLink = computed(() => {
 
 // Claude on the web or desktop: a custom connector by URL
 // (claude.com/docs/connectors/custom/add-unlisted; on Team and Enterprise an
-// owner adds it under Organization settings first).
-const urlSteps = `In Claude, open Customize › Connectors, choose Add › Add custom connector, name it ${productName} and paste this URL:`
+// owner adds it under Organization settings first). ChatGPT on the web: a
+// custom MCP server under chatgpt.com/plugins
+// (developers.openai.com/api/docs/guides/custom-mcp-server); it registers
+// itself with our server (DCR) and signs in by OAuth. In both, a workspace
+// owner or admin can restrict adding them.
+const urlSteps = computed(() => (client.value === 'chatgpt'
+  ? `In ChatGPT on the web, open chatgpt.com/plugins, choose + › Add custom MCP server, name it ${productName}, set authentication to OAuth and paste this URL:`
+  : `In Claude, open Customize › Connectors, choose Add › Add custom connector, name it ${productName} and paste this URL:`))
+
+// The tabs whose setup is one terminal command.
+const cliCommand = computed(() => {
+  if (client.value === 'claude_code') return setupCommand
+  if (client.value === 'codex') return codexAddCommand(serverUrl, serverName)
+  return ''
+})
 
 async function install() {
   const link = installLink.value
@@ -500,12 +517,11 @@ onBeforeUnmount(() => {
 .connect-mcp-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
   margin: 0 0 8px;
   border-bottom: 1px solid #E5E7EB;
 }
 .connect-mcp-tab {
-  padding: 5px 10px;
+  padding: 5px 7px;
   margin-bottom: -1px;
   background: transparent;
   color: #4B5563;

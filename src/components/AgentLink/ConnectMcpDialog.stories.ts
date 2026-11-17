@@ -71,6 +71,25 @@ export const Cursor: Story = {
   },
 }
 
+export const Codex: Story = {
+  decorators: [onTab('codex')],
+  play: async () => {
+    const body = within(document.body)
+    await expect(await body.findByTestId('connect-mcp-setup-command')).toHaveTextContent('codex mcp add zenuml --url https://conf-lite.zenuml.com/agent-link/mcp')
+    await expect(body.getByTestId('connect-mcp-codex-login')).toHaveTextContent('codex mcp login zenuml')
+  },
+}
+
+export const ChatGpt: Story = {
+  name: 'ChatGPT',
+  decorators: [onTab('chatgpt')],
+  play: async () => {
+    const body = within(document.body)
+    await expect(await body.findByTestId('connect-mcp-client-steps')).toHaveTextContent('chatgpt.com/plugins')
+    await expect(body.getByTestId('connect-mcp-server-url')).toHaveTextContent('https://conf-lite.zenuml.com/agent-link/mcp')
+  },
+}
+
 export const VsCode: Story = {
   name: 'VS Code',
   decorators: [onTab('vscode')],

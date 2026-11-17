@@ -2179,8 +2179,9 @@ export type AgentLinkOAuthTokenRefreshOutcome = "rotated" | "retried" | "rejecte
 export type AgentLinkWriteResult = "added" | "already_present" | "conflict" | "updated";
 
 // Which block of the Connect MCP dialog a Copy click targeted
-// (agent_link_mcp_dialog_copied): the one-time `claude mcp add` setup
-// command, the bare server URL (Claude web or desktop custom connector,
+// (agent_link_mcp_dialog_copied): the one-time CLI setup command
+// (`claude mcp add` or `codex mcp add`; `mcp_client_choice` says which), the
+// bare server URL (Claude web or desktop custom connector,
 // Cursor, VS Code and other clients), the Other tab's prompt asking a
 // terminal agent to add the server to its own configuration
 // ('install_prompt'), or the prompt naming this diagram.
@@ -2188,8 +2189,10 @@ export type AgentLinkMcpCopyTarget = "setup_command" | "server_url" | "install_p
 
 // The client tab of the Connect MCP dialog's step 1 (`mcp_client_choice`).
 // 'claude_app' = Claude on the web or desktop (custom connector by URL);
-// 'other' = any other MCP client, Codex included (the server URL and its name).
-export type AgentLinkMcpClientChoice = "claude_code" | "claude_app" | "cursor" | "vscode" | "other";
+// 'codex' = the Codex CLI (`codex mcp add`); 'chatgpt' = ChatGPT on the web
+// (custom MCP server by URL); 'other' = any other MCP client (a prompt asking
+// the agent to add the server, plus the URL and its name).
+export type AgentLinkMcpClientChoice = "claude_code" | "claude_app" | "cursor" | "codex" | "vscode" | "chatgpt" | "other";
 
 // How the Connect MCP dialog closed (`mcp_close_source` on
 // agent_link_mcp_dialog_closed): its Done button, its × button, a click on the

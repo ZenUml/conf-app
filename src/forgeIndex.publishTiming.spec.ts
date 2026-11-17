@@ -219,4 +219,29 @@ describe('forgeIndex Publish handler — per-step publish timing', () => {
 
     expect(order).toEqual(['attachment', 'publish_completed', 'redirect']);
   });
+  // operation_mode must follow the same create-versus-edit call as the save
+  // event (macro_create_succeeded vs macro_save_succeeded): a diagram with no
+  // saved id yet is a create. A byline-created diagram has no macro, so
+  // isInserting() is false there; it must still report 'create'.
+  it('reports operation_mode create for a first save even when no macro is being inserted (byline)', async () => {
+    h.isInserting.mockResolvedValue(false);
+    const save = await loadSaveHandler();
+
+    await save();
+    await flushClosePath();
+
+    expect(publishEvent()).toMatchObject({ operation_mode: 'create' });
+  });
+
+  it('reports operation_mode edit when saving an existing diagram, even if isInserting is true', async () => {
+    const { default: store } = await import('@/model/store2');
+    store.state.diagram.id = '7';
+    h.isInserting.mockResolvedValue(true);
+    const save = await loadSaveHandler();
+
+    await save();
+    await flushClosePath();
+
+    expect(publishEvent()).toMatchObject({ operation_mode: 'edit' });
+  });
 });

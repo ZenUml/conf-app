@@ -1435,6 +1435,11 @@ export type AnalyticsEventName =
   // Diagram attribution and audience impact (Phase 1): the read-only footer
   // and its three-second continuous-visibility registration flow.
   | "diagram_attribution_shown"
+  // `result` on _succeeded is the backend RegistrationResult:
+  // 'new_unique' | 'repeat' | 'excluded_contributor'. 'excluded_contributor'
+  // (the creator/updater/contributor viewing their own diagram) writes no
+  // audience row, so only 'new_unique' and 'repeat' are counted registrations.
+  // 'write_failed' is reported on _failed, never here.
   | "diagram_audience_registration_succeeded"
   | "diagram_audience_registration_failed"
   // Architecture Tokens Phase 1 (viewer footer + lifeline popover). No label

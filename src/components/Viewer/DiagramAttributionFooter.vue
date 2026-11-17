@@ -79,7 +79,10 @@ async function qualify() {
       trackAnalyticsEvent('diagram_audience_registration_failed', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any, was_intersecting: wasIntersecting, gate_target: gateTarget, ...getGateTelemetry() });
       return;
     }
-    trackAnalyticsEvent('diagram_audience_registration_succeeded', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any, was_intersecting: wasIntersecting, gate_target: gateTarget, ...getGateTelemetry() });
+    // The backend result separates a counted registration from the creator's own
+    // view ('excluded_contributor', no audience row written). Absent on a
+    // response from an older backend, so omit rather than guess.
+    trackAnalyticsEvent('diagram_audience_registration_succeeded', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any, was_intersecting: wasIntersecting, gate_target: gateTarget, ...(registeredSummary.result ? { result: registeredSummary.result } : {}), ...getGateTelemetry() });
   } catch {
     trackAnalyticsEvent('diagram_audience_registration_failed', { feature_area: 'diagram_impact', surface: 'viewer', macro_type: props.macroType as any, was_intersecting: wasIntersecting, gate_target: gateTarget, ...getGateTelemetry() });
   }

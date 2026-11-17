@@ -703,6 +703,17 @@ describe('BylineDiagrams', () => {
       return wrapper;
     }
 
+    /** The panel as it is once a write was refused: no picker, "Not now" back. */
+    async function reachPanelWithoutPicker() {
+      const wrapper = await reachCreatedPanel();
+      placeDiagram.mockResolvedValueOnce({
+        result: 'forbidden', placed: false, refused: true, message: "You can't edit this page.",
+      } as any);
+      await wrapper.find('[data-testid="byline-created-add-to-page"]').trigger('click');
+      await flushPromises();
+      return wrapper;
+    }
+
     it('does not navigate into the no_space_context sentinel', async () => {
       // getSpaceKey returns the sentinel STRING, so the old `|| ''` never fired
       // and the handoff navigated to /wiki/spaces/no_space_context/... — a 404,
@@ -781,7 +792,7 @@ describe('BylineDiagrams', () => {
       // "Not now" means the user is finished with the panel. The diagram is
       // saved, so the answer is to get the popup off the page — not to swap it
       // for the diagram list, which is a screen they did not ask for.
-      const wrapper = await reachCreatedPanel();
+      const wrapper = await reachPanelWithoutPicker();
 
       await wrapper.find('[data-testid="byline-created-done"]').trigger('click');
       await flushPromises();
@@ -800,7 +811,7 @@ describe('BylineDiagrams', () => {
       // screen is the right place to be left.
       viewClose.mockRejectedValueOnce(new Error('not supported here'));
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      const wrapper = await reachCreatedPanel();
+      const wrapper = await reachPanelWithoutPicker();
 
       await wrapper.find('[data-testid="byline-created-done"]').trigger('click');
       await flushPromises();
@@ -810,6 +821,172 @@ describe('BylineDiagrams', () => {
       expect(wrapper.find('[data-testid="byline-list"]').exists()).toBe(true);
       expect(events('byline_view_close_requested')[0][1]).toMatchObject({ result: 'failed' });
       consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('Add to page on the post-save panel', () => {
+    async function reachCreatedPanel() {
+      apWrapper.listPageDiagramContents.mockResolvedValue([ok()]);
+      const wrapper = await mountByline();
+      await wrapper.find('[data-testid="byline-type-sequence"]').trigger('click');
+      await flushPromises();
+      apWrapper.listPageDiagramContents.mockResolvedValue([
+        ok(child('99', 'Order flow', DiagramType.Sequence)),
+      ]);
+      await closeEditor();
+      return wrapper;
+    }
+    const addButton = (w: any) => w.find('[data-testid="byline-created-add-to-page"]');
+
+    it('offers Add to page as the primary action in view mode', async () => {
+      const wrapper = await reachCreatedPanel();
+
+      expect(addButton(wrapper).exists()).toBe(true);
+      expect(addButton(wrapper).classes()).toContain('btn-primary');
+      expect(wrapper.find('[data-testid="byline-open-editor"]').classes()).toContain('btn-secondary');
+      expect(wrapper.find('[data-testid="byline-created-done"]').exists()).toBe(false);
+      expect(wrapper.text()).toContain('Choose where on the page it goes.');
+    });
+
+    it('offers it even when the page scan could not say what is placed', async () => {
+      // A diagram saved a moment ago is unplaced by definition; the list row's
+      // gate waits for the scan, the panel's must not.
+      apWrapper.referencedCustomContentIds.mockResolvedValue(undefined);
+      const wrapper = await reachCreatedPanel();
+
+      expect(addButton(wrapper).exists()).toBe(true);
+    });
+
+    it('does not offer it while the host page is in the editor', async () => {
+      // The picker reads the PUBLISHED page, not the draft in front of the author.
+      forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { isEditing: true } };
+      const wrapper = await reachCreatedPanel();
+
+      expect(addButton(wrapper).exists()).toBe(false);
+    });
+
+    it('places the created diagram through the picker and reports the entry', async () => {
+      const wrapper = await reachCreatedPanel();
+
+      await addButton(wrapper).trigger('click');
+      await flushPromises();
+
+      expect(choosePlacement).toHaveBeenCalledWith(
+        'page-1', expect.objectContaining({ id: '99' }), 'byline', 'created_panel',
+      );
+      expect(placeDiagram).toHaveBeenCalledWith(
+        'page-1', expect.objectContaining({ id: '99' }), expect.any(Function), CHOICE.placement,
+      );
+      expect(events('diagram_added_to_page')[0][1]).toMatchObject({
+        result: 'added',
+        placement_entry: 'created_panel',
+        custom_content_id: '99',
+        placement_position: 'end',
+      });
+      // The page reload normally takes the panel away. When it does not, the
+      // panel must stop asking for a paste of a diagram that is now placed.
+      expect(wrapper.find('[data-testid="byline-created"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="byline-list"]').exists()).toBe(true);
+    });
+
+    it('keeps the panel and writes nothing when the picker is cancelled', async () => {
+      choosePlacement.mockResolvedValue({ status: 'cancelled' });
+      const wrapper = await reachCreatedPanel();
+
+      await addButton(wrapper).trigger('click');
+      await flushPromises();
+
+      expect(placeDiagram).not.toHaveBeenCalled();
+      expect(wrapper.find('[data-testid="byline-created"]').exists()).toBe(true);
+      expect(addButton(wrapper).exists()).toBe(true);
+    });
+
+    it('says so in the panel when the picker cannot open', async () => {
+      choosePlacement.mockResolvedValue({ status: 'open_failed' });
+      const wrapper = await reachCreatedPanel();
+
+      await addButton(wrapper).trigger('click');
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="byline-created"] [data-testid="byline-add-failed"]').text())
+        .toContain("Couldn't open the page preview.");
+      expect(events('placement_picker_opened')[0][1]).toMatchObject({
+        result: 'open_failed',
+        placement_entry: 'created_panel',
+      });
+    });
+
+    it('withdraws the button after a refusal and keeps the paste path', async () => {
+      placeDiagram.mockResolvedValueOnce({
+        result: 'forbidden', placed: false, refused: true, message: "You can't edit this page.",
+      } as any);
+      const wrapper = await reachCreatedPanel();
+
+      await addButton(wrapper).trigger('click');
+      await flushPromises();
+
+      expect(addButton(wrapper).exists()).toBe(false);
+      expect(wrapper.find('[data-testid="byline-add-failed"]').text()).toContain("You can't edit this page.");
+      expect(wrapper.find('[data-testid="byline-copy-link"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="byline-created-done"]').text()).toBe('Not now');
+      expect(wrapper.find('[data-testid="byline-open-editor"]').exists()).toBe(true);
+      expect(wrapper.text()).toContain('Saved either way — paste it any time.');
+    });
+
+    it('reports a close with no action as the decline', async () => {
+      const wrapper = await reachCreatedPanel();
+
+      window.dispatchEvent(new Event('pagehide'));
+      wrapper.unmount();
+
+      expect(events('byline_created_panel_closed')).toHaveLength(1);
+      expect(events('byline_created_panel_closed')[0][1]).toMatchObject({
+        created_panel_action: 'none',
+        custom_content_id: '99',
+        macro_type: 'sequence',
+      });
+    });
+
+    it('reports Add to page as the panel action, once', async () => {
+      choosePlacement.mockResolvedValue({ status: 'cancelled' });
+      const wrapper = await reachCreatedPanel();
+      await wrapper.find('[data-testid="byline-copy-link"]').trigger('click');
+      await addButton(wrapper).trigger('click');
+      await flushPromises();
+
+      window.dispatchEvent(new Event('pagehide'));
+      wrapper.unmount();
+
+      expect(events('byline_created_panel_closed')).toHaveLength(1);
+      expect(events('byline_created_panel_closed')[0][1]).toMatchObject({ created_panel_action: 'add_to_page' });
+    });
+
+    it('reports when a placed panel returns to the list, and not again on close', async () => {
+      const wrapper = await reachCreatedPanel();
+      await addButton(wrapper).trigger('click');
+      await flushPromises();
+      expect(events('byline_created_panel_closed')).toHaveLength(1);
+
+      window.dispatchEvent(new Event('pagehide'));
+
+      expect(events('byline_created_panel_closed')).toHaveLength(1);
+    });
+
+    it('tags the list row placement as byline_list', async () => {
+      apWrapper.listPageDiagramContents.mockResolvedValue([
+        ok(child('1', 'Placed', DiagramType.Sequence), child('2', 'Stray', DiagramType.Sequence)),
+      ]);
+      apWrapper.referencedCustomContentIds.mockResolvedValue(['1']);
+      const wrapper = await mountByline();
+
+      await wrapper.find('[data-testid="byline-add-to-page"]').trigger('click');
+      await flushPromises();
+
+      expect(choosePlacement).toHaveBeenCalledWith('page-1', expect.objectContaining({ id: '2' }), 'byline', 'byline_list');
+      expect(events('diagram_added_to_page')[0][1]).toMatchObject({
+        placement_entry: 'byline_list',
+        custom_content_id: '2',
+      });
     });
   });
 

@@ -19,6 +19,7 @@ export function mountPlacementPicker(forgeContext: Record<string, any>): boolean
     pageId: modal.pageId,
     diagram: modal.diagram,
     surface: modal.surface,
+    entry: modal.entry,
     onChoose: close,
     onDismiss: () => close(),
   }).mount(container)

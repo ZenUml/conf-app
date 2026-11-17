@@ -89,6 +89,12 @@
           {{ linkJustCopied ? '✓ Copied' : 'Copy' }}
         </button>
       </div>
+      <!-- The list body owns this notice too, but the list is not on screen
+           while this panel is, so a panel Add to page that could not land would
+           otherwise read as a dead click. -->
+      <p v-if="addFailure" class="created__warn" role="status" data-testid="byline-add-failed">
+        {{ addFailure }}
+      </p>
       <p v-if="navFailed" class="created__warn" data-testid="byline-nav-failed">
         We couldn't open the page editor from here. Edit the page yourself and
         paste the link — the {{ noun.one }} is already saved.
@@ -289,6 +295,7 @@
     <div class="byline__footer">
       <span class="byline__hint">
         <template v-if="createdLink && hostInEditor">Paste it anywhere on the page — the {{ noun.one }} is already saved.</template>
+        <template v-else-if="createdLink && canPlaceCreated">Choose where on the page it goes.</template>
         <template v-else-if="createdLink">Saved either way — paste it any time.</template>
         <template v-else-if="createUnresolved">Nothing was lost — retry when you're ready.</template>
         <!-- Nothing, deliberately: the body already says it is reading, and a
@@ -323,6 +330,31 @@
            Done, the branch above stops matching, and a bare condition would
            fall through to this pair — putting "Open editor" back in front of a
            user who is already in the editor and has finished. -->
+      <!-- View mode, and the page can be written: place it from here, through
+           the same picker the list row uses. Copy-paste-publish is the flow
+           most authors did not finish, so it steps back to the secondary
+           button; it stays because the picker places between top-level blocks
+           only, and inside a table or a section the editor is the way. No
+           "Not now": the modal's own close does exactly that, and three
+           buttons would compete with the one that finishes the job. -->
+      <template v-else-if="createdLink && canPlaceCreated">
+        <button
+          type="button"
+          class="btn-secondary"
+          data-testid="byline-open-editor"
+          @click="onOpenEditorToPaste"
+        >Open editor &amp; paste</button>
+        <button
+          type="button"
+          class="btn-primary"
+          :disabled="!!addingId"
+          data-testid="byline-created-add-to-page"
+          :title="`Choose where on the page to add this ${noun.one}`"
+          @click="onAddCreatedToPage"
+        >{{ addingId ? 'Adding…' : 'Add to page' }}</button>
+      </template>
+      <!-- View mode without the picker: a refused write, or the created diagram
+           missing from the re-read list. -->
       <template v-else-if="createdLink && !hostInEditor">
         <button
           type="button"
@@ -363,6 +395,7 @@ import { visibleDiagramTitle } from '@/lib/aiTitleGuard.js'
 import { getSpaceKey, NO_SPACE_CONTEXT } from '@/utils/ContextParameters/ContextParameters'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import type { MacroTypeValue } from '@/utils/analytics/catalog'
+import type { AnalyticsProperties } from '@/utils/analytics/types'
 import { bylineCreationOrigin } from '@/utils/analytics/creationFlow'
 import { bylineTileMacroTypes } from '@/utils/byline/pickerTypes'
 import { bylineNounFor, capitalize } from '@/utils/byline/bylineNoun'
@@ -381,7 +414,12 @@ import { indexThumbnails, fetchThumbnailDataUrl } from '@/utils/byline/thumbnail
 import { deriveUnplacedIdentity, writeUnplacedMarker } from '@/utils/byline/unplacedMarker'
 import { persistUnplacedProperty } from '@/utils/byline/unplacedProperty'
 import { placeDiagram } from '@/utils/byline/placeDiagram'
-import { choosePlacement, PICKER_OPEN_FAILED_MESSAGE, placementEventProps } from '@/utils/byline/placementPicker'
+import {
+  choosePlacement,
+  PICKER_OPEN_FAILED_MESSAGE,
+  placementEventProps,
+  type PlacementEntry,
+} from '@/utils/byline/placementPicker'
 import { isHostPageInEditor } from '@/utils/byline/hostEditor'
 import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
 import { writeClipboard, writeClipboardDetailed } from '@/composables/agentLink/clipboard'
@@ -499,6 +537,55 @@ const navFailed = ref(false)
 const finishedInEditor = ref(false)
 
 const createdThumb = computed(() => (createdId.value ? thumbs.value[createdId.value] : undefined))
+
+/**
+ * The diagram the panel is about, as the list holds it — what the picker and
+ * the write take. `afterEditorClosed` sets `diagrams` from the same re-read
+ * that found `createdId`, so it is there unless that read changed since.
+ */
+const createdDiagram = computed(() =>
+  createdId.value ? diagrams.value.find(d => d.id === createdId.value) : undefined,
+)
+
+/**
+ * Can the post-save panel offer Add to page? Not `canPlace`: that asks the page
+ * scan whether the diagram is unplaced, and a diagram saved a moment ago from
+ * here is unplaced by definition — even when the scan failed and cannot say so.
+ * The other two conditions are `canPlace`'s: a refused write withdraws it, and
+ * in the editor the picker would show the published page, not the draft.
+ */
+const canPlaceCreated = computed(() => !!createdDiagram.value && canEdit.value && !hostInEditor)
+
+type CreatedPanelAction = NonNullable<AnalyticsProperties['created_panel_action']>
+/** Kept when several happen on one panel: the action that went furthest. */
+const PANEL_ACTION_RANK: Record<CreatedPanelAction, number> = {
+  none: 0, copy: 1, done: 2, open_editor: 3, add_to_page: 4,
+}
+/** The panel on screen, for byline_created_panel_closed; null once reported. */
+let createdPanel: { id: string; macroType: MacroTypeValue; action: CreatedPanelAction } | null = null
+
+function noteCreatedPanelAction(action: CreatedPanelAction) {
+  if (createdPanel && PANEL_ACTION_RANK[action] > PANEL_ACTION_RANK[createdPanel.action]) {
+    createdPanel.action = action
+  }
+}
+
+/**
+ * Report the panel going away, once. Without it a close with no action is
+ * invisible: the create set `acted`, so byline_dismissed stays silent, and the
+ * panel has no "Not now" button of its own once Add to page is offered.
+ */
+function trackCreatedPanelClosed() {
+  if (!createdPanel) return
+  const panel = createdPanel
+  createdPanel = null
+  trackAnalyticsEvent('byline_created_panel_closed', {
+    ...baseProps(),
+    macro_type: panel.macroType,
+    custom_content_id: panel.id,
+    created_panel_action: panel.action,
+  })
+}
 
 /** The link as it appears in the step-1 illustration: host and route only.
  *  The full URL is a line away in the copy row, and the point of the frame is
@@ -781,13 +868,16 @@ function trackDismissed() {
  * its network flush is sent by the next iframe boot from this origin.
  */
 window.addEventListener('pagehide', trackDismissed)
+window.addEventListener('pagehide', trackCreatedPanelClosed)
 
 onBeforeUnmount(() => {
   // Object URLs are never created (thumbnails are inlined as data: URLs), so
   // there is nothing to revoke here.
   if (copyFlashTimer) clearTimeout(copyFlashTimer)
   window.removeEventListener('pagehide', trackDismissed)
+  window.removeEventListener('pagehide', trackCreatedPanelClosed)
   trackDismissed()
+  trackCreatedPanelClosed()
 })
 
 /**
@@ -966,18 +1056,19 @@ let choosing = false
  * reads is rewritten in the same breath — leaving it would have the page banner
  * announce a diagram the user just watched appear.
  */
-async function onAddToPage(d: PageDiagram) {
+async function onAddToPage(d: PageDiagram, entry: PlacementEntry = 'byline_list') {
   if (addingId.value || choosing) return
   acted = true
   addFailure.value = null
 
   choosing = true
-  const answer = await choosePlacement(pageId, d, 'byline')
+  const answer = await choosePlacement(pageId, d, 'byline', entry)
   choosing = false
   if (answer.status === 'open_failed') {
     trackAnalyticsEvent('placement_picker_opened', {
       ...baseProps(),
       macro_type: toMacroType(d.diagramType) as MacroTypeValue,
+      placement_entry: entry,
       result: 'open_failed',
     })
     addFailure.value = PICKER_OPEN_FAILED_MESSAGE
@@ -999,6 +1090,8 @@ async function onAddToPage(d: PageDiagram) {
   trackAnalyticsEvent('diagram_added_to_page', {
     ...baseProps(),
     macro_type: toMacroType(d.diagramType) as MacroTypeValue,
+    placement_entry: entry,
+    custom_content_id: String(d.id),
     result: outcome.result,
     ...placementEventProps(answer.choice),
     ...(outcome.pageMacroCount === undefined ? {} : { page_macro_count: outcome.pageMacroCount }),
@@ -1013,6 +1106,18 @@ async function onAddToPage(d: PageDiagram) {
   // remaining row of the panel.
   if (outcome.refused) canEdit.value = false
   addFailure.value = outcome.message
+  // Placed from the post-save panel but the page did not reload: the panel
+  // would go on asking for a paste of a diagram that is now on the page. The
+  // list is the honest state — it shows the diagram as placed.
+  if (entry === 'created_panel' && outcome.result === 'added') clearCreated()
+}
+
+/** The post-save panel's Add to page. */
+function onAddCreatedToPage() {
+  const d = createdDiagram.value
+  if (!d) return
+  noteCreatedPanelAction('add_to_page')
+  void onAddToPage(d, 'created_panel')
 }
 
 async function onCopySource(d: PageDiagram) {
@@ -1225,6 +1330,7 @@ async function afterEditorClosed(before: string[], macroType: MacroTypeValue) {
     createdTitle.value = created?.title || ''
     createdType.value = created?.diagramType || ''
     createdLink.value = link
+    createdPanel = { id: String(newId), macroType: toMacroType(created?.diagramType || '') as MacroTypeValue, action: 'none' }
     // Kicked off BEFORE the copy, not after it. The step-2 frame renders the
     // diagram from this, and nothing about it depends on the clipboard — but
     // sequencing it behind the await made it hostage to a write that can hang
@@ -1307,6 +1413,7 @@ async function copyCreatedLink(trigger: CreatedCopyTrigger): Promise<boolean> {
 }
 
 function onCopyCreatedLink() {
+  noteCreatedPanelAction('copy')
   void copyCreatedLink('manual')
 }
 
@@ -1320,6 +1427,7 @@ function onCopyCreatedLink() {
  * in an editor with nothing to paste. The diagram is already saved either way.
  */
 async function onOpenEditorToPaste() {
+  noteCreatedPanelAction('open_editor')
   // Inside the click, before anything else: this is a user gesture, so the write
   // is allowed even when the save-time copy was not. Navigate regardless — the
   // diagram is saved and the Copy button and link row stay if this failed.
@@ -1397,7 +1505,18 @@ async function requestCloseView(): Promise<'closed' | 'unsupported' | 'failed'> 
  *   list is the byline's own home screen, so it is a fine place to be left if
  *   the close is refused — and the state is reset to reach it.
  */
+/** Leave the post-save panel for the list (view mode only). */
+function clearCreated() {
+  trackCreatedPanelClosed()
+  createdLink.value = null
+  createdTitle.value = ''
+  createdType.value = ''
+  createdId.value = ''
+  createdCopied.value = false
+}
+
 async function onDismissCreated() {
+  noteCreatedPanelAction('done')
   // Editor "Done" is the panel's primary action: copy inside its own click
   // before closing. "Not now" (view mode) is the decline and copies nothing.
   if (hostInEditor && createdLink.value && !finishedInEditor.value) {
@@ -1407,11 +1526,7 @@ async function onDismissCreated() {
   if (hostInEditor) {
     finishedInEditor.value = true
   } else {
-    createdLink.value = null
-    createdTitle.value = ''
-    createdType.value = ''
-    createdId.value = ''
-    createdCopied.value = false
+    clearCreated()
   }
   linkJustCopied.value = false
   if (copyFlashTimer) clearTimeout(copyFlashTimer)

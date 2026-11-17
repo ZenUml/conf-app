@@ -235,6 +235,7 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   "get_started_create_sequence",
   "byline_create_clicked",
   "byline_diagram_created",
+  "byline_created_panel_closed",
   "byline_create_cancelled",
   "byline_editor_deeplinked",
   // Unplaced-diagram funnel. A diagram created from the page byline is saved

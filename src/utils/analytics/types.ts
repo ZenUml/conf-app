@@ -737,6 +737,20 @@ export type AnalyticsProperties = {
   whats_new_expanded?: boolean;
   // whats_new_link_clicked: the item's stable id within its release.
   whats_new_item_id?: string;
+  // diagram_added_to_page, placement_picker_opened and placement_picker_dismissed:
+  // which button started the placement. `surface` cannot tell these apart —
+  // the byline list row and the byline's post-save panel are both 'byline'.
+  //   'created_panel' — "Add to page" on the panel shown right after a create
+  //   'byline_list'   — "Add to page" on an unplaced row of the byline list
+  //   'page_banner'   — "Add to page" on the unplaced-diagram page banner
+  // Read with `custom_content_id` on diagram_added_to_page to join a create
+  // (byline_diagram_created) to its placement.
+  placement_entry?: "created_panel" | "byline_list" | "page_banner";
+  // byline_created_panel_closed: the furthest action taken on the post-save
+  // panel before it went away (add_to_page > open_editor > done > copy).
+  // 'add_to_page' counts the click, not a landed write (diagram_added_to_page
+  // says that); 'none' is a close with no action.
+  created_panel_action?: "add_to_page" | "open_editor" | "copy" | "done" | "none";
   // diagram_added_to_page, from the placement picker. Where the diagram went
   // among the page's top-level blocks.
   placement_position?: "start" | "middle" | "end";

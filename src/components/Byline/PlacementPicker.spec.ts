@@ -47,6 +47,21 @@ describe('PlacementPicker', () => {
     })
   })
 
+  it('reports the button that opened it, and a per-surface default without one', async () => {
+    await mountPicker({ entry: 'created_panel' })
+    expect(events('placement_picker_opened')[0][1]).toMatchObject({ placement_entry: 'created_panel' })
+
+    vi.clearAllMocks()
+    await mountPicker()
+    expect(events('placement_picker_opened')[0][1]).toMatchObject({ placement_entry: 'byline_list' })
+
+    vi.clearAllMocks()
+    const { wrapper } = await mountPicker({ surface: 'page_banner' })
+    expect(events('placement_picker_opened')[0][1]).toMatchObject({ placement_entry: 'page_banner' })
+    await wrapper.get('[data-testid="placement-cancel"]').trigger('click')
+    expect(events('placement_picker_dismissed')[0][1]).toMatchObject({ placement_entry: 'page_banner' })
+  })
+
   it('closes with the spot the user chose', async () => {
     const { wrapper, onChoose } = await mountPicker()
 

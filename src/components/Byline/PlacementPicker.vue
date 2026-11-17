@@ -57,8 +57,10 @@ import type { MacroTypeValue } from '@/utils/analytics/catalog'
 import { toMacroType } from '@/utils/byline/pageDiagrams'
 import { placementAt, type PlacementChoice } from '@/utils/byline/pagePlacement'
 import {
+  defaultPlacementEntry,
   readPageForPlacement,
   type PageForPlacement,
+  type PlacementEntry,
   type PlacementDiagram,
   type PlacementSurface,
 } from '@/utils/byline/placementPicker'
@@ -79,6 +81,8 @@ const props = withDefaults(
     pageId: string
     diagram: PlacementDiagram
     surface: PlacementSurface
+    /** Absent from a modal opened by a build that predates it. */
+    entry?: PlacementEntry
     onChoose: (choice: PlacementChoice) => void | Promise<void>
     onDismiss: () => void | Promise<void>
     loadPage?: (pageId: string) => Promise<PageForPlacement>
@@ -105,6 +109,7 @@ let finished = false
 const baseProps = () => ({
   feature_area: 'byline' as const,
   surface: props.surface,
+  placement_entry: props.entry ?? defaultPlacementEntry(props.surface),
   macro_type: toMacroType(props.diagram.diagramType) as MacroTypeValue,
 })
 

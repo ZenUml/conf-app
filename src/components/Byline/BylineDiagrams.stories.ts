@@ -85,3 +85,26 @@ export const CreatedCopied: Story = {
     await expect(canvas.getByTestId('byline-created-done')).toHaveTextContent('Done')
   },
 }
+
+export const CreatedViewModeAddToPage: Story = {
+  name: 'Created — view mode, Add to page',
+  loaders: [async () => arrange({ editing: false, focused: false })],
+  play: async ({ canvasElement }) => {
+    await saveADiagram(canvasElement)
+    const canvas = within(canvasElement)
+    const add = canvas.getByTestId('byline-created-add-to-page')
+    await expect(add).toHaveTextContent('Add to page')
+    await expect(add).toHaveClass('btn-primary')
+    await expect(canvas.getByText('Choose where on the page it goes.')).toBeInTheDocument()
+    await expect(canvas.queryByTestId('byline-created-done')).toBeNull()
+    // The click opens the same placement picker the list row uses, tagged
+    // with the panel as its entry.
+    await userEvent.click(add)
+    await expect(Modal.lastOptions.context).toMatchObject({
+      macroMode: 'placement-picker',
+      surface: 'byline',
+      entry: 'created_panel',
+      diagram: { id: '99' },
+    })
+  },
+}

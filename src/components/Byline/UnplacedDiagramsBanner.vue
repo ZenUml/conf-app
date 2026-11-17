@@ -491,6 +491,7 @@ async function onAddToPage(entry: UnplacedDiagramEntry) {
     trackAnalyticsEvent('placement_picker_opened', {
       ...baseProps(),
       macro_type: toMacroType(entry.diagramType) as MacroTypeValue,
+      placement_entry: 'page_banner',
       result: 'open_failed',
     })
     addFailure.value = PICKER_OPEN_FAILED_MESSAGE
@@ -516,6 +517,8 @@ async function onAddToPage(entry: UnplacedDiagramEntry) {
   trackAnalyticsEvent('diagram_added_to_page', {
     ...baseProps(),
     macro_type: toMacroType(entry.diagramType) as MacroTypeValue,
+    placement_entry: 'page_banner',
+    custom_content_id: String(entry.id),
     result: outcome.result,
     ...placementEventProps(answer.choice),
     ...(outcome.pageMacroCount === undefined ? {} : { page_macro_count: outcome.pageMacroCount }),

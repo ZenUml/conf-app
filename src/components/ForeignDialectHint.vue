@@ -68,7 +68,8 @@
 import { computed, ref, watch } from "vue";
 import { useStore } from "vuex";
 import { DiagramType } from "@/model/Diagram/Diagram";
-import { detectForeignDialect } from "@/model/Diagram/detectForeignDialect";
+import { detectForeignDialect, extractMermaidSource } from "@/model/Diagram/detectForeignDialect";
+import { stripMarkdownFence } from "@/model/Diagram/markdownFence";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 
 const store = useStore();
@@ -105,6 +106,7 @@ function baseProps() {
     surface: "editor",
     macro_type: DiagramType.Sequence,
     detected_dialect: detectedDialect.value,
+    has_markdown_fence: stripMarkdownFence(code.value).fenced,
   };
 }
 
@@ -123,7 +125,7 @@ function switchDialect() {
   trackAnalyticsEvent("foreign_dialect_hint_switch_clicked", baseProps());
   const source = code.value;
   if (detectedDialect.value === "mermaid") {
-    store.dispatch("updateMermaidCode", source);
+    store.dispatch("updateMermaidCode", extractMermaidSource(source) ?? source);
     store.commit("updateDiagramType", DiagramType.Mermaid);
   } else {
     store.dispatch("updatePlantUmlCode", source);

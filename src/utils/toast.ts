@@ -1,11 +1,12 @@
 export const toast = (options: {
   message: string;
   duration?: number;
+  action?: { label: string; onClick: () => void };
 }) => {
-  const { message, duration = 3000 } = options;
+  const { message, duration = 3000, action } = options;
 
   const toast = document.createElement('div');
-  toast.textContent = message;
+  toast.setAttribute('data-testid', 'toast');
   // Screen readers announce the message without moving focus (#934).
   toast.setAttribute('role', 'status');
   toast.setAttribute('aria-live', 'polite');
@@ -20,11 +21,40 @@ export const toast = (options: {
   toast.style.zIndex = '9999';
   toast.style.backgroundColor = 'rgba(0, 0, 0, 0.9)';
   toast.style.transition = 'all 0.3s';
+
+  // The click handler and the timers both remove the node; whichever runs
+  // second must find it already gone.
+  const remove = () => {
+    if (toast.parentNode) toast.parentNode.removeChild(toast);
+  };
+
+  if (action) {
+    const text = document.createElement('span');
+    text.textContent = message;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.setAttribute('data-testid', 'toast-action');
+    button.textContent = action.label;
+    button.style.color = '#fff';
+    button.style.background = 'transparent';
+    button.style.border = 'none';
+    button.style.textDecoration = 'underline';
+    button.style.marginLeft = '12px';
+    button.style.cursor = 'pointer';
+    button.style.fontSize = '16px';
+    button.addEventListener('click', () => {
+      action.onClick();
+      remove();
+    });
+    toast.appendChild(text);
+    toast.appendChild(button);
+  } else {
+    toast.textContent = message;
+  }
+
   document.body.appendChild(toast);
   setTimeout(() => {
     toast.style.opacity = '0';
-    setTimeout(() => {
-      document.body.removeChild(toast);
-    }, 300);
+    setTimeout(remove, 300);
   }, duration);
 }

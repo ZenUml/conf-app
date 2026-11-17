@@ -1506,6 +1506,45 @@ describe("trackAnalyticsEvent", () => {
     expect(properties).not.toHaveProperty("session_replay_source", "first_authoring");
   });
 
+  it.each([
+    { draw: 0.99, label: "outside" },
+    { draw: 0, label: "inside" },
+  ])(
+    "keeps first_authoring on later authoring events when the draw is $label the rate",
+    async ({ draw }) => {
+      vi.spyOn(Math, "random").mockReturnValue(draw);
+      vi.mocked(getSessionReplayConfig).mockResolvedValue({ percent: 0, source: "off" });
+
+      await _awaitableTrackAnalyticsEvent("editor_template_gallery_opened", {
+        feature_area: "onboarding",
+        surface: "editor",
+        template_gallery_trigger: "auto_first_open",
+      });
+      vi.mocked(mixpanel.register).mockClear();
+      await _awaitableTrackAnalyticsEvent("macro_create_started", {
+        feature_area: "macro",
+        surface: "editor",
+      });
+      await _awaitableTrackAnalyticsEvent("macro_edit_started", {
+        feature_area: "macro",
+        surface: "editor",
+      });
+
+      expect(mixpanel.start_session_recording).toHaveBeenCalledOnce();
+      expect(mixpanel.register).not.toHaveBeenCalled();
+      for (const name of ["macro_create_started", "macro_edit_started"]) {
+        expect(mixpanel.track).toHaveBeenCalledWith(
+          name,
+          expect.objectContaining({
+            session_replay_source: "first_authoring",
+            session_replay_percent: 100,
+            session_replay_start_call_outcome: "returned",
+          })
+        );
+      }
+    }
+  );
+
   it("forces replay when macro creation starts", async () => {
     // Authoring replay is sampled; pin the draw inside the rate so this test
     // asserts the recording path rather than the coin flip.

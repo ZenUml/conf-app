@@ -121,6 +121,12 @@ const NOVEMBER_FULLSCREEN_REPLAY_RATE = 0.1;
 // We never stop an already-running recording at that boundary.
 let _authoringReplayDraw: number | null = null;
 
+// Set once a first_authoring recording has started in this iframe. Later
+// authoring events must then neither report skipped_sampled (95% of first
+// sessions would read as "no replay") nor re-register `authoring` (5% would be
+// relabelled), or the first_authoring source could not be measured.
+let _firstAuthoringReplayStarted = false;
+
 function _shouldRecordAuthoring(): boolean {
   if (_authoringReplayDraw === null) {
     _authoringReplayDraw = Math.random();
@@ -172,7 +178,7 @@ const FORCED_REPLAY_SOURCES: Partial<
 // against the 20,000 a month replay quota.
 function _forcedReplaySource(
   eventName: AnalyticsEventName,
-  callerProps: AnalyticsProperties
+  callerProps: Partial<AnalyticsProperties>
 ): SessionReplayEventSource | undefined {
   if (
     eventName === "editor_template_gallery_opened" &&
@@ -185,7 +191,7 @@ function _forcedReplaySource(
 
 function _startExplicitReplay(
   eventName: AnalyticsEventName,
-  callerProps: AnalyticsProperties = {}
+  callerProps: Partial<AnalyticsProperties> = {}
 ): Partial<ExplicitReplayProperties> {
   const forcedSource = _forcedReplaySource(eventName, callerProps);
   if (forcedSource) {
@@ -200,6 +206,9 @@ function _startExplicitReplay(
         session_replay_percent: replayProperties.session_replay_percent,
         session_replay_source: replayProperties.session_replay_source,
       });
+      if (forcedSource === "first_authoring") {
+        _firstAuthoringReplayStarted = true;
+      }
       return replayProperties;
     } catch (error) {
       console.error(
@@ -215,6 +224,14 @@ function _startExplicitReplay(
     eventName !== "macro_edit_started"
   ) {
     return {};
+  }
+
+  if (_firstAuthoringReplayStarted) {
+    return {
+      session_replay_source: "first_authoring",
+      session_replay_percent: 100,
+      session_replay_start_call_outcome: "returned",
+    };
   }
 
   // Outside the sample: leave the Forge-flag cohort's decision untouched. Not
@@ -685,4 +702,5 @@ export function _resetForTesting(): void {
   _initPromise = null;
   _identified = false;
   _authoringReplayDraw = null;
+  _firstAuthoringReplayStarted = false;
 }

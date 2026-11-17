@@ -1,0 +1,186 @@
+test
+Building v2026.11.132213-full (f7957630) on fix/stale-index-rebuild
+
+ RUN  v2.1.9 ~/workspaces/zenuml/conf-app/.claude/worktrees/stale-index-rebuild-797a03
+
+ ❯ functions/api/architecture-tokens/related.heal.spec.ts (7 tests | 7 failed) 32ms
+   × related lookup on a stale index row > rebuilds that diagram's row from the live body and answers from the fresh index 20ms
+     → expected 'stale_index' to be undefined
+   × related lookup on a stale index row > keeps today's answer and the old row when the body read fails 3ms
+     → expected { …(4) } to match object { participants: [], …(5) }
+(1 matching property omitted from actual)
+   × related lookup on a stale index row > keeps today's answer when the index write fails 1ms
+     → expected { …(4) } to match object { error_kind: 'stale_index', …(1) }
+(3 matching properties omitted from actual)
+   × related lookup on a stale index row > does not rebuild a diagram that is missing from the live read, and says which case it is 1ms
+     → expected { …(4) } to match object { error_kind: 'stale_index', …(1) }
+(3 matching properties omitted from actual)
+   × related lookup on a stale index row > reports a diagram that came back without a page container as its own case 1ms
+     → expected { …(4) } to match object { error_kind: 'stale_index', …(1) }
+(3 matching properties omitted from actual)
+   × related lookup on a stale index row > lets concurrent viewers of one stale diagram share one rebuild 3ms
+     → expected +0 to be 1 // Object.is equality
+   × related lookup on a stale index row > rebuilds at most once per request when the fresh row is still behind 1ms
+     → expected { …(4) } to match object { error_kind: 'stale_index', …(2) }
+(3 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > rebuilds that diagram's row from the live body and answers from the fresh index
+AssertionError: expected 'stale_index' to be undefined
+
+- Expected: 
+undefined
+
++ Received: 
+"stale_index"
+
+ ❯ functions/api/architecture-tokens/related.heal.spec.ts:146:29
+    144|     const body = await res.json() as any;
+    145| 
+    146|     expect(body.error_kind).toBeUndefined();
+       |                             ^
+    147|     expect(body.lookup_outcome).toBe('indexed');
+    148|     expect(body.contentVersion).toBe(4);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > keeps today's answer and the old row when the body read fails
+AssertionError: expected { …(4) } to match object { participants: [], …(5) }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+    "contentVersion": 3,
+    "error_kind": "stale_index",
+-   "heal_outcome": "content_fetch_failed",
+-   "live_version": 4,
+    "participants": Array [],
+-   "stale_reason": "version_mismatch",
+  }
+
+ ❯ functions/api/architecture-tokens/related.heal.spec.ts:172:18
+    170| 
+    171|     expect(res.status).toBe(200);
+    172|     expect(body).toMatchObject({
+       |                  ^
+    173|       participants: [], error_kind: 'stale_index', contentVersion: 3,
+    174|       stale_reason: 'version_mismatch', live_version: 4, heal_outcome:…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > keeps today's answer when the index write fails
+AssertionError: expected { …(4) } to match object { error_kind: 'stale_index', …(1) }
+(3 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+    "error_kind": "stale_index",
+-   "heal_outcome": "write_failed",
+  }
+
+ ❯ functions/api/architecture-tokens/related.heal.spec.ts:187:18
+    185|     const body = await res.json() as any;
+    186| 
+    187|     expect(body).toMatchObject({ error_kind: 'stale_index', heal_outco…
+       |                  ^
+    188|     expect(store.rows('11').map((r) => r.contentVersion)).toEqual([3]);
+    189|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > does not rebuild a diagram that is missing from the live read, and says which case it is
+AssertionError: expected { …(4) } to match object { error_kind: 'stale_index', …(1) }
+(3 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+    "error_kind": "stale_index",
+-   "stale_reason": "not_in_live_read",
+  }
+
+ ❯ functions/api/architecture-tokens/related.heal.spec.ts:198:18
+    196|     const body = await (await onRequest({ ...request('11'), env: { DB:…
+    197| 
+    198|     expect(body).toMatchObject({ error_kind: 'stale_index', stale_reas…
+       |                  ^
+    199|     expect(body.heal_outcome).toBeUndefined();
+    200|     expect(calls.body).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > reports a diagram that came back without a page container as its own case
+AssertionError: expected { …(4) } to match object { error_kind: 'stale_index', …(1) }
+(3 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+    "error_kind": "stale_index",
+-   "stale_reason": "no_page_container",
+  }
+
+ ❯ functions/api/architecture-tokens/related.heal.spec.ts:214:18
+    212|     const body = await (await onRequest({ ...request('11'), env: { DB:…
+    213| 
+    214|     expect(body).toMatchObject({ error_kind: 'stale_index', stale_reas…
+       |                  ^
+    215|     expect(calls.body).toBe(0);
+    216|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > lets concurrent viewers of one stale diagram share one rebuild
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ functions/api/architecture-tokens/related.heal.spec.ts:227:24
+    225|       (await onRequest({ ...request('11'), env, waitUntil: vi.fn() } a…
+    226| 
+    227|     expect(calls.body).toBe(1);
+       |                        ^
+    228|     for (const body of answers) {
+    229|       expect(body.error_kind).toBeUndefined();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > rebuilds at most once per request when the fresh row is still behind
+AssertionError: expected { …(4) } to match object { error_kind: 'stale_index', …(2) }
+(3 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+    "error_kind": "stale_index",
+-   "live_version": 5,
+-   "stale_reason": "version_mismatch",
+  }
+
+ ❯ functions/api/architecture-tokens/related.heal.spec.ts:253:18
+    251|     const body = await (await onRequest({ ...request('11'), env: { DB:…
+    252| 
+    253|     expect(body).toMatchObject({ error_kind: 'stale_index', stale_reas…
+       |                  ^
+    254|     expect(listReads).toBe(2);
+    255|     expect(store.rows('11').map((r) => r.contentVersion)).toEqual([4, …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+ Test Files  1 failed (1)
+      Tests  7 failed (7)
+   Start at  15:37:18
+   Duration  960ms (transform 87ms, setup 29ms, collect 44ms, tests 32ms, environment 370ms, prepare 155ms)
+

@@ -1,0 +1,96 @@
+test
+Building v2026.11.132213-full (a50b16dd) on fix/stale-index-rebuild
+
+ RUN  v2.1.9 ~/workspaces/zenuml/conf-app/.claude/worktrees/stale-index-rebuild-797a03
+
+ ✓ functions/architecture-tokens/repository.spec.ts > repository > occurrencesForContent scopes by cloudId and contentId
+ ✓ functions/architecture-tokens/repository.spec.ts > repository > occurrencesForKeys binds every key and scopes by cloudId
+ ✓ functions/architecture-tokens/repository.spec.ts > repository > occurrencesForKeys with no keys makes no query
+stdout | functions/architecture-tokens/service.spec.ts > relatedDiagrams > shows nothing when this diagram has been edited since it was indexed
+{"event":"architecture_tokens_stale_index","contentId":"1","stale_reason":"version_mismatch","indexed_version":1,"live_version":56}
+
+ ✓ functions/architecture-tokens/service.spec.ts > a name used across the tenant > lists the nearest five and reports the true total
+ ✓ functions/architecture-tokens/service.spec.ts > a name used across the tenant > bounds a high-cardinality live-version read without changing the full index total
+ ✓ functions/architecture-tokens/service.spec.ts > a name used across the tenant > uses four live-version reads and three permission reads for 966 candidates
+ ✓ functions/architecture-tokens/service.spec.ts > a name used across the tenant > backfills past stale, deleted, and version-mismatched candidates
+ ✓ functions/architecture-tokens/service.spec.ts > a name used across the tenant > backfills past permission-denied pages before taking the nearest five
+ ✓ functions/architecture-tokens/service.spec.ts > a name used across the tenant > counts and lists pages rather than letting duplicate pageIds consume the five-page slice
+ ✓ functions/architecture-tokens/service.spec.ts > a name used across the tenant > covers distinct pages across fifteen keys before spending the 300-id budget on duplicate pages
+ ✓ functions/architecture-tokens/service.spec.ts > a name used across the tenant > reports a total equal to the rows when nothing is truncated
+ ✓ functions/architecture-tokens/service.spec.ts > a name used across the tenant > lists this space first, then the newest content
+ ✓ functions/architecture-tokens/service.spec.ts > a name used across the tenant > re-ranks a content moved onto the current page before taking five pages
+ ✓ functions/architecture-tokens/service.spec.ts > a name used across the tenant > re-ranks by the live custom-content space before taking five pages
+ ✓ functions/architecture-tokens/service.spec.ts > relatedDiagrams > returns only pages the resolver (as-user) returned, excludes self, dedupes content, and keeps the label used there
+ ✓ functions/architecture-tokens/service.spec.ts > relatedDiagrams > unindexed diagram returns empty participants, null indexedAt, and makes no resolver call
+ ✓ functions/architecture-tokens/service.spec.ts > relatedDiagrams > resolver failure returns empty participants with error_kind and never throws
+ ✓ functions/architecture-tokens/service.spec.ts > relatedDiagrams > shows nothing when this diagram has been edited since it was indexed
+ ✓ functions/architecture-tokens/service.spec.ts > relatedDiagrams > drops a target edited since indexing, and opens a moved one at its page today
+ ✓ functions/architecture-tokens/service.spec.ts > relatedDiagrams > a target that no longer exists is dropped
+ ✓ functions/architecture-tokens/service.spec.ts > confluencePageResolver > runs one CQL id-in search per 100 ids as the user and maps title + space key
+ ✓ functions/architecture-tokens/service.spec.ts > confluencePageResolver > throws for a non-2xx response
+ ✓ functions/architecture-tokens/heal.spec.ts > staleIndexHealer > never moves rows backwards when the index already holds a newer version
+ ✓ functions/architecture-tokens/heal.spec.ts > staleIndexHealer > answers heal_pending after the budget and still finishes the write under waitUntil
+ ✓ functions/architecture-tokens/heal.spec.ts > staleIndexHealer > reports a body that is not this diagram as a failed read and writes nothing
+ ✓ functions/architecture-tokens/indexOnSave.spec.ts > preferComparisonKey > adopts an existing tenant form that is more segmented
+ ✓ functions/architecture-tokens/indexOnSave.spec.ts > preferComparisonKey > keeps the local key when it is more segmented than what the tenant holds
+ ✓ functions/architecture-tokens/indexOnSave.spec.ts > preferComparisonKey > breaks an equal-segment tie by localeCompare, matching the batch pipeline
+ ✓ functions/architecture-tokens/indexOnSave.spec.ts > preferComparisonKey > ignores stored keys whose grouping token differs
+ ✓ functions/architecture-tokens/indexOnSave.spec.ts > buildOccurrenceRows > extracts explicit mermaid participants at the saved version
+ ✓ functions/architecture-tokens/indexOnSave.spec.ts > buildOccurrenceRows > returns no rows when the diagram is not a sequence diagram
+ ✓ functions/architecture-tokens/indexOnSave.spec.ts > buildOccurrenceRows > applies the tenant preferred comparison key
+ ✓ functions/architecture-tokens/indexOnSave.spec.ts > indexDiagramOnSave > writes a delete plus inserts for the saved diagram
+ ✓ functions/architecture-tokens/indexOnSave.spec.ts > indexDiagramOnSave > still deletes when the diagram is no longer a sequence diagram
+ ✓ functions/architecture-tokens/indexOnSave.spec.ts > indexDiagramOnSave > skips without a cloudId, because the primary key requires one
+ ✓ functions/architecture-tokens/indexOnSave.spec.ts > indexDiagramOnSave > reports a D1 failure instead of throwing, so the save is not affected
+ ✓ functions/api/architecture-tokens/related.spec.ts > GET /api/architecture-tokens/related > scopes by the authenticated cloudId and resolves pages as the user
+ ✓ functions/api/architecture-tokens/related.spec.ts > GET /api/architecture-tokens/related > passes the reader's page through so the nearest position survives the slice
+ ✓ functions/api/architecture-tokens/related.spec.ts > GET /api/architecture-tokens/related > ignores a non-numeric pageId rather than failing the lookup
+ ✓ functions/api/architecture-tokens/related.spec.ts > GET /api/architecture-tokens/related > rejects a non-numeric id
+ ✓ functions/api/architecture-tokens/related.spec.ts > GET /api/architecture-tokens/related > 405 on POST
+ ✓ functions/api/architecture-tokens/related.spec.ts > GET /api/architecture-tokens/related > missing forge context → 401
+ ✓ functions/api/architecture-tokens/related.spec.ts > GET /api/architecture-tokens/related > valid context and system token but no user token → 403 no_user_credential
+ ✓ functions/api/architecture-tokens/related.spec.ts > GET /api/architecture-tokens/related > service throw → 200 with error_kind, never 500
+stdout | functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > rebuilds that diagram's row from the live body and answers from the fresh index
+Fetching from URL with OAuth: https://api.atlassian.com/ex/confluence/cloud-in-url/api/v2/custom-content/11?body-format=raw
+{"event":"architecture_tokens_stale_index","contentId":"11","stale_reason":"version_mismatch","indexed_version":3,"live_version":4,"heal_outcome":"healed"}
+
+stdout | functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > keeps today's answer and the old row when the body read fails
+Fetching from URL with OAuth: https://api.atlassian.com/ex/confluence/cloud-in-url/api/v2/custom-content/11?body-format=raw
+{"event":"architecture_tokens_stale_index","contentId":"11","stale_reason":"version_mismatch","indexed_version":3,"live_version":4,"heal_outcome":"content_fetch_failed"}
+
+stdout | functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > keeps today's answer when the index write fails
+Fetching from URL with OAuth: https://api.atlassian.com/ex/confluence/cloud-in-url/api/v2/custom-content/11?body-format=raw
+{"event":"architecture_tokens_stale_index","contentId":"11","stale_reason":"version_mismatch","indexed_version":3,"live_version":4,"heal_outcome":"write_failed"}
+
+stdout | functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > does not rebuild a diagram that is missing from the live read, and says which case it is
+{"event":"architecture_tokens_stale_index","contentId":"11","stale_reason":"not_in_live_read","indexed_version":3}
+
+stdout | functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > reports a diagram that came back without a page container as its own case
+{"event":"architecture_tokens_stale_index","contentId":"11","stale_reason":"no_page_container","indexed_version":3}
+
+stdout | functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > lets concurrent viewers of one stale diagram share one rebuild
+Fetching from URL with OAuth: https://api.atlassian.com/ex/confluence/cloud-in-url/api/v2/custom-content/11?body-format=raw
+{"event":"architecture_tokens_stale_index","contentId":"11","stale_reason":"version_mismatch","indexed_version":3,"live_version":4,"heal_outcome":"healed"}
+{"event":"architecture_tokens_stale_index","contentId":"11","stale_reason":"version_mismatch","indexed_version":3,"live_version":4,"heal_outcome":"healed"}
+{"event":"architecture_tokens_stale_index","contentId":"11","stale_reason":"version_mismatch","indexed_version":3,"live_version":4,"heal_outcome":"healed"}
+{"event":"architecture_tokens_stale_index","contentId":"11","stale_reason":"version_mismatch","indexed_version":3,"live_version":4,"heal_outcome":"healed"}
+{"event":"architecture_tokens_stale_index","contentId":"11","stale_reason":"version_mismatch","indexed_version":3,"live_version":4,"heal_outcome":"healed"}
+
+stdout | functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > rebuilds at most once per request when the fresh row is still behind
+Fetching from URL with OAuth: https://api.atlassian.com/ex/confluence/cloud-in-url/api/v2/custom-content/11?body-format=raw
+{"event":"architecture_tokens_stale_index","contentId":"11","stale_reason":"version_mismatch","indexed_version":3,"live_version":4,"heal_outcome":"healed"}
+{"event":"architecture_tokens_stale_index","contentId":"11","stale_reason":"version_mismatch","indexed_version":4,"live_version":5}
+
+ ✓ functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > rebuilds that diagram's row from the live body and answers from the fresh index
+ ✓ functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > keeps today's answer and the old row when the body read fails
+ ✓ functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > keeps today's answer when the index write fails
+ ✓ functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > does not rebuild a diagram that is missing from the live read, and says which case it is
+ ✓ functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > reports a diagram that came back without a page container as its own case
+ ✓ functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > lets concurrent viewers of one stale diagram share one rebuild
+ ✓ functions/api/architecture-tokens/related.heal.spec.ts > related lookup on a stale index row > rebuilds at most once per request when the fresh row is still behind
+
+ Test Files  6 passed (6)
+      Tests  51 passed (51)
+   Start at  16:10:04
+   Duration  7.53s (transform 1.89s, setup 534ms, collect 4.70s, tests 465ms, environment 14.81s, prepare 5.63s)
+

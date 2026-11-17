@@ -4,15 +4,17 @@
 # Prints `deploy: …` and `smoke: …`.
 # Exit 0  deploy succeeded and every non-skipped smoke job succeeded
 # Exit 2  deploy succeeded and the workflow has no smoke jobs (AsyncAPI today)
-# Exit 3  deploy succeeded and smoke is still running
-# Exit 1  deploy missing or failed, or smoke failed
+# Exit 3  no verdict yet: the run has no jobs yet, deploy is still queued or running,
+#         or deploy succeeded and smoke is still running
+# Exit 1  deploy job missing from a run that has jobs, deploy failed, or smoke failed
 set -euo pipefail
 
 jobs="$(cat)"
 
 deploy="$(jq -r '
-  [.[] | select((.name | endswith(" to production")) or .name == "Deploy Cron Worker to Production")]
-  | if length == 0 then "missing"
+  length as $total
+  | [.[] | select((.name | endswith(" to production")) or .name == "Deploy Cron Worker to Production")]
+  | if length == 0 then (if $total == 0 then "pending" else "missing" end)
     elif all(.conclusion == "success") then "success"
     elif any(.conclusion == "failure" or .conclusion == "cancelled") then "failure"
     else "pending"
@@ -37,6 +39,9 @@ if [[ "$deploy" == success && "$smoke" == absent ]]; then
   exit 2
 fi
 if [[ "$deploy" == success && "$smoke" == pending ]]; then
+  exit 3
+fi
+if [[ "$deploy" == pending && "$smoke" != failure ]]; then
   exit 3
 fi
 exit 1

@@ -74,6 +74,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { navigateToAppPage, openUrl } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { currentLicenseNoticeOccurrence } from '@/features/licenseNotice/noticeOccurrence'
 import type { LicenseNoticeBasis } from '@/features/licenseNotice/licenseNotice'
 import { MARKETPLACE_UPGRADE_URL, SUPPORT_EMAIL, SUPPORT_TICKET_URL } from '@/features/licenseNotice/licenseNotice'
 
@@ -108,8 +109,11 @@ function baseProps() {
 }
 
 // Once per mount: the parent mounts this only while the notice is visible.
+// The first mount per browser x macro x UTC day always reports; repeats are
+// sampled (features/licenseNotice/noticeOccurrence.ts).
 onMounted(() => {
-  trackAnalyticsEvent('license_notice_shown', baseProps())
+  const occurrence = currentLicenseNoticeOccurrence('shown', props.surface)
+  if (occurrence) trackAnalyticsEvent('license_notice_shown', { ...baseProps(), ...occurrence })
 })
 
 onBeforeUnmount(() => clearTimeout(copiedTimer))

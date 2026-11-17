@@ -85,6 +85,8 @@
           :prompt="mcpDialogPrompt"
           @close="mcpCloseDialog"
           @copy="mcpOnCopied"
+          @select-client="mcpOnClientSelected"
+          @install="mcpOnInstall"
         />
         </div>
         <!-- The code panel's own toggle: one button, anchored to the corner
@@ -188,6 +190,8 @@
         mcpDialogPrompt: promo.dialogPrompt,
         mcpCloseDialog: promo.closeDialog,
         mcpOnCopied: promo.onCopied,
+        mcpOnClientSelected: promo.onClientSelected,
+        mcpOnInstall: promo.onInstall,
       }
     },
     data() {

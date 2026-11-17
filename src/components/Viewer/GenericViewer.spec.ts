@@ -2723,7 +2723,26 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="connect-mcp-dialog"]').exists()).toBe(false)
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
         'agent_link_mcp_dialog_closed',
-        expect.objectContaining({ mcp_mode: 'headless', dwell_ms: expect.any(Number) })
+        expect.objectContaining({ mcp_mode: 'headless', dwell_ms: expect.any(Number), mcp_close_source: 'escape', mcp_client_choice: 'claude_code' })
+      )
+    })
+
+    it('reports the client tab on tab clicks, copies and the close', async () => {
+      localStorage.clear()
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_dialog_opened', expect.objectContaining({ mcp_client_choice: 'claude_code' })
+      )
+
+      await wrapper.find('[data-testid="connect-mcp-tab-claude_app"]').trigger('click')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_client_selected', expect.objectContaining({ mcp_client_choice: 'claude_app', mcp_mode: 'headless' })
+      )
+      await wrapper.find('[data-testid="connect-mcp-done"]').trigger('click')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_dialog_closed', expect.objectContaining({ mcp_close_source: 'done', mcp_client_choice: 'claude_app' })
       )
     })
 

@@ -21,6 +21,17 @@ export interface PlacementDiagram {
 
 export type PlacementSurface = 'byline' | 'page_banner'
 
+/**
+ * The button that started a placement. Analytics only: `surface` cannot tell
+ * the byline's post-save panel from its list rows, both of which are 'byline'.
+ */
+export type PlacementEntry = 'created_panel' | 'byline_list' | 'page_banner'
+
+/** What an entry-less caller means: each surface had one button before the panel. */
+export function defaultPlacementEntry(surface: PlacementSurface): PlacementEntry {
+  return surface === 'page_banner' ? 'page_banner' : 'byline_list'
+}
+
 export type PlacementAnswer =
   | { status: 'chosen'; choice: PlacementChoice }
   | { status: 'cancelled' }
@@ -39,6 +50,7 @@ export function choosePlacement(
   pageId: string,
   diagram: PlacementDiagram,
   surface: PlacementSurface,
+  entry: PlacementEntry = defaultPlacementEntry(surface),
 ): Promise<PlacementAnswer> {
   return new Promise(resolve => {
     openModal({
@@ -50,6 +62,7 @@ export function choosePlacement(
         pageId,
         diagram: { id: diagram.id, title: diagram.title, diagramType: diagram.diagramType },
         surface,
+        entry,
       },
       onClose: (payload: unknown) => {
         resolve(isPlacementChoice(payload) ? { status: 'chosen', choice: payload } : { status: 'cancelled' })

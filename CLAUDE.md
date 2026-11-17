@@ -112,6 +112,19 @@ Real Confluence tenant names (subdomain prefixes, `<customer>.atlassian.net` hos
 
 Full rules, artifact routing table, pre-commit grep, and background: [docs/policies/client-privacy.md](docs/policies/client-privacy.md).
 
+### Customer email: Marketplace Partner Agreement §8.4(c)
+
+[§8.4(c)](https://www.atlassian.com/licensing/marketplace/partneragreement) allows direct contact from end-user data only "where required by Law or as consented to or requested by the end user". **The owner's ruling (2026-11-17):** this clause stops us from emailing ordinary users of the app. It does not stop a first-touch email at first install.
+
+| Case | Allowed? |
+|---|---|
+| One first-touch email to the Marketplace contact of a new install or evaluation | Yes |
+| Reply to a user who asked us (feedback dialog, support ticket, email) | Yes |
+| Email to an ordinary user we found in Confluence, Forge, Mixpanel or D1 data, who did not contact us | No |
+
+- The privacy policy is not a blocker for the first-touch email (owner, 2026-11-17).
+- The other contact rules still apply: owner's yes for each send, no repeat when there is no reply, no internal telemetry in the message, no contact with inactive payers. See `.claude/skills/customer-followup/references/contact-policy.md`.
+
 ### Never commit directly to `main`
 
 Always use a feature branch. Exceptions, both requiring the change be **confined** to those paths: `.md`-only changes, and agent-skill changes under `.claude/skills/**` (any file type — `SKILL.md` *and* its `.py`/`.mjs`/`.sh` helpers; skills are agent tooling, and ordinary unit/build checks exclude `.claude/**`).

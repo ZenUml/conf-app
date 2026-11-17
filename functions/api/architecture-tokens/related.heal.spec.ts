@@ -11,8 +11,9 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { onRequest } from './related';
+import { __resetHealsInFlightForTests } from '../../architecture-tokens/heal';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 
@@ -67,7 +68,7 @@ interface Doc { id: string; version: number; pageId?: string; blogPostId?: strin
 function confluence(docs: Doc[], opts: { bodyStatus?: number } = {}) {
   const byId = new Map(docs.map((d) => [d.id, d]));
   const calls = { list: 0, body: 0, search: 0 };
-  const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+  const fetchImpl = vi.fn(async (input: string | URL | Request, _init?: RequestInit) => {
     const url = new URL(String(input));
     if (url.pathname.endsWith('/api/v2/custom-content')) {
       calls.list += 1;
@@ -131,6 +132,7 @@ function staleTenant() {
   return { store, live };
 }
 
+beforeEach(() => __resetHealsInFlightForTests());
 afterEach(() => vi.unstubAllGlobals());
 
 describe('related lookup on a stale index row', () => {

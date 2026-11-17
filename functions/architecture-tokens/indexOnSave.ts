@@ -13,8 +13,9 @@
  * Writing here means the indexed version is the version just saved, so the
  * stale branch cannot fire for content saved through Forge.
  *
- * NOT covered: content created through the Confluence REST API never reaches
- * the Forge save handler, so it still needs the batch pipeline.
+ * NOT covered here: a save that never reaches this sync (a guest save answered
+ * 403, Magic writeback, Agent Link, the Confluence REST API). The related lookup
+ * repairs those rows when it meets them, through this same function (heal.ts).
  */
 import { extractParticipants, extractZenUmlParticipants } from '../../tools/architecture-tokens/extract';
 import {
@@ -131,6 +132,7 @@ export type IndexResult =
  */
 export async function indexDiagramOnSave(
   db: any, cloudId: string | null, content: any,
+  options: { runIdPrefix?: 'save' | 'heal' } = {},
 ): Promise<IndexResult> {
   if (!cloudId) return { indexed: false, reason: 'no_cloud_id' };
 
@@ -140,7 +142,9 @@ export async function indexDiagramOnSave(
   const source = readDiagramSource(content?.body);
   const indexedAt = new Date().toISOString();
   const contentVersion = Number(content?.version?.number ?? 0);
-  const runId = `save:${contentVersion}`;
+  // `save:N` from the save-time sync, `heal:N` from the related lookup's repair of a stale
+  // row (heal.ts). The prefix is the durable record of which writer produced the rows.
+  const runId = `${options.runIdPrefix ?? 'save'}:${contentVersion}`;
   const common = {
     cloudId,
     contentId,

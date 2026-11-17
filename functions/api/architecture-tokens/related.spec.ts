@@ -25,6 +25,7 @@ describe('GET /api/architecture-tokens/related', () => {
     expect(res.status).toBe(200);
     expect(relatedDiagrams).toHaveBeenCalledWith(
       {}, 'cid', '42', expect.any(Function), expect.any(Function), undefined,
+      { heal: expect.any(Function) },
     );
     expect(confluencePageResolver).toHaveBeenCalledWith('https://api.atlassian.com/ex/confluence/cid', 'tok');
     expect(confluenceContentResolver).toHaveBeenCalledWith('https://api.atlassian.com/ex/confluence/cid', 'tok');
@@ -35,6 +36,7 @@ describe('GET /api/architecture-tokens/related', () => {
     await onRequest(ctx('https://x/api/architecture-tokens/related?customContentId=42&pageId=77'));
     expect(relatedDiagrams).toHaveBeenCalledWith(
       {}, 'cid', '42', expect.any(Function), expect.any(Function), '77',
+      { heal: expect.any(Function) },
     );
   });
 
@@ -42,6 +44,7 @@ describe('GET /api/architecture-tokens/related', () => {
     await onRequest(ctx('https://x/api/architecture-tokens/related?customContentId=42&pageId=abc'));
     expect(relatedDiagrams).toHaveBeenCalledWith(
       {}, 'cid', '42', expect.any(Function), expect.any(Function), undefined,
+      { heal: expect.any(Function) },
     );
   });
 

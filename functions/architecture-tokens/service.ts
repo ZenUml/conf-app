@@ -1,3 +1,4 @@
+import type { HealOutcome, StaleIndexHealer } from './heal';
 import {
   occurrencesForContent,
   occurrencesForKeys,
@@ -27,7 +28,20 @@ export interface RelatedResponse {
   contentVersion: number | null;
   participants: RelatedParticipant[];
   error_kind?: string;
+  /**
+   * Set with `error_kind: 'stale_index'`, which covers two cases. `version_mismatch`: the live
+   * diagram is at another version than its index rows (repairable, see heal.ts).
+   * `not_in_live_read`: the viewer's live read did not return the diagram at all.
+   * `no_page_container`: it was returned, but without a pageId (for example on a blog post).
+   */
+  stale_reason?: StaleReason;
+  /** The live version, when `stale_reason` is `version_mismatch`. */
+  live_version?: number;
+  /** Present when this lookup tried to rebuild the diagram's stale rows. */
+  heal_outcome?: HealOutcome;
 }
+
+export type StaleReason = 'version_mismatch' | 'not_in_live_read' | 'no_page_container';
 
 export interface ConfluencePageInfo {
   id: string;
@@ -44,7 +58,13 @@ export interface LiveContent {
   spaceId?: string;
 }
 
-export type ContentResolver = (contentIds: string[]) => Promise<Map<string, LiveContent>>;
+/**
+ * `withoutPage` lists ids the read returned with no pageId. They are left out of the map, as
+ * before, but a diagram missing for that reason is reported apart from one not returned.
+ */
+export type LiveContentMap = Map<string, LiveContent> & { withoutPage?: Set<string> };
+
+export type ContentResolver = (contentIds: string[]) => Promise<LiveContentMap>;
 
 const CQL_BATCH = 100;
 const CONTENT_BATCH = 100;
@@ -281,7 +301,8 @@ export function confluenceContentResolver(
   fetchImpl: typeof fetch = fetch,
 ): ContentResolver {
   return async (contentIds) => {
-    const out = new Map<string, LiveContent>();
+    const out: LiveContentMap = new Map<string, LiveContent>();
+    out.withoutPage = new Set();
     for (let i = 0; i < contentIds.length; i += CONTENT_BATCH) {
       const ids = contentIds
         .slice(i, i + CONTENT_BATCH)
@@ -312,12 +333,24 @@ export function confluenceContentResolver(
         const version = Number(result?.version?.number);
         const pageId = String(result?.pageId ?? '');
         const spaceId = String(result?.spaceId ?? '');
+        if (id && Number.isFinite(version) && !pageId) out.withoutPage.add(id);
         if (!id || !Number.isFinite(version) || !pageId) continue;
         out.set(id, { version, pageId, ...(spaceId && { spaceId }) });
       }
     }
     return out;
   };
+}
+
+/** One line per stale lookup, so `wrangler pages deployment tail` can separate the cases. */
+function logStale(fields: {
+  contentId: string;
+  stale_reason: StaleReason;
+  indexed_version: number;
+  live_version?: number;
+  heal_outcome?: HealOutcome;
+}) {
+  console.log(JSON.stringify({ event: 'architecture_tokens_stale_index', ...fields }));
 }
 
 export async function relatedDiagrams(
@@ -327,6 +360,7 @@ export async function relatedDiagrams(
   resolve: PageResolver,
   resolveContent: ContentResolver,
   ownPageId?: string,
+  options: { heal?: StaleIndexHealer } = {},
 ): Promise<RelatedResponse> {
   const own = await occurrencesForContent(db, cloudId, contentId);
   if (own.length === 0) {
@@ -355,7 +389,7 @@ export async function relatedDiagrams(
   // display slice is taken only after version and permission filtering so invalid nearer
   // candidates can be backfilled.
   const nearest = budgetedCandidates(candidates);
-  let live: Map<string, LiveContent>;
+  let live: LiveContentMap;
   try {
     live = await resolveContent([contentId, ...new Set(nearest.map((c) => c.contentId))]);
   } catch {
@@ -367,9 +401,43 @@ export async function relatedDiagrams(
   const totals = pageTotalsByKey(candidates);
 
   const self = live.get(contentId);
-  if (!self || self.version !== contentVersion) {
+  if (!self) {
+    // Not a version problem, so a rebuild cannot fix it. Kept under `stale_index` so the
+    // footer's analytics series stays continuous; `stale_reason` tells the cases apart.
+    const stale_reason: StaleReason = live.withoutPage?.has(contentId)
+      ? 'no_page_container'
+      : 'not_in_live_read';
+    logStale({ contentId, stale_reason, indexed_version: contentVersion });
+    return { indexedAt, contentVersion, participants: [], error_kind: 'stale_index', stale_reason };
+  }
+  if (self.version !== contentVersion) {
     // The index predates this diagram's current text; every row about it is unreliable.
-    return { indexedAt, contentVersion, participants: [], error_kind: 'stale_index' };
+    const stale: RelatedResponse = {
+      indexedAt,
+      contentVersion,
+      participants: [],
+      error_kind: 'stale_index',
+      stale_reason: 'version_mismatch',
+      live_version: self.version,
+    };
+    if (!options.heal) {
+      logStale({ contentId, stale_reason: 'version_mismatch', indexed_version: contentVersion, live_version: self.version });
+      return stale;
+    }
+    let heal_outcome: HealOutcome;
+    try {
+      heal_outcome = await options.heal(contentId, self.version);
+    } catch {
+      heal_outcome = 'heal_failed';
+    }
+    logStale({
+      contentId, stale_reason: 'version_mismatch', indexed_version: contentVersion, live_version: self.version, heal_outcome,
+    });
+    if (heal_outcome !== 'healed' && heal_outcome !== 'already_current') return { ...stale, heal_outcome };
+    // Answer from the rebuilt rows. No healer on the second pass: one rebuild per request,
+    // even if Confluence moved on again in between.
+    const fresh = await relatedDiagrams(db, cloudId, contentId, resolve, resolveContent, ownPageId);
+    return { ...fresh, heal_outcome };
   }
 
   const current = usableCandidates(

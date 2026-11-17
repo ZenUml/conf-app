@@ -66,6 +66,23 @@ export type TitleDraftAddFailure =
 /** Whether an Architecture Tokens lookup found index rows for the current diagram. */
 export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
 
+/**
+ * Which case sits behind a `related_diagrams_lookup_failed` with `error_kind: 'stale_index'`.
+ * Mirrors `StaleReason` in functions/architecture-tokens/service.ts.
+ */
+export type ArchitectureTokenStaleReason =
+  | "version_mismatch"
+  | "not_in_live_read"
+  | "no_page_container";
+
+/**
+ * Which writer produced the index rows behind a `stale_index` failure, read from the rows'
+ * run id: `save` (the save-time sync, run id `save:N`), `heal` (a repair by the related lookup,
+ * `heal:N`), `backfill` (the upload tool, a `YYYY-MM-DD` run id), `unknown` (any other run id).
+ * Mirrors `IndexSource` in functions/architecture-tokens/service.ts.
+ */
+export type ArchitectureTokenIndexSource = "save" | "heal" | "backfill" | "unknown";
+
 /** Magic's finite failure vocabulary; never send source, SVG, or hashes. */
 export type MagicFailureReason =
   | "missing_artifact"

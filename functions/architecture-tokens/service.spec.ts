@@ -456,6 +456,8 @@ describe('relatedDiagrams', () => {
     );
     expect(out.participants).toEqual([]);
     expect(out.error_kind).toBe('stale_index');
+    expect(out.stale_reason).toBe('version_mismatch');
+    expect(out.live_version).toBe(56);
   });
 
   it('drops a target edited since indexing, and opens a moved one at its page today', async () => {
@@ -496,6 +498,115 @@ describe('relatedDiagrams', () => {
       async () => new Map([['1', { version: 1, pageId: '100' }]]),
     );
     expect(out.participants[0].related).toEqual([]);
+  });
+});
+
+// `stale_index` alone could not say whether the live version had moved or the viewer's live
+// read had simply not returned the diagram: at one site, 27 of the 40 most-failing diagrams
+// had no save after their index rows were written. Fixtures are fictional.
+describe('which case sits behind stale_index', () => {
+  const lookup = (
+    resolveContent: Parameters<typeof relatedDiagrams>[4],
+    runId: unknown = 'save:3',
+  ) => relatedDiagrams(
+    dbWith([row({ contentVersion: 3, runId })], [row({ contentId: '2', pageId: '200' })]),
+    'cid',
+    '1',
+    async (ids: string[]) => ids.map((id) => ({ id, title: `Page ${id}`, spaceKey: 'OP' })),
+    resolveContent,
+  );
+
+  it('version_mismatch: the live read returned the diagram at another version', async () => {
+    const out = await lookup(async () => new Map([['1', { version: 4, pageId: '100' }]]));
+    expect(out).toEqual({
+      indexedAt: '2026-08-27T05:00:00Z',
+      contentVersion: 3,
+      participants: [],
+      error_kind: 'stale_index',
+      stale_reason: 'version_mismatch',
+      live_version: 4,
+      index_source: 'save',
+    });
+  });
+
+  it('not_in_live_read: the live read did not return the diagram, so no live version is known', async () => {
+    const out = await lookup(async () => new Map([['2', { version: 1, pageId: '200' }]]));
+    expect(out).toEqual({
+      indexedAt: '2026-08-27T05:00:00Z',
+      contentVersion: 3,
+      participants: [],
+      error_kind: 'stale_index',
+      stale_reason: 'not_in_live_read',
+      index_source: 'save',
+    });
+  });
+
+  it('no_page_container: the live read returned the diagram, but without a pageId', async () => {
+    const out = await lookup(async () => Object.assign(
+      new Map([['2', { version: 1, pageId: '200' }]]),
+      { withoutPage: new Set(['1']) },
+    ));
+    expect(out).toEqual({
+      indexedAt: '2026-08-27T05:00:00Z',
+      contentVersion: 3,
+      participants: [],
+      error_kind: 'stale_index',
+      stale_reason: 'no_page_container',
+      index_source: 'save',
+    });
+  });
+
+  it('a lookup that is not stale carries none of the stale fields', async () => {
+    const out = await lookup(async () => new Map([
+      ['1', { version: 3, pageId: '100' }],
+      ['2', { version: 1, pageId: '200' }],
+    ]));
+    expect(out.error_kind).toBeUndefined();
+    expect(out).not.toHaveProperty('stale_reason');
+    expect(out).not.toHaveProperty('live_version');
+    expect(out).not.toHaveProperty('index_source');
+  });
+
+  // The run id is written by three writers: indexOnSave (`save:N`), the lookup's repair
+  // (`heal:N`) and tools/architecture-tokens/upload-index.mjs (the upload date).
+  it.each([
+    ['save:3', 'save'],
+    ['heal:3', 'heal'],
+    ['2026-08-27', 'backfill'],
+    ['nightly-7', 'unknown'],
+    ['', 'unknown'],
+    [null, 'unknown'],
+  ])('index_source: stale rows with run id %j came from %s', async (runId, expected) => {
+    const mismatch = await lookup(async () => new Map([['1', { version: 4, pageId: '100' }]]), runId);
+    expect(mismatch.index_source).toBe(expected);
+    const missing = await lookup(async () => new Map(), runId);
+    expect(missing.index_source).toBe(expected);
+  });
+
+  it('index_source carries the writer, never the run id itself', async () => {
+    const out = await lookup(async () => new Map([['1', { version: 4, pageId: '100' }]]), 'save:3');
+    expect(JSON.stringify(out)).not.toContain('save:3');
+    expect(out).not.toHaveProperty('runId');
+  });
+});
+
+describe('confluenceContentResolver', () => {
+  it('leaves a result without a pageId out of the map, and names it in withoutPage', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        results: [
+          { id: '1', version: { number: 4 }, spaceId: '7' },
+          { id: '2', pageId: '200', version: { number: 1 }, spaceId: '7' },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+
+    const live = await confluenceContentResolver('https://x', 't', fetchImpl)(['1', '2', '3']);
+
+    expect([...live]).toEqual([['2', { version: 1, pageId: '200', spaceId: '7' }]]);
+    // 1 came back with no page; 3 did not come back at all
+    expect([...(live.withoutPage ?? [])]).toEqual(['1']);
   });
 });
 

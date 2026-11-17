@@ -396,6 +396,49 @@ def find_file(rel, roots):
     return None
 
 
+SYNC_FIX = "python3 .claude/skills/marketplace/scripts/mp_report.py sync"
+
+
+def pick_snapshot(roots):
+    """The marketplace.db synced most recently among all roots (sync_meta), not the first found.
+
+    A linked worktree and the primary checkout can each hold a snapshot; the older one may
+    predate the license being looked up. -> {"path", "synced", "synced_raw"} or None.
+    """
+    import sqlite3
+    best = None
+    for root in roots:
+        path = root / SNAPSHOT_REL
+        if not path.exists():
+            continue
+        raw = None
+        try:
+            con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            try:
+                row = con.execute("SELECT synced_at FROM sync_meta ORDER BY synced_at DESC LIMIT 1").fetchone()
+                raw = row[0] if row else None
+            finally:
+                con.close()
+        except sqlite3.Error:
+            pass
+        synced = parse_ts(raw)
+        key = synced or datetime.min.replace(tzinfo=UTC)
+        if best is None or key > best[0]:
+            best = (key, {"path": path, "synced": synced, "synced_raw": raw})
+    return best[1] if best else None
+
+
+def not_found_message(kind, value, snap, now):
+    """Error for an identifier the snapshot and D1 could not resolve. A stale snapshot is a named gap."""
+    if snap is None:
+        return (f"{kind} {value} not resolved: no marketplace.db found in any checkout. "
+                f"Create it with `{SYNC_FIX}`, or pass --root <checkout that has one>.")
+    synced = snap["synced"]
+    when = f"synced {snap['synced_raw']} ({max((now - synced).days, 0)} day(s) ago)" if synced else "sync time unknown"
+    return (f"{kind} {value} not found in {snap['path']} ({when}) or in D1. "
+            f"If the license is newer than that snapshot, refresh it with `{SYNC_FIX}` and rerun.")
+
+
 def out_dir_allowed(out, roots):
     """False when `out` sits inside a repo checkout, except under that checkout's private/."""
     target = Path(out).expanduser().resolve()
@@ -777,7 +820,19 @@ def split_range(start, end, days=MP_CHUNK_DAYS):
     return out
 
 
-def rows_from_mixpanel(records):
+def real_account(value):
+    """True for an Atlassian account id; false for placeholders, device ids and anonymous ids."""
+    text = str(value or "")
+    return bool(text) and not text.startswith("$") and not text.startswith("unknown_") and ACCOUNT_RE.match(text) is not None
+
+
+ACCOUNT_RE = re.compile(r"^[A-Za-z0-9:_-]{6,128}$")
+MAX_ACCOUNTS = 20
+NO_DOMAIN_NOTE = "matched by account, no client_domain"
+
+
+def rows_from_mixpanel(records, derived_note=None):
+    """Mixpanel records -> rows. The full account id rides on the row as `_account` (never output)."""
     rows = []
     for rec in records:
         ts = parse_ts(rec.get("t"))
@@ -785,10 +840,32 @@ def rows_from_mixpanel(records):
             continue
         props = dict(rec.get("p") or {})
         user = rec.get("u") or rec.get("d")
-        if user and not str(user).startswith("$device") and user != "unknown_user_account_id":
+        if real_account(user):
             props["user"] = short_id(user)
-        rows.append(mk(ts, "mixpanel", rec["n"], props))
+        if derived_note:
+            props["match_note"] = derived_note
+        row = mk(ts, "mixpanel", rec["n"], props, "derived" if derived_note else "fact")
+        if real_account(user):
+            row["_account"] = str(user)
+        rows.append(row)
     return rows
+
+
+def known_accounts(rows):
+    return sorted({r["_account"] for r in rows if r.get("_account")})
+
+
+def jql_account_script(accounts, start, end):
+    """JQL for events with an empty or unknown client_domain sent by one of the given accounts."""
+    for a in accounts:
+        if not ACCOUNT_RE.match(str(a)):
+            raise ValueError(f"refusing unsafe account id {a!r}")
+    body = jql_script(["placeholder"], start, end)
+    return body.replace(
+        'return DOMAINS.indexOf(e.properties.client_domain) >= 0;',
+        'var d = e.properties.client_domain; return (!d || d === "unknown_atlassian_domain") '
+        '&& (ACCOUNTS.indexOf(e.distinct_id) >= 0 || ACCOUNTS.indexOf(e.properties.user_account_id) >= 0);',
+    ).replace("var DOMAINS = " + json.dumps(["placeholder"]) + ";", "var ACCOUNTS = " + json.dumps(list(accounts)) + ";")
 
 
 def run_mp_chunk(script, roots, pace=3):
@@ -842,6 +919,40 @@ def collect_mixpanel(subdomains, window, runner, today=None):
     if failures:
         note += f"; INCOMPLETE: {failures} of {len(chunks)} chunks failed ({errors[0]})"
     return rows, classify_result("mixpanel", n=len(rows), note=note)
+
+
+def collect_mixpanel_by_account(pass_one_rows, window, runner, today=None, max_accounts=MAX_ACCOUNTS):
+    """Second pass: events with no usable client_domain from the tenant's known accounts.
+
+    Some events (e.g. png_export_state_changed) carry no client_domain. An account can belong
+    to several sites, so matches are `derived`, never `fact`. Skipped, with a coverage line,
+    when pass one found no accounts or more than `max_accounts`.
+    """
+    src = "mixpanel-by-account"
+    accounts = known_accounts(pass_one_rows)
+    if not accounts:
+        return [], classify_result(src, skipped="pass one found no accounts")
+    if len(accounts) > max_accounts:
+        return [], classify_result(src, skipped=f"{len(accounts)} accounts found, more than the {max_accounts} limit; an account can belong to several sites")
+    today = today or datetime.now(UTC).date()
+    start = max((window[0] or datetime.combine(MIXPANEL_TRACKING_START, datetime.min.time(), UTC)).date(), MIXPANEL_TRACKING_START)
+    end = min((window[1] or datetime.now(UTC)).date(), today)
+    if start > end:
+        return [], classify_result(src, skipped="window ends before Mixpanel tracking began")
+    rows, failures, errors = [], 0, []
+    chunks = split_range(start, end)
+    for lo, hi in chunks:
+        try:
+            rows += rows_from_mixpanel(runner(jql_account_script(accounts, lo, hi)), NO_DOMAIN_NOTE)
+        except MPError as exc:
+            failures += 1
+            errors.append(str(exc))
+    note = f"{len(accounts)} account(s); derived, {NO_DOMAIN_NOTE}"
+    if failures == len(chunks):
+        return [], classify_result(src, error=errors[0])
+    if failures:
+        note += f"; INCOMPLETE: {failures} of {len(chunks)} chunks failed ({errors[0]})"
+    return rows, classify_result(src, n=len(rows), note=note)
 
 
 # ---------------------------------------------------------------------------
@@ -1250,9 +1361,10 @@ def main(argv=None):
     if "marketplace" in skip:
         covs.append(classify_result("marketplace", skipped="skipped by --skip"))
     else:
-        snap = find_file(SNAPSHOT_REL, roots)
+        snap_info = pick_snapshot(roots)
+        snap = snap_info["path"] if snap_info else None
         if snap is None:
-            covs.append(classify_result("marketplace", error=f"no marketplace.db in any checkout; run mp_report.py sync ({SNAPSHOT_REL})"))
+            covs.append(classify_result("marketplace", error=f"no marketplace.db in any checkout; run `{SYNC_FIX}`"))
         else:
             try:
                 conn = sqlite3.connect(f"file:{snap}?mode=ro", uri=True)
@@ -1262,7 +1374,8 @@ def main(argv=None):
                 synced = (conn.execute("SELECT synced_at FROM sync_meta").fetchone() or ["unknown"])[0]
                 mrows = marketplace_rows(licenses, txs)
                 covs.append(classify_result("marketplace", n=len(mrows),
-                                            note=f"{len(licenses)} license(s), {len(txs)} transaction(s); snapshot synced {synced}"))
+                                            note=f"{len(licenses)} license(s), {len(txs)} transaction(s); snapshot {snap} synced {synced}"
+                                                 + ("" if licenses else "; NO LICENSE MATCHED (a snapshot older than the license would look like this)")))
                 conn.close()
             except (sqlite3.Error, ValueError, OSError) as exc:
                 covs.append(classify_result("marketplace", error=f"{type(exc).__name__}: {str(exc)[:160]}"))
@@ -1305,7 +1418,7 @@ def main(argv=None):
         except (D1Error, ValueError) as exc:
             notes.append(f"cloudId lookup through AnalyticsEventFact failed: {exc}")
     if not ident["subdomains"] and not ident["cloud_ids"]:
-        sys.exit("error: identifier matched nothing in the Marketplace snapshot or D1; pass a subdomain you know exists")
+        sys.exit("error: " + not_found_message(kind, value, pick_snapshot(roots), now))
     ident["hostnames"] = sorted({s + ".atlassian.net" for s in ident["subdomains"]} | set(ident["hostnames"]))
     window = (start, end)
 
@@ -1329,9 +1442,14 @@ def main(argv=None):
     if "mixpanel" in skip:
         covs.append(classify_result("mixpanel", skipped="skipped by --skip"))
     else:
-        rows, c = collect_mixpanel(sorted(ident["subdomains"]), window, lambda script: run_mp_chunk(script, roots))
+        runner = lambda script: run_mp_chunk(script, roots)  # noqa: E731
+        rows, c = collect_mixpanel(sorted(ident["subdomains"]), window, runner)
         lists.append(rows)
         covs.append(c)
+        if c["status"] in ("found", "empty"):
+            rows2, c2 = collect_mixpanel_by_account(rows, window, runner)
+            lists.append(rows2)
+            covs.append(c2)
 
     # 6. caller-supplied rows
     for path in args.extra:

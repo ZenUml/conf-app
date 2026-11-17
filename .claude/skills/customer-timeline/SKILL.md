@@ -27,8 +27,8 @@ Reads from the primary checkout when run in a worktree: `marketplace.db`, `.env.
 
 | Source | How | Traps it already handles |
 |---|---|---|
-| Marketplace | `marketplace.db` snapshot (`mp_report.py sync` refreshes it); license dates and transactions, no contacts | Snapshot age is printed in coverage. A site with no license (internal sites) falls back to D1 for its cloudId |
-| Mixpanel | `mixpanel/scripts/mp_query.py --file`, `client_domain` = bare subdomain, 14-day chunks, property subset only | Starts 2026-04-18. Read the `mixpanel` skill before reading identity or sampling from the rows |
+| Marketplace | `marketplace.db` snapshot (`mp_report.py sync` refreshes it); license dates and transactions, no contacts | Of all checkouts' snapshots the most recently synced is used; its file and sync time are in coverage. An identifier that is not found names that file, its age and the sync command: a stale snapshot is a gap, not "nothing matched". A site with no license (internal sites) falls back to D1 for its cloudId |
+| Mixpanel | `mixpanel/scripts/mp_query.py --file`, `client_domain` = bare subdomain, 14-day chunks, property subset only. A second pass (`mixpanel-by-account`) adds events with no `client_domain` sent by the accounts seen in pass one, as `derived` rows; skipped if there are none or more than 20 | Starts 2026-04-18. An account can belong to several sites, so treat derived rows as leads. Read the `mixpanel` skill before reading identity or sampling from the rows |
 | D1 `conf-zenuml-prod` | `wrangler d1 execute ... --remote` as in `new-customers`, one statement per table, tenant column found with `pragma_table_info` at run time | Table gone = `missing`. No usable index = `not queried`. Row cap 2000, `TRUNCATED` is reported. Bodies, secrets, ciphertext and emails are never selected. Staging sites (`lite-stg`, `full-stg`) have no prod D1 rows |
 
 ## What needs agent tools, then `--extra`

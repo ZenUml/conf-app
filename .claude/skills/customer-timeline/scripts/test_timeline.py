@@ -714,5 +714,112 @@ class Rendering(unittest.TestCase):
         self.assertEqual(js["coverage"][1]["label"], "missing (table not in prod schema)")
 
 
+class SnapshotChoice(unittest.TestCase):
+    def make(self, root, synced):
+        db = Path(root) / t.SNAPSHOT_REL
+        db.parent.mkdir(parents=True)
+        con = sqlite3.connect(db)
+        con.execute("CREATE TABLE sync_meta(synced_at TEXT, apps TEXT, license_rows INT, tx_rows INT)")
+        if synced:
+            con.execute("INSERT INTO sync_meta VALUES(?,?,?,?)", (synced, "a", 1, 1))
+        con.commit()
+        con.close()
+        return db
+
+    def test_newest_synced_snapshot_wins_over_root_order(self):
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b, tempfile.TemporaryDirectory() as c:
+            self.make(a, "2026-11-13T06:47:15+00:00")
+            newer = self.make(b, "2026-11-17T01:00:00+00:00")
+            self.make(c, None)  # no sync_meta row: oldest
+            info = t.pick_snapshot([Path(a), Path(b), Path(c)])
+            self.assertEqual(info["path"], newer)
+            self.assertEqual(info["synced"], datetime(2026, 11, 17, 1, tzinfo=UTC))
+
+    def test_no_snapshot_returns_none(self):
+        with tempfile.TemporaryDirectory() as a:
+            self.assertIsNone(t.pick_snapshot([Path(a)]))
+
+    def test_not_found_message_names_file_age_and_the_sync_fix(self):
+        info = {"path": Path("/x/marketplace.db"), "synced": datetime(2026, 11, 13, 6, 47, tzinfo=UTC), "synced_raw": "2026-11-13T06:47:15+00:00"}
+        msg = t.not_found_message("entitlement", "E-AAA-BBB-CCC-DDD", info, datetime(2026, 11, 17, 6, 47, tzinfo=UTC))
+        self.assertIn("/x/marketplace.db", msg)
+        self.assertIn("2026-11-13", msg)
+        self.assertIn("4 day", msg)
+        self.assertIn("mp_report.py sync", msg)
+        self.assertNotIn("pass a subdomain", msg)
+
+    def test_not_found_message_without_a_snapshot(self):
+        msg = t.not_found_message("cloud_id", CID, None, T0)
+        self.assertIn("no marketplace.db", msg)
+        self.assertIn("mp_report.py sync", msg)
+
+
+class MixpanelByAccount(unittest.TestCase):
+    W = (datetime(2026, 11, 1, tzinfo=UTC), datetime(2026, 11, 20, tzinfo=UTC))
+    TODAY = datetime(2026, 11, 20).date()
+
+    def pass_one(self, *accounts):
+        recs = [{"n": "macro_viewed", "t": 1794187305007 + i, "d": a, "u": a, "p": {}} for i, a in enumerate(accounts)]
+        return t.rows_from_mixpanel(recs)
+
+    def test_account_ids_are_kept_off_the_public_row_but_collected(self):
+        rows = self.pass_one("acct-aaaa1111", "acct-bbbb2222")
+        self.assertEqual(t.known_accounts(rows), ["acct-aaaa1111", "acct-bbbb2222"])
+        self.assertNotIn("acct-aaaa1111", json.dumps(t.public_row(rows[0])))
+
+    def test_placeholders_and_devices_are_not_accounts(self):
+        recs = [{"n": "e", "t": 1794187305007, "d": "unknown_user_account_id", "u": None, "p": {}},
+                {"n": "e", "t": 1794187305008, "d": "$device:abc", "u": None, "p": {}},
+                {"n": "e", "t": 1794187305009, "d": "acct-aaaa1111", "u": None, "p": {}}]
+        self.assertEqual(t.known_accounts(t.rows_from_mixpanel(recs)), ["acct-aaaa1111"])
+
+    def test_jql_filters_empty_or_unknown_domain_and_listed_accounts(self):
+        js = t.jql_account_script(["acct-aaaa1111", "712020:abc-def"], datetime(2026, 11, 1).date(), datetime(2026, 11, 3).date())
+        self.assertIn("unknown_atlassian_domain", js)
+        self.assertIn('"712020:abc-def"', js)
+        self.assertIn("from_date: '2026-11-01'", js)
+        with self.assertRaises(ValueError):
+            t.jql_account_script(["x'];1;//"], datetime(2026, 11, 1).date(), datetime(2026, 11, 3).date())
+
+    def test_matched_rows_are_derived_and_carry_the_note(self):
+        calls = []
+
+        def runner(script):
+            calls.append(script)
+            return [{"n": "png_export_state_changed", "t": 1794187305007, "d": "acct-aaaa1111", "u": None, "p": {}}]
+        rows, cov = t.collect_mixpanel_by_account(self.pass_one("acct-aaaa1111"), self.W, runner, self.TODAY)
+        self.assertEqual(cov["source"], "mixpanel-by-account")
+        self.assertEqual(cov["status"], "found")
+        self.assertEqual(rows[0]["certainty"], "derived")
+        self.assertEqual(rows[0]["props"]["match_note"], "matched by account, no client_domain")
+        self.assertEqual(rows[0]["source"], "mixpanel")
+
+    def test_skipped_with_a_coverage_line_when_no_accounts(self):
+        rows, cov = t.collect_mixpanel_by_account([], self.W, lambda s: self.fail("must not run"), self.TODAY)
+        self.assertEqual((rows, cov["status"]), ([], "not_queried"))
+        self.assertIn("no accounts", cov["detail"])
+
+    def test_skipped_when_more_than_twenty_accounts(self):
+        rows, cov = t.collect_mixpanel_by_account(self.pass_one(*[f"acct-{i:08d}" for i in range(21)]), self.W,
+                                                  lambda s: self.fail("must not run"), self.TODAY)
+        self.assertEqual(cov["status"], "not_queried")
+        self.assertIn("21", cov["detail"])
+        self.assertIn("20", cov["detail"])
+
+    def test_exactly_twenty_runs(self):
+        _, cov = t.collect_mixpanel_by_account(self.pass_one(*[f"acct-{i:08d}" for i in range(20)]), self.W, lambda s: [], self.TODAY)
+        self.assertEqual(cov["status"], "empty")
+
+    def test_runner_failure_is_unavailable_not_empty(self):
+        def boom(script):
+            raise t.MPError("HTTP Error 429")
+        _, cov = t.collect_mixpanel_by_account(self.pass_one("acct-aaaa1111"), self.W, boom, self.TODAY)
+        self.assertEqual(cov["status"], "unavailable")
+
+    def test_account_pass_does_not_break_queried_ok_for_the_main_source(self):
+        covs = [t.coverage("mixpanel", "found", 3), t.coverage("mixpanel-by-account", "not_queried", 0, "x")]
+        self.assertTrue(t.queried_ok(covs, "mixpanel"))
+
+
 if __name__ == "__main__":
     unittest.main()

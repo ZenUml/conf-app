@@ -12,7 +12,8 @@
       "participants": "[0]",
       "error_kind": "stale_index",
       "stale_reason": "version_mismatch",
-      "live_version": 4
+      "live_version": 4,
+      "index_source": "save"
     }
   },
   "live read does not return diagram 1": {
@@ -27,7 +28,8 @@
       "contentVersion": 3,
       "participants": "[0]",
       "error_kind": "stale_index",
-      "stale_reason": "not_in_live_read"
+      "stale_reason": "not_in_live_read",
+      "index_source": "save"
     }
   },
   "live read returns diagram 1 at version 3 without pageId": {
@@ -42,7 +44,8 @@
       "contentVersion": 3,
       "participants": "[0]",
       "error_kind": "stale_index",
-      "stale_reason": "no_page_container"
+      "stale_reason": "no_page_container",
+      "index_source": "save"
     }
   },
   "live read returns diagram 1 at version 3 (not stale)": {
@@ -58,5 +61,83 @@
       "contentVersion": 3,
       "participants": "[1]"
     }
+  },
+  "index rows with run id save:3": {
+    "BEFORE": {
+      "indexedAt": "2026-08-27T05:00:00Z",
+      "contentVersion": 3,
+      "participants": "[0]",
+      "error_kind": "stale_index"
+    },
+    "AFTER": {
+      "indexedAt": "2026-08-27T05:00:00Z",
+      "contentVersion": 3,
+      "participants": "[0]",
+      "error_kind": "stale_index",
+      "stale_reason": "version_mismatch",
+      "live_version": 4,
+      "index_source": "save"
+    }
+  },
+  "index rows with run id heal:3": {
+    "BEFORE": {
+      "indexedAt": "2026-08-27T05:00:00Z",
+      "contentVersion": 3,
+      "participants": "[0]",
+      "error_kind": "stale_index"
+    },
+    "AFTER": {
+      "indexedAt": "2026-08-27T05:00:00Z",
+      "contentVersion": 3,
+      "participants": "[0]",
+      "error_kind": "stale_index",
+      "stale_reason": "version_mismatch",
+      "live_version": 4,
+      "index_source": "heal"
+    }
+  },
+  "index rows with run id 2026-08-27": {
+    "BEFORE": {
+      "indexedAt": "2026-08-27T05:00:00Z",
+      "contentVersion": 3,
+      "participants": "[0]",
+      "error_kind": "stale_index"
+    },
+    "AFTER": {
+      "indexedAt": "2026-08-27T05:00:00Z",
+      "contentVersion": 3,
+      "participants": "[0]",
+      "error_kind": "stale_index",
+      "stale_reason": "version_mismatch",
+      "live_version": 4,
+      "index_source": "backfill"
+    }
+  },
+  "index rows with run id nightly-7": {
+    "BEFORE": {
+      "indexedAt": "2026-08-27T05:00:00Z",
+      "contentVersion": 3,
+      "participants": "[0]",
+      "error_kind": "stale_index"
+    },
+    "AFTER": {
+      "indexedAt": "2026-08-27T05:00:00Z",
+      "contentVersion": 3,
+      "participants": "[0]",
+      "error_kind": "stale_index",
+      "stale_reason": "version_mismatch",
+      "live_version": 4,
+      "index_source": "unknown"
+    }
+  },
+  "index reads for one lookup": {
+    "BEFORE": [
+      "SELECT contentId, pageId, spaceId, contentVersion, actorId, rawLabel, comparisonKey, lineNumber, indexedAt FROM ArchitectureTokenOccurrence WHERE cloudId = ?1 AND contentId = ?2",
+      "SELECT contentId, pageId, spaceId, contentVersion, actorId, rawLabel, comparisonKey, lineNumber, indexedAt FROM ArchitectureTokenOccurrence WHERE cloudId = ?1 AND comparisonKey IN (\u2026)"
+    ],
+    "AFTER": [
+      "SELECT contentId, pageId, spaceId, contentVersion, actorId, rawLabel, comparisonKey, lineNumber, indexedAt, runId FROM ArchitectureTokenOccurrence WHERE cloudId = ?1 AND contentId = ?2",
+      "SELECT contentId, pageId, spaceId, contentVersion, actorId, rawLabel, comparisonKey, lineNumber, indexedAt, runId FROM ArchitectureTokenOccurrence WHERE cloudId = ?1 AND comparisonKey IN (\u2026)"
+    ]
   }
 }

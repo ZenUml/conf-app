@@ -23,9 +23,10 @@ import After from './RelatedDiagramsFooter.vue'
 
 const base = { indexedAt: '2026-08-27T05:00:00Z', contentVersion: 3, participants: [] }
 const bodies: Record<string, any> = {
-  version_mismatch: { ...base, error_kind: 'stale_index', stale_reason: 'version_mismatch', live_version: 4 },
-  not_in_live_read: { ...base, error_kind: 'stale_index', stale_reason: 'not_in_live_read' },
-  no_page_container: { ...base, error_kind: 'stale_index', stale_reason: 'no_page_container' },
+  version_mismatch: { ...base, error_kind: 'stale_index', stale_reason: 'version_mismatch', live_version: 4, index_source: 'save' },
+  not_in_live_read: { ...base, error_kind: 'stale_index', stale_reason: 'not_in_live_read', index_source: 'backfill' },
+  no_page_container: { ...base, error_kind: 'stale_index', stale_reason: 'no_page_container', index_source: 'unknown' },
+  'stale_index from a backend without index_source': { ...base, error_kind: 'stale_index', stale_reason: 'version_mismatch', live_version: 4 },
   'stale_index from an older backend': { ...base, error_kind: 'stale_index' },
   confluence_unavailable: { ...base, error_kind: 'confluence_unavailable' },
 }

@@ -558,6 +558,7 @@ import { isArchitectureTokensEnabled, isCreateGuideEnabled, isNoLicenseNoticeEna
 import { resolveLicenseNotice as evaluateLicenseNotice, readMockLicenseInactive } from '@/features/licenseNotice/licenseNotice'
 import { siteEnforcementNotice } from '@/features/licenseNotice/siteEnforcementNotice'
 import { loadLicenseNoticeEvidence } from '@/features/licenseNotice/loadEvidence'
+import { currentLicenseNoticeOccurrence } from '@/features/licenseNotice/noticeOccurrence'
 import LicenseWatermark from '@/components/Viewer/LicenseWatermark.vue'
 import LicenseNoticeStrip from '@/components/Viewer/LicenseNoticeStrip.vue'
 import { createGuideVariant } from '@/features/createGuide/createGuideVariant'
@@ -2205,13 +2206,20 @@ export default {
           }, Math.max(0, Date.parse(decision.expiresAt) - Date.now()));
         }
         if (decision.outcome !== 'disabled') {
-          trackAnalyticsEvent('license_notice_evaluated', {
-            feature_area: 'license_notice',
-            surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
-            macro_type: this.diagramType ?? 'none',
-            license_notice_outcome: activeNow ? 'active' : decision.outcome,
-            ...(this.licenseNoticeBasis ? { license_notice_basis: this.licenseNoticeBasis } : {}),
-          });
+          const outcome = activeNow ? 'active' : decision.outcome;
+          const surface = this.isFullscreenMode ? 'fullscreen' : 'viewer';
+          // `shown` repeats are sampled per browser x macro x UTC day.
+          const occurrence = outcome === 'shown' ? currentLicenseNoticeOccurrence('evaluated', surface) : {};
+          if (occurrence) {
+            trackAnalyticsEvent('license_notice_evaluated', {
+              feature_area: 'license_notice',
+              surface,
+              macro_type: this.diagramType ?? 'none',
+              license_notice_outcome: outcome,
+              ...(this.licenseNoticeBasis ? { license_notice_basis: this.licenseNoticeBasis } : {}),
+              ...occurrence,
+            });
+          }
         }
       } catch {
         if (requestId !== this.licenseNoticeRequestId) return;
@@ -2244,15 +2252,22 @@ export default {
         this.siteNotice = { count: notice.count, limit: notice.limit, stage: notice.stage };
         this.licenseNoticeBasis = notice.basis;
         this.licenseNoticeActive = true;
-        trackAnalyticsEvent('license_notice_evaluated', {
-          feature_area: 'license_notice',
-          surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
-          macro_type: this.diagramType ?? 'none',
-          license_notice_outcome: 'shown',
-          license_notice_basis: notice.basis,
-          enforcement_stage: notice.stage,
-          macro_count: notice.count,
-        });
+        const surface = this.isFullscreenMode ? 'fullscreen' : 'viewer';
+        // Repeats are sampled per browser x macro x UTC day: one enforced site
+        // sent 15,710 of these on 2026-11-16 over 4,994 user x macro keys.
+        const occurrence = currentLicenseNoticeOccurrence('evaluated', surface);
+        if (occurrence) {
+          trackAnalyticsEvent('license_notice_evaluated', {
+            feature_area: 'license_notice',
+            surface,
+            macro_type: this.diagramType ?? 'none',
+            license_notice_outcome: 'shown',
+            license_notice_basis: notice.basis,
+            enforcement_stage: notice.stage,
+            macro_count: notice.count,
+            ...occurrence,
+          });
+        }
       } catch {
         if (requestId !== this.licenseNoticeRequestId) return;
         this.siteNotice = null;

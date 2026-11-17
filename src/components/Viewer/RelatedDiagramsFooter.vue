@@ -340,8 +340,9 @@ function onWindowResize() {
 }
 
 /**
- * `stale_index` is one error kind for three backend cases; these say which one, and at which
- * versions. Version numbers only. Empty for every other failure.
+ * `stale_index` is one error kind for three backend cases; these say which one, at which
+ * versions, and which writer produced the index rows. Version numbers and closed sets only.
+ * Empty for every other failure.
  */
 function staleProperties(response: RelatedResponse) {
   if (response.error_kind !== 'stale_index') return {}
@@ -351,6 +352,7 @@ function staleProperties(response: RelatedResponse) {
       ? { indexed_version: response.contentVersion }
       : {}),
     ...(typeof response.live_version === 'number' ? { live_version: response.live_version } : {}),
+    ...(response.index_source ? { index_source: response.index_source } : {}),
   }
 }
 

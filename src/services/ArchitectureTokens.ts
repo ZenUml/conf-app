@@ -1,4 +1,7 @@
-import type { ArchitectureTokenStaleReason } from '@/utils/analytics/catalog'
+import type {
+  ArchitectureTokenIndexSource,
+  ArchitectureTokenStaleReason,
+} from '@/utils/analytics/catalog'
 import { callRemote } from '@/utils/requestUtil'
 
 export interface RelatedPage {
@@ -32,6 +35,8 @@ export interface RelatedResponse {
   stale_reason?: ArchitectureTokenStaleReason
   /** The live version, when `stale_reason` is `version_mismatch`. */
   live_version?: number
+  /** Only with `error_kind: 'stale_index'`: which writer produced the stale index rows. */
+  index_source?: ArchitectureTokenIndexSource
 }
 
 export class RelatedLookupError extends Error {

@@ -16,6 +16,7 @@ import { markEditorSaved } from '@/utils/analytics/editorCloseOutcome';
 import { recordPublishStep } from '@/utils/analytics/publishTiming';
 import { toMacroType } from '@/utils/byline/pageDiagrams';
 import { activateEditRecoveryAfterSave } from '@/utils/paywall/editRecoveryActivation';
+import { isFirstSave } from './saveMode';
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -84,8 +85,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
     || macroData?.uuid
     || '';
 
-  let isNew;
-  isNew = !diagram.id;
+  const isNew = isFirstSave(diagram);
 
   // Analytics: embed editor handles its own tracking
   if (diagram.diagramType !== DiagramType.Embed) {

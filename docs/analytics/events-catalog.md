@@ -246,6 +246,9 @@ and `macro_type: "mermaid"`.
 |---|---|
 | `error_kind` | Stable failure kind |
 | `duration_ms` | Lookup duration in milliseconds |
+| `stale_reason` | Only with `error_kind: stale_index`. `version_mismatch`: the live diagram is at another version than its index rows. `not_in_live_read`: the viewer's live read did not return the diagram. `no_page_container`: it was returned without a `pageId`. Absent on events from a backend older than this property. |
+| `indexed_version` | Only with `error_kind: stale_index`. The version the index rows were written for. |
+| `live_version` | Only with `stale_reason: version_mismatch`. The live version the read returned. |
 
 ### `related_token_indicators_shown`
 

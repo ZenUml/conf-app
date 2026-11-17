@@ -131,9 +131,11 @@ describe("detectForeignDialect — wider openers and fenced prose", () => {
     expect(detectForeignDialect(FLOW.replace("flowchart TB", "graph TD;"))).toBe("mermaid");
   });
 
-  it("accepts lower-case directions", () => {
-    expect(detectForeignDialect("graph td\n  A --> B")).toBe("mermaid");
-    expect(detectForeignDialect("flowchart lr\n  A --> B")).toBe("mermaid");
+  // Mermaid's lexer rejects a lower-case direction (see
+  // mermaidPasteRealParser.spec.ts), so there is no working tab to route to.
+  it("does not treat a lower-case direction as Mermaid", () => {
+    expect(detectForeignDialect("graph td\n  A --> B")).toBeNull();
+    expect(detectForeignDialect("flowchart lr\n  A --> B")).toBeNull();
   });
 
   it("accepts a bare opener only when the next line has an edge operator", () => {

@@ -35,10 +35,11 @@ describe('Mermaid paste handling against the real parser', () => {
     expect((await validateMermaidSyntax(source)).valid).toBe(true);
   });
 
-  // The detector accepts lower-case directions, but the real parser rejects them:
-  //   "Lexical error on line 1. Unrecognized text.\ngraph td  A --> B\n-----^"
-  it.skip('treats graph td as valid Mermaid', async () => {
-    expect((await validateMermaidSyntax('graph td\n  A --> B')).valid).toBe(true);
+  // Why the detector keeps directions upper-case only.
+  it('rejects a lower-case direction', async () => {
+    const result = await validateMermaidSyntax('graph td\n  A --> B');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('Lexical error on line 1');
   });
 
   it.each([

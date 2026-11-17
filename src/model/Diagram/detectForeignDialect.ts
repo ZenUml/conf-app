@@ -40,9 +40,11 @@ const MERMAID_SIMPLE_KEYWORDS =
   /^(erDiagram|sequenceDiagram|classDiagram|stateDiagram-v2|stateDiagram|gantt|pie|mindmap|gitGraph|journey|timeline|C4Context|C4Container|C4Component|C4Dynamic|C4Deployment|quadrantChart|requirementDiagram|xychart-beta|sankey-beta|block-beta|architecture-beta|packet-beta|radar-beta)(?=\s|$)/;
 
 // `flowchart`/`graph` double as ordinary identifiers, so they need a direction
-// token (matched case-insensitively) or, bare, an edge operator on the next
-// meaningful line — a bare `graph` line or `graph.render()` alone is not enough.
-const MERMAID_DIRECTIONAL_KEYWORDS = /^(flowchart|graph)\s+(TB|TD|BT|RL|LR)(?=\s|;|$)/i;
+// token or, bare, an edge operator on the next meaningful line — a bare `graph`
+// line or `graph.render()` alone is not enough. The direction stays upper-case:
+// Mermaid's own lexer rejects `graph td` ("Lexical error on line 1"), so
+// routing it to the Mermaid tab would only move the error.
+const MERMAID_DIRECTIONAL_KEYWORDS = /^(flowchart|graph)\s+(TB|TD|BT|RL|LR)(?=\s|;|$)/;
 const MERMAID_BARE_KEYWORDS = /^(flowchart|graph)\s*;?\s*$/;
 const MERMAID_EDGE = /--[->xo]|-\.->|==>/;
 

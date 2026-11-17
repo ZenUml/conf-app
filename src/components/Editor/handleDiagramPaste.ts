@@ -6,7 +6,7 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { toast } from '@/utils/toast';
 import type { DiagramPasteReport } from './diagramPaste';
 
-const MOVE_MESSAGE = 'That was Mermaid, so it is now in the Mermaid tab.';
+const MOVE_MESSAGE = 'This looks like Mermaid, so it is now in the Mermaid tab.';
 
 // One handler per mounted editor. `moveDeclined` is that editor session's
 // memory of an Undo click: after it, Mermaid pasted into the Sequence tab

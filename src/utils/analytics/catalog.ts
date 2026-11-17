@@ -1760,6 +1760,18 @@ export type AnalyticsEventName =
   | "agent_link_mcp_dialog_opened"
   | "agent_link_mcp_dialog_copied"
   | "agent_link_mcp_dialog_closed"
+  // The dialog's step 1 is split into one tab per MCP client (2026-11), since
+  // a `claude mcp add` command alone fits only Claude Code users. Every
+  // opened / copied / closed row carries the tab showing at the time in
+  // `mcp_client_choice`; closed also says how it closed in `mcp_close_source`
+  // ('page_hidden' = the viewer left the page with the dialog open, which
+  // used to leave no closed row at all). client_selected = a tab click
+  // (`mcp_client_choice` is the new tab; the last choice is remembered per
+  // browser). install_clicked = a one-click install link for that client
+  // (Cursor, VS Code); whether the client then connected is still counted
+  // server-side by agent_link_mcp_initialized (`mcp_client_name`).
+  | "agent_link_mcp_client_selected"
+  | "agent_link_mcp_install_clicked"
   // MCP promo surfaces (2026-11). Besides the toolbar/More-menu entry, the
   // dialog is promoted by a dismissible card in Fullscreen
   // (`mcp_button_placement: 'fullscreen_card'`), a card for a new, untouched
@@ -2127,8 +2139,21 @@ export type AgentLinkWriteResult = "added" | "already_present" | "conflict" | "u
 
 // Which block of the Connect MCP dialog a Copy click targeted
 // (agent_link_mcp_dialog_copied): the one-time `claude mcp add` setup
-// command, or the prompt naming this diagram for the agent.
-export type AgentLinkMcpCopyTarget = "setup_command" | "prompt";
+// command, the bare server URL (Claude web or desktop custom connector,
+// Cursor, VS Code and other clients), the Other tab's prompt asking a
+// terminal agent to add the server to its own configuration
+// ('install_prompt'), or the prompt naming this diagram.
+export type AgentLinkMcpCopyTarget = "setup_command" | "server_url" | "install_prompt" | "prompt";
+
+// The client tab of the Connect MCP dialog's step 1 (`mcp_client_choice`).
+// 'claude_app' = Claude on the web or desktop (custom connector by URL);
+// 'other' = any other MCP client, Codex included (the server URL and its name).
+export type AgentLinkMcpClientChoice = "claude_code" | "claude_app" | "cursor" | "vscode" | "other";
+
+// How the Connect MCP dialog closed (`mcp_close_source` on
+// agent_link_mcp_dialog_closed): its Done button, its × button, a click on the
+// backdrop, Escape (inline viewer), or the viewer leaving the page with it open.
+export type AgentLinkMcpCloseSource = "done" | "close_button" | "backdrop" | "escape" | "page_hidden";
 
 // Where the Connect MCP entry sat: the macro's own header button, the More
 // (⋯) menu, where header collapse stage 3 moves it, or the Confluence Home

@@ -496,6 +496,8 @@
           :content-id="connectMcpTarget.contentId"
           @close="closeConnectMcpDialog"
           @copy="onConnectMcpCopied"
+          @select-client="onConnectMcpClientSelected"
+          @install="onConnectMcpInstall"
         />
         <!-- MCP promo, Fullscreen: a dismissible corner card (Figma "ZenUML –
              MCP promo mockups" #1). Display rules in mcpPromo.ts. -->
@@ -544,7 +546,7 @@ import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
 import McpPromoCard from '@/components/AgentLink/McpPromoCard.vue'
 import { createMcpPromoState } from '@/composables/agentLink/mcpPromo'
-import { RELAY_SESSIONS_ENABLED } from '@/composables/agentLink/connectInstructions'
+import { RELAY_SESSIONS_ENABLED, rememberedMcpClient } from '@/composables/agentLink/connectInstructions'
 import { createConnectMcpShownRecord } from '@/composables/agentLink/connectMcpShown'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
 import LinkStatusChip from '@/components/AgentLink/LinkStatusChip.vue'
@@ -685,6 +687,8 @@ export default {
     // is dropped instead of reporting a viewer that no longer exists.
     connectMcpUnmounted: false,
     connectMcpOpenedAt: 0,
+    // The client tab showing in the dialog, for its analytics rows.
+    connectMcpClient: 'claude_code',
     architectureTokensEnabled: false,
     // Full variant 'no active license' notice; resolved off the render path.
     licenseNoticeActive: false,
@@ -1855,7 +1859,7 @@ export default {
       if (this.isRenaming) return;
       if (this.$refs.moreMenu?.open) return;
       if (this.showConnectMcpDialog) {
-        this.closeConnectMcpDialog();
+        this.closeConnectMcpDialog('escape');
         return;
       }
       if (!this.showSourcePanel) return;
@@ -2351,7 +2355,9 @@ export default {
       if (this.showConnectMcpDialog) return;
       this.showConnectMcpDialog = true;
       this.connectMcpOpenedAt = Date.now();
+      this.connectMcpClient = rememberedMcpClient();
       trackAnalyticsEvent('agent_link_mcp_dialog_opened', this.connectMcpAnalytics({
+        mcp_client_choice: this.connectMcpClient,
         mcp_button_reveal: this.connectMcpEffectiveReveal,
         ...(where === 'header_more_menu' ? { action_location: where, mcp_button_placement: 'more_menu' } : {}),
         ...(where === 'fullscreen_card' ? { mcp_button_placement: where } : {}),
@@ -2368,20 +2374,31 @@ export default {
         mcp_button_placement: placement,
       }));
     },
-    closeConnectMcpDialog() {
+    closeConnectMcpDialog(source = 'close_button') {
       if (!this.showConnectMcpDialog) return;
       this.showConnectMcpDialog = false;
       trackAnalyticsEvent('agent_link_mcp_dialog_closed', this.connectMcpAnalytics({
         dwell_ms: Date.now() - this.connectMcpOpenedAt,
+        mcp_close_source: source,
+        mcp_client_choice: this.connectMcpClient,
       }));
     },
-    onConnectMcpCopied(target, ok) {
+    onConnectMcpClientSelected(client) {
+      this.connectMcpClient = client;
+      trackAnalyticsEvent('agent_link_mcp_client_selected', this.connectMcpAnalytics({ mcp_client_choice: client }));
+    },
+    onConnectMcpInstall(client) {
+      this.mcpPromoState?.markEngaged();
+      trackAnalyticsEvent('agent_link_mcp_install_clicked', this.connectMcpAnalytics({ mcp_client_choice: client }));
+    },
+    onConnectMcpCopied(target, ok, client = this.connectMcpClient) {
       if (ok) {
         this.mcpPromoState?.markEngaged();
         this.mcpPromoHidden = true;
       }
       trackAnalyticsEvent('agent_link_mcp_dialog_copied', this.connectMcpAnalytics({
         mcp_copy_target: target,
+        mcp_client_choice: client,
         outcome: ok ? 'copied' : 'clipboard_failed',
       }));
     },

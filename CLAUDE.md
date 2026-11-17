@@ -74,6 +74,12 @@ Before writing code for any new feature, define the analytics events first. For 
 
 **Why:** events retrofitted after the fact miss edge cases (e.g. "accepted vs modified" required understanding the full UX flow before implementation). Planning events up front forces clarity on what "success" looks like before the code is written.
 
+### Estimate Mixpanel cost and quota before adding events or session replay
+
+Before a change adds an event, raises a sampling rate, adds a forced session-replay source, or shows an existing forced-replay event to a wider audience, estimate its monthly volume against the two caps and state the estimate in the PR. The caps: 1,000,000 tracked events (billed above that) and 20,000 session replays (recording stops for the rest of the month above that). Count per occurrence, not per user: an event sent on mount fires once per macro iframe per page view. Measure the current rate with `.claude/skills/mixpanel/scripts/mp_quota.py`. Sampling sets are in `src/utils/analytics/eventSampling.ts`; forced replay sources are `FORCED_REPLAY_SOURCES` in `src/utils/analytics/trackAnalyticsEvent.ts`; caps and policy are in [docs/ops/mixpanel-quota-check.md](docs/ops/mixpanel-quota-check.md).
+
+**Why (2026-11-17):** the Lite site-policy license notice began to reuse `license_notice_shown`, a forced-replay event sized for a handful of Full sites. About 20,000 replays were then recorded in one day, as many as the monthly replay cap.
+
 ### Pure Forge — no Connect code
 
 All four variants (lite, full, diagramly, asyncapi) are **Forge-only** in production. The Connect runtime is fully removed.

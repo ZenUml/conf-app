@@ -518,7 +518,13 @@ export type AnalyticsProperties = {
   label_variant_count?: number;        // distinct rawLabel values among related
   same_space?: boolean;                // clicked page in the same space as the viewer's page
   same_page?: boolean;                 // the opened participant also appears in another diagram on this page
-  error_kind?: string;                 // 'timeout' | 'network' | 'http_<status>' | body error_kind
+  // related_diagrams_lookup_failed: 'timeout' | 'network' (no HTTP answer at all) |
+  // 'no_user_credential' (HTTP 403 whose body says so) | 'http_error' (any other HTTP
+  // status, carried on `http_status`) | the backend's own body error_kind.
+  // Before 2026-11-18 every thrown HTTP error was recorded as 'network'.
+  error_kind?: string;
+  // related_diagrams_lookup_skipped: why the footer sent no request. Closed vocabulary.
+  lookup_skip_reason?: 'anonymous_viewer';
   // Join key on every `attachment_upload_*` event (model/Attachment.ts
   // UploadContext), mirroring the backend joinKeyProps() in src/export.js so
   // analysts can left-join uploads -> exports on (cloud_id, custom_content_id,

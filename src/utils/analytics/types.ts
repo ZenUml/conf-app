@@ -634,11 +634,18 @@ export type AnalyticsProperties = {
   failed_type_count?: number;
   // Which trigger put the byline's paste link on the clipboard
   // (advocacy_message_copied, ui_component: 'byline_created_link'). 'auto' is
-  // the copy performed for the user at save; 'manual' is the button. They fail
-  // for different reasons — the automatic write is not user-gesture-initiated
-  // inside the Forge iframe — and a run of 'manual' copies against one created
-  // link means the automatic one is not surviving to the paste.
-  copy_trigger?: 'auto' | 'manual';
+  // the copy attempted at save (only while the document has focus: outside a
+  // user gesture the Clipboard API rejects); 'manual' is the Copy button;
+  // 'open_editor' and 'done' are the panel's primary buttons, which copy inside
+  // their own click before navigating or closing.
+  copy_trigger?: 'auto' | 'manual' | 'open_editor' | 'done';
+  // How the byline link copy was written: the async Clipboard API, the hidden
+  // textarea execCommand fallback, or neither (both failed). Failure detail is
+  // carried in `failure_reason` (the error name, e.g. 'NotAllowedError').
+  copy_method?: 'clipboard_api' | 'exec_command' | 'none';
+  // `document.hasFocus()` at the moment of the copy attempt. The Clipboard API
+  // rejects with NotAllowedError when the document is not focused.
+  document_has_focus?: boolean;
   // Was the host page already in the Confluence editor when the byline opened.
   // Carried on every byline event because it splits two genuinely different
   // journeys — reader-discovers-the-app vs author-mid-edit — and because the

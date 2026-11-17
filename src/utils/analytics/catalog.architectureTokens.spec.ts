@@ -9,7 +9,8 @@ describe('architecture_tokens analytics type contract', () => {
     const fileName = path.resolve(process.cwd(), 'src/utils/analytics/__architecture_tokens_contract__.ts');
     const source = `
       import type {
-        AnalyticsEventName, ArchitectureTokenLookupOutcome, ArchitectureTokenStaleReason, FeatureArea,
+        AnalyticsEventName, ArchitectureTokenIndexSource, ArchitectureTokenLookupOutcome,
+        ArchitectureTokenStaleReason, FeatureArea,
       } from './catalog';
       import type { AnalyticsProperties } from './types';
       const names: AnalyticsEventName[] = [
@@ -36,6 +37,12 @@ describe('architecture_tokens analytics type contract', () => {
         feature_area: area, surface: 'viewer',
         error_kind: 'stale_index', stale_reason: staleReasons[0], indexed_version: 3, live_version: 4,
       };
+      const indexSources: ArchitectureTokenIndexSource[] = ['save', 'heal', 'backfill', 'unknown'];
+      const sourceProps: AnalyticsProperties = {
+        feature_area: area, surface: 'viewer', error_kind: 'stale_index', index_source: indexSources[0],
+      };
+      // @ts-expect-error a raw run id is not an index source
+      const badIndexSource: AnalyticsProperties = { feature_area: area, surface: 'viewer', index_source: 'save:3' };
       // @ts-expect-error unknown stale reason
       const badStaleReason: AnalyticsProperties = { feature_area: area, surface: 'viewer', stale_reason: 'self_missing' };
       // @ts-expect-error version must be numeric
@@ -48,7 +55,10 @@ describe('architecture_tokens analytics type contract', () => {
       const badOutcome: ArchitectureTokenLookupOutcome = 'unknown';
       // @ts-expect-error count must be numeric
       const badProps: AnalyticsProperties = { participant_count: 'seven' };
-      void [names, props, staleProps, badStaleReason, badLiveVersion, badEvent, badArea, badOutcome, badProps];
+      void [
+        names, props, staleProps, sourceProps, badStaleReason, badLiveVersion, badIndexSource, badEvent,
+        badArea, badOutcome, badProps,
+      ];
     `;
     const options: ts.CompilerOptions = {
       target: ts.ScriptTarget.ESNext,

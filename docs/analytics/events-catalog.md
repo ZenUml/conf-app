@@ -249,6 +249,7 @@ and `macro_type: "mermaid"`.
 | `stale_reason` | Only with `error_kind: stale_index`. `version_mismatch`: the live diagram is at another version than its index rows. `not_in_live_read`: the viewer's live read did not return the diagram. `no_page_container`: it was returned without a `pageId`. Absent on events from a backend older than this property. |
 | `indexed_version` | Only with `error_kind: stale_index`. The version the index rows were written for. |
 | `live_version` | Only with `stale_reason: version_mismatch`. The live version the read returned. |
+| `index_source` | Only with `error_kind: stale_index`. Which writer produced the stale index rows, from their run id: `save` (save-time sync), `heal` (repair by the related lookup), `backfill` (the upload tool), `unknown` (any other run id). Absent on events from a backend that does not send it. |
 
 ### `related_token_indicators_shown`
 

@@ -75,6 +75,14 @@ export type ArchitectureTokenStaleReason =
   | "not_in_live_read"
   | "no_page_container";
 
+/**
+ * Which writer produced the index rows behind a `stale_index` failure, read from the rows'
+ * run id: `save` (the save-time sync, run id `save:N`), `heal` (a repair by the related lookup,
+ * `heal:N`), `backfill` (the upload tool, a `YYYY-MM-DD` run id), `unknown` (any other run id).
+ * Mirrors `IndexSource` in functions/architecture-tokens/service.ts.
+ */
+export type ArchitectureTokenIndexSource = "save" | "heal" | "backfill" | "unknown";
+
 /** Magic's finite failure vocabulary; never send source, SVG, or hashes. */
 export type MagicFailureReason =
   | "missing_artifact"

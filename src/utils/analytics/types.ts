@@ -73,6 +73,7 @@ import type {
   SaveFailureProbeStatus,
   ArchitectureTokenLookupOutcome,
   ArchitectureTokenStaleReason,
+  ArchitectureTokenIndexSource,
   AuthoringOutcome,
   MagicFailureReason,
   FeedbackCaptureMethod,
@@ -528,6 +529,9 @@ export type AnalyticsProperties = {
   stale_reason?: ArchitectureTokenStaleReason;
   indexed_version?: number;            // the version the index rows were written for
   live_version?: number;               // the live version; only with 'version_mismatch'
+  // Which writer produced the stale index rows: 'save' | 'heal' | 'backfill' | 'unknown'.
+  // Absent on events from a backend that does not send it.
+  index_source?: ArchitectureTokenIndexSource;
   // Join key on every `attachment_upload_*` event (model/Attachment.ts
   // UploadContext), mirroring the backend joinKeyProps() in src/export.js so
   // analysts can left-join uploads -> exports on (cloud_id, custom_content_id,

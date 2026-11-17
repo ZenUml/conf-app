@@ -71,6 +71,15 @@ export function mcpAddCommand(backendBaseUrl?: string): string {
   return `claude mcp add --transport http ${mcpServerName()} ${mcpServerUrl(backendBaseUrl)}`
 }
 
+// Codex CLI (`codex mcp add --help`, codex-cli 0.169.0): `--url` adds a
+// streamable HTTP server. Run against conf-stg-lite on 2026-11-17, it wrote
+// [mcp_servers.<name>] url = "…" to config.toml, then printed "Detected OAuth
+// support. Starting OAuth flow…" and opened the authorize URL; `codex mcp
+// login <name>` repeats the sign-in on its own.
+export function codexAddCommand(serverUrl: string = mcpServerUrl(), name: string = mcpServerName()): string {
+  return `codex mcp add ${name} --url ${serverUrl}`
+}
+
 // One-click install links for the Connect MCP dialog's client tabs. A Forge
 // Custom UI frame opens links through router.open, which Confluence handles
 // only for web URLs: on whimet4 (2026-11-17) a cursor:// URL did nothing at
@@ -99,7 +108,7 @@ export function vscodeInstallUrl(serverUrl: string = mcpServerUrl(), name: strin
 }
 
 // The Other tab's setup: a prompt for an agent that can run commands or edit
-// files (Codex, Kiro, opencode, Copilot CLI…) to add the server to its own
+// files (Kiro, opencode, Copilot CLI, Factory…) to add the server to its own
 // MCP configuration. An agent cannot add a server to the session it is in,
 // and the OAuth sign-in needs the person, so the prompt asks it to say how
 // to reload and sign in rather than to use the tools straight away. A chat
@@ -116,17 +125,20 @@ export function buildInstallPrompt(serverUrl: string = mcpServerUrl(), name: str
   ].join('\n')
 }
 
-export type McpClientChoice = 'claude_code' | 'claude_app' | 'cursor' | 'vscode' | 'other'
+export type McpClientChoice = 'claude_code' | 'claude_app' | 'cursor' | 'codex' | 'vscode' | 'chatgpt' | 'other'
 
 // The dialog's tabs, most-used client first, by accounts whose MCP client
 // named itself on agent_link_mcp_initialized (customer sites,
 // 2026-09-15..11-17): claude-code 24, Anthropic/ClaudeAI 5, cursor-vscode 3,
-// codex-mcp-client 3 (under Other), Visual Studio Code 1.
+// codex-mcp-client 3, Visual Studio Code 1. ChatGPT had none yet; it comes
+// after them, before the catch-all.
 export const MCP_CLIENTS: ReadonlyArray<{ id: McpClientChoice; label: string }> = [
   { id: 'claude_code', label: 'Claude Code' },
   { id: 'claude_app', label: 'Claude app' },
   { id: 'cursor', label: 'Cursor' },
+  { id: 'codex', label: 'Codex' },
   { id: 'vscode', label: 'VS Code' },
+  { id: 'chatgpt', label: 'ChatGPT' },
   { id: 'other', label: 'Other' },
 ]
 

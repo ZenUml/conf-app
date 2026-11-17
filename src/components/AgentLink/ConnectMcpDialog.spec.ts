@@ -166,6 +166,27 @@ describe('ConnectMcpDialog client tabs', () => {
     expect(wrapper.emitted('copy')).toEqual([['install_prompt', true, 'other']])
   })
 
+  it('gives Codex its add command, which starts the sign-in', async () => {
+    const wrapper = mountDialog()
+    await wrapper.find('[data-testid="connect-mcp-tab-codex"]').trigger('click')
+    expect(wrapper.find('[data-testid="connect-mcp-setup-command"]').text()).toBe(`codex mcp add zenuml --url ${URL}`)
+    expect(wrapper.find('[data-testid="connect-mcp-codex-login"]').text()).toContain('codex mcp login zenuml')
+    await wrapper.find('[data-testid="connect-mcp-copy-setup"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('copy')).toEqual([['setup_command', true, 'codex']])
+  })
+
+  it('gives ChatGPT the custom MCP server steps and the URL', async () => {
+    const wrapper = mountDialog()
+    await wrapper.find('[data-testid="connect-mcp-tab-chatgpt"]').trigger('click')
+    const steps = wrapper.find('[data-testid="connect-mcp-client-steps"]').text()
+    expect(steps).toContain('chatgpt.com/plugins')
+    expect(steps).toContain('Add custom MCP server')
+    expect(steps).toContain('OAuth')
+    expect(wrapper.find('[data-testid="connect-mcp-server-url"]').text()).toBe(URL)
+    expect(wrapper.find('[data-testid="connect-mcp-setup-command"]').exists()).toBe(false)
+  })
+
   it('remembers the last client and opens on it next time', async () => {
     const first = mountDialog()
     await first.find('[data-testid="connect-mcp-tab-cursor"]').trigger('click')

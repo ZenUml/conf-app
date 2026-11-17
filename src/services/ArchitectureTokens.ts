@@ -26,10 +26,37 @@ export interface RelatedResponse {
   error_kind?: string
 }
 
+/**
+ * `network` means no HTTP answer at all. An answer with a status is `no_user_credential`
+ * (403 and a body that says so: Forge sent no user token) or `http_error` with its status.
+ */
+export type RelatedLookupErrorKind = 'timeout' | 'network' | 'no_user_credential' | 'http_error'
+
 export class RelatedLookupError extends Error {
-  constructor(public readonly kind: 'timeout' | 'network') {
+  constructor(
+    public readonly kind: RelatedLookupErrorKind,
+    public readonly httpStatus?: number,
+  ) {
     super(kind)
   }
+}
+
+/** The backend's guest/anonymous answer; see `requireForgeUserToken`. */
+const NO_USER_CREDENTIAL = 'no_user_credential'
+
+function bodyNamesNoUserCredential(body: unknown): boolean {
+  if (typeof body === 'string') return body.includes(NO_USER_CREDENTIAL)
+  return (body as { error?: unknown } | null | undefined)?.error === NO_USER_CREDENTIAL
+}
+
+/** `callRemote` throws Error('HTTP <status>: ...') with `.status` and `.body` for any non-2xx. */
+function classifyLookupError(error: unknown): unknown {
+  if (error instanceof RelatedLookupError) return error
+  const { status, body } = (error ?? {}) as { status?: unknown; body?: unknown }
+  if (typeof status !== 'number') return new RelatedLookupError('network')
+  return status === 403 && bodyNamesNoUserCredential(body)
+    ? new RelatedLookupError('no_user_credential', status)
+    : new RelatedLookupError('http_error', status)
 }
 
 /**
@@ -53,7 +80,9 @@ export async function getRelatedDiagrams(
           // the reader's page, so the nearest position survives the backend's slice
           + (pageId ? `&pageId=${encodeURIComponent(pageId)}` : ''),
         'GET',
-      ),
+      ).catch((error) => {
+        throw classifyLookupError(error)
+      }),
       timeout,
     ])
   } finally {

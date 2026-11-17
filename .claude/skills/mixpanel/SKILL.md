@@ -145,6 +145,27 @@ That inverted a per-tenant comparison as well, because a tenant on the older bui
 all of its renders under the old name. Any claim that one tenant "shows the feature more"
 than another has to control for which build each was running.
 
+## The 2026-11-17 `related_diagrams_lookup_failed` `error_kind: network` break
+
+Until the release carrying this change, the footer recorded **every** thrown error as
+`error_kind: network`, HTTP errors included. A read-only diagnosis (2026-11-17, one customer
+site, 19,057 events) found them to be HTTP 403 `no_user_credential` answers to guest viewers,
+not network failures. After the release:
+
+| `error_kind` | meaning |
+|---|---|
+| `timeout` | unchanged: the 8 s race lost |
+| `network` | now only an error with **no HTTP status** at all |
+| `no_user_credential` | HTTP 403 whose body says so (Forge sent no user token) |
+| `http_error` | any other HTTP status, carried on `http_status` |
+
+**`network` counts drop at that release by definition, not because the network improved.**
+For a trend across it, sum `network` + `no_user_credential` + `http_error` before, and read
+the three after. Anonymous viewers now send no request: they emit
+`related_diagrams_lookup_skipped` (`lookup_skip_reason: anonymous_viewer`, sampled 10%, so
+divide by `sample_rate`). A fall in `related_diagrams_lookup_failed` at the release is not
+fewer failing viewers; it is the anonymous ones moving to `_skipped`.
+
 ## The 2026-09-07 `ai_repair_button_shown` semantics break (evidence-verified)
 
 The event name and its properties are unchanged, so nothing in a query errors — the meaning

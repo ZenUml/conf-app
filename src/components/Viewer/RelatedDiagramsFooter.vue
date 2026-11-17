@@ -105,6 +105,7 @@ import {
   type RelatedResponse,
 } from '@/services/ArchitectureTokens'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { isAnonymousViewer } from '@/utils/magic/viewerAccount'
 import { getGateTelemetry } from '@/utils/renderGate/maybeGateViewerRender'
 
 const props = defineProps<{
@@ -342,14 +343,27 @@ function onWindowResize() {
 async function load() {
   if (requested || !props.enabled || !props.ready) return
   requested = true
+  // Forge sends no user token to an anonymous viewer, so the backend can only answer 403
+  // no_user_credential. Not asking is the same footer (none) without the failed call.
+  if (isAnonymousViewer((forgeGlobal as any)?.forgeContext?.accountId)) {
+    trackAnalyticsEvent('related_diagrams_lookup_skipped', {
+      ...baseProperties(),
+      lookup_skip_reason: 'anonymous_viewer',
+    })
+    return
+  }
   const started = performance.now()
   let response: RelatedResponse
   try {
     response = await getRelatedDiagrams(props.customContentId, { pageId: props.pageId })
   } catch (error) {
+    // `network` only when no HTTP answer came back; the service classifies the rest.
     trackAnalyticsEvent('related_diagrams_lookup_failed', {
       ...baseProperties(),
       error_kind: error instanceof RelatedLookupError ? error.kind : 'network',
+      ...(error instanceof RelatedLookupError && error.httpStatus !== undefined
+        ? { http_status: error.httpStatus }
+        : {}),
       duration_ms: Math.round(performance.now() - started),
     })
     return

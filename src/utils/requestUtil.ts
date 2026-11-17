@@ -129,6 +129,8 @@ export async function callRemote(
     const body = typeof response.body === 'string' ? response.body : JSON.stringify(response.body);
     throw Object.assign(new Error(`HTTP ${response.status}: ${body || 'No body'}`), {
       status: response.status,
+      // As received, so a caller can read `body.error` instead of parsing the message.
+      body: response.body,
     });
   }
 

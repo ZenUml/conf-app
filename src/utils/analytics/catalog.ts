@@ -421,6 +421,9 @@ export type SessionReplayEventSource =
   | "targeted"
   | "sampled"
   | "authoring"
+  // First empty new macro of a browser on a site (editor_template_gallery_opened
+  // with template_gallery_trigger "auto_first_open"): always recorded.
+  | "first_authoring"
   | "plan_usage_page"
   | "fullscreen"
   | "feedback"

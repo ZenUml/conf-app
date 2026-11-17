@@ -456,6 +456,8 @@ describe('relatedDiagrams', () => {
     );
     expect(out.participants).toEqual([]);
     expect(out.error_kind).toBe('stale_index');
+    expect(out.stale_reason).toBe('version_mismatch');
+    expect(out.live_version).toBe(56);
   });
 
   it('drops a target edited since indexing, and opens a moved one at its page today', async () => {

@@ -4,6 +4,7 @@ import {
   confluencePageResolver,
   relatedDiagrams,
 } from '../../architecture-tokens/service';
+import { staleIndexHealer } from '../../architecture-tokens/heal';
 import type { ForgeRequestData } from '../../utils/authenticate';
 import { requireForgeUserToken } from '../../utils/forgeUserToken';
 
@@ -24,10 +25,12 @@ export const onRequest = async ({
   request,
   env,
   data,
+  waitUntil,
 }: {
   request: Request;
   env: Env;
   data: ForgeRequestData;
+  waitUntil?: (promise: Promise<unknown>) => void;
 }): Promise<Response> => {
   if (request.method !== 'GET') return response(405, 'method_not_allowed');
 
@@ -52,6 +55,11 @@ export const onRequest = async ({
       confluencePageResolver(apiBaseUrl, user),
       confluenceContentResolver(apiBaseUrl, user),
       ownPageId,
+      {
+        // Rebuild this diagram's rows when its live version has moved past the index. Written
+        // under the cloudId this lookup reads with, so the next lookup finds them.
+        heal: staleIndexHealer({ db: env.DB, cloudId, apiBaseUrl, userToken: user, waitUntil }),
+      },
     ));
   } catch (error) {
     console.error('architecture-tokens related lookup failed', error);

@@ -25,6 +25,7 @@ describe('GET /api/architecture-tokens/related', () => {
     expect(res.status).toBe(200);
     expect(relatedDiagrams).toHaveBeenCalledWith(
       {}, 'cid', '42', expect.any(Function), expect.any(Function), undefined,
+      { heal: expect.any(Function) },
     );
     expect(confluencePageResolver).toHaveBeenCalledWith('https://api.atlassian.com/ex/confluence/cid', 'tok');
     expect(confluenceContentResolver).toHaveBeenCalledWith('https://api.atlassian.com/ex/confluence/cid', 'tok');
@@ -35,6 +36,7 @@ describe('GET /api/architecture-tokens/related', () => {
     await onRequest(ctx('https://x/api/architecture-tokens/related?customContentId=42&pageId=77'));
     expect(relatedDiagrams).toHaveBeenCalledWith(
       {}, 'cid', '42', expect.any(Function), expect.any(Function), '77',
+      { heal: expect.any(Function) },
     );
   });
 
@@ -42,6 +44,7 @@ describe('GET /api/architecture-tokens/related', () => {
     await onRequest(ctx('https://x/api/architecture-tokens/related?customContentId=42&pageId=abc'));
     expect(relatedDiagrams).toHaveBeenCalledWith(
       {}, 'cid', '42', expect.any(Function), expect.any(Function), undefined,
+      { heal: expect.any(Function) },
     );
   });
 
@@ -66,10 +69,12 @@ describe('GET /api/architecture-tokens/related', () => {
     c.request = new Request('https://x/api/architecture-tokens/related?customContentId=1', {
       headers: { 'x-forge-oauth-system': 'sys' },
     });
+    const callsBefore = (relatedDiagrams as any).mock.calls.length;
     const res = await onRequest(c);
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: 'no_user_credential' });
-    expect(relatedDiagrams).not.toHaveBeenCalledWith({}, 'cid', '1', expect.anything(), expect.anything(), undefined);
+    // No lookup, and so no read-path index write, runs for a viewer without a user token.
+    expect((relatedDiagrams as any).mock.calls.length).toBe(callsBefore);
   });
 
   it('service throw → 200 with error_kind, never 500', async () => {

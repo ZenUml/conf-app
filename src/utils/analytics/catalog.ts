@@ -318,6 +318,12 @@ export type CacheState = "cold" | "warm" | "unknown";
 // high-confidence wipe. See utils/analytics/contentState.ts.
 export type ContentState = "default" | "authored" | "empty";
 
+// diagram_paste_handled: the info string of a Markdown fence found in a paste.
+// `none` = no fence, or a fence without a language.
+export type PasteFenceLanguage = "mermaid" | "plantuml" | "other" | "none";
+// diagram_paste_handled: what the editor did with the paste.
+export type DiagramPasteAction = "fence_removed" | "moved_to_mermaid" | "inserted_unchanged";
+
 // Where a `cached_svg` render sourced its SVG. `none` for `live_render`.
 // `cc_body` = SVG co-stored in the custom-content body (Phase 2);
 // `attachment` / `localstorage` reserved for a future static fast-path viewer.
@@ -1954,6 +1960,24 @@ export type AnalyticsEventName =
   | "foreign_dialect_hint_shown"
   | "foreign_dialect_hint_switch_clicked"
   | "foreign_dialect_hint_dismissed"
+  // Paste handling in the Sequence and Mermaid code editors (direction B,
+  // 2026-11-17: a Markdown code fence left in a paste, or Mermaid text pasted
+  // into the Sequence editor, stopped first saves and no event counted it).
+  // `diagram_paste_handled` fires once per paste that carried a Markdown
+  // fence or text of another dialect than the editor tab; a plain paste does
+  // not fire it (macro_authoring_ended already counts paste input).
+  // `macro_type` is the tab the paste landed in; `has_markdown_fence` and
+  // `fence_language` describe the fence; `detected_dialect` is what the
+  // pasted text looks like after the fence is removed; `paste_action` is what
+  // the editor did (`fence_removed`, `moved_to_mermaid`, `inserted_unchanged`);
+  // `content_state` is the tab's body BEFORE the paste (`default` = untouched
+  // starter), which is the condition for the move; `paste_chars` is the length
+  // of the inserted text. Never carries the pasted text.
+  // `diagram_paste_move_undone` fires when the user clicks Undo on the toast
+  // that follows `moved_to_mermaid`: the paste goes back into the Sequence tab
+  // and later pastes in that editor session are no longer moved.
+  | "diagram_paste_handled"
+  | "diagram_paste_move_undone"
   // Confluence Home page "Create a diagram" card (confluence:homepageFeed —
   // see manifest.yml). The only onboarding surface a non-admin end user
   // encounters without first inserting a macro; the pre-existing

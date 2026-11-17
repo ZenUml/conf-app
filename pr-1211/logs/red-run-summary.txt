@@ -1,0 +1,7 @@
+Red run: tests committed in 9d086743 before the implementation (d50f59a5).
+ Test Files  8 failed | 7 passed (15)
+      Tests  69 failed | 121 passed (190)
+
+src/model/Diagram/mermaidPasteRealParser.spec.ts > Mermaid paste handling against the real parser > accepts the source extracted from prose plus a fence
+src/model/Diagram/mermaidPasteRealParser.spec.ts > Mermaid paste handling against the real parser > accepts the text after the fence is removed
+src/model/Diagram/mermaidPasteRealParser.spec.ts > Mermaid paste handling against the real parser > treats graph td as valid Mermaid

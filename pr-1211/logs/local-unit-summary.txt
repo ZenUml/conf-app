@@ -1,0 +1,28 @@
+Local full unit run on 74edc98c (pnpm test:unit), machine load average about 100 at the time:
+ Test Files  7 failed | 502 passed | 1 skipped (510)
+      Tests  15 failed | 7117 passed | 3 skipped (7135)
+
+The 15 failures, none in a file this PR changes:
+functions/agent-link/oauth/headlessWrite.spec.ts > source field per diagram type > reads and updates an app-written mermaid diagram through mermaidCode, not its stale code
+src/components/Viewer/GenericViewer.spec.ts > GenericViewer license notice (Lite, per-site enforcement) > shows the Lite watermark and strip when the server says watermark
+src/forgeIndex.publishTiming.spec.ts > forgeIndex Publish handler — per-step publish timing > reports attachment_timed_out when the 6000 ms cap wins the race
+src/forgeIndex.publishTiming.spec.ts > forgeIndex Publish handler — per-step publish timing > reports the attachment backup time and that the cap did not fire when it finishes first
+src/mcp-app-view.spec.ts > drawing a Markdown result > renders the document and draws its mermaid blocks with the view's own Mermaid
+src/utils/plantuml/stdlib.spec.ts > PlantUML stdlib loader (ADR-0010) > serves the hosted C4 library as data and reports success
+tests/unit/prAgentSelectionDiscovery.spec.ts > agent plans exact smoke, directly changed specs, helper dependencies and behavior dependencies from real Lite inventories
+tests/unit/prAgentSelectionDiscovery.spec.ts > every advertised default PR pair is present in actual configured test inventories
+tests/unit/prAgentSelectionDiscovery.spec.ts > prepare-plan assigns a directly changed render spec to render and lets regression retain its own inventory
+tests/unit/prAgentSelectionDiscovery.spec.ts > real AsyncAPI-only direct specs do not block Lite selected or triage-approved full plans
+tests/unit/prAgentSelectionDiscovery.spec.ts > triage-approved full plans retain complete real regression and render inventories
+tests/unit/prAgentSelectionDiscovery.spec.ts > zero-scenario render keeps direct-spec dependencies and stale or missing authorization blocks
+tests/unit/testSelectionDiscovery.spec.ts > Playwright category grep selects sequence without its separately classified edit/create/render families
+tests/unit/testSelectionDiscovery.spec.ts > main plans smoke from real complete regression inventories for all four variants
+tests/unit/testSelectionDiscovery.spec.ts > uses Jev behavior categories without adding a Mermaid-specific execution floor
+
+Rerun 1 (the 7 files alone):
+ Test Files  3 failed | 4 passed (7)
+      Tests  11 failed | 378 passed (389)
+Rerun 2 (3 remaining files, after installing tests/e2e-tests dependencies; 9 failures were 'Cannot find module dotenv/config'):
+ Test Files  1 failed | 2 passed (3)
+      Tests  2 failed | 16 passed (18)
+Rerun 3 (src/forgeIndex.publishTiming.spec.ts alone): 8 passed (8); the 2 failures were 'Test timed out in 5000ms' and its follow-on.

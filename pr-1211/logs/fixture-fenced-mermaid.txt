@@ -1,0 +1,10 @@
+```mermaid
+sequenceDiagram
+  autonumber
+  participant R as Robot
+  participant GW as Gateway<br/>(edge)
+  R->>GW: request credential
+  alt ok
+    GW-->>R: credential
+  end
+```

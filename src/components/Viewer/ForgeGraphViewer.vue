@@ -15,12 +15,13 @@
           v-if="showZoomControls"
           macro-type="graph"
           label="Graph"
+          :can-zoom-in="room.in"
+          :can-zoom-out="room.out"
           @zoom-in="zoomIn"
           @zoom-out="zoomOut"
           @fit-height="fitAxis('height')"
           @fit-width="fitAxis('width')"
         />
-        <ViewportZoomHint v-if="showZoomControls" ref="zoomHint" macro-type="graph" />
       </div>
       <!-- Multi-page navigation, rendered in GenericViewer's header (beside
            the title in Fullscreen) and visible without hover. -->
@@ -51,17 +52,20 @@ import {
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { clearExternalIconState, startExternalIconProxy } from "@/utils/graph/externalIcons";
 import { getForgeCustomContentId, setViewerLoadState } from "@/utils/viewerLoadOutcome";
-import { createGestureGate, createWheelStepper, createZoomHintTrigger, isZoomIntent } from "@/utils/viewport/wheelZoom";
+import {
+  alignOf, axisOffset, bindSafariPinch, clampScale, classifyWheel, createGestureGate, zoomLimits, zoomRoom,
+} from "@/utils/viewport/wheelZoom";
 import { trackViewportControl } from "@/utils/viewport/trackViewportControl";
 import { wheelFallsThroughToPage } from "@/utils/viewport/surface";
-import ViewportZoomHint from "@/components/Viewer/ViewportZoomHint.vue";
+
+/** The step DrawIO's own toolbar zoom uses (mxGraph zoomFactor). */
+const GRAPH_ZOOM_STEP = 1.2;
 export default {
   name: "ForgeGraphViewer",
   components: {
     GenericViewer,
     GraphPageNav,
     DiagramViewportToolbar,
-    ViewportZoomHint
   },
   props: {
     graphXml: String,
@@ -79,6 +83,15 @@ export default {
       graphRendered: false,
       emptyViewReported: false,
       wheelZoomHandler: null,
+      unbindPinch: null,
+      // Until the reader zooms or pans, the opening view is whatever GraphViewer's
+      // auto-fit last produced (it refits on resize), so it is re-read each time.
+      userMoved: false,
+      openScale: 1,
+      // view.scale is not reactive; mirrored here for the toolbar's limits.
+      currentScale: 1,
+      alignX: 0.5,
+      alignY: 0.5,
     };
   },
   mounted() {
@@ -91,6 +104,9 @@ export default {
     this.disableWheelZoom();
   },
   computed: {
+    room() {
+      return zoomRoom(this.currentScale, zoomLimits(this.openScale));
+    },
     // Same rule as DiagramViewport: the Export PNG host renders the diagram only
     // to photograph it, and a zoom would change what `updateCaptureBox` reports.
     showZoomControls() {
@@ -204,6 +220,7 @@ export default {
           this.captureResizeObserver = new ResizeObserver(() => this.updateCaptureBox());
           this.captureResizeObserver.observe(container);
         }
+        this.userMoved = false;
         this.enablePanning();
         this.enableWheelZoom();
         this.graphRendered = true;
@@ -253,19 +270,97 @@ export default {
         console.error('ForgeGraphViewer: external icon proxy could not start:', e);
       }
     },
-    // GraphViewer's built-in 'zoom' toolbar item does exactly this
-    // (viewer-static.min.js, addToolbar). We drive the same mxGraph calls from our
-    // own chip instead of enabling that toolbar, because `zoomEnabled` is derived
-    // from the toolbar config and flips GraphViewer into `resizeContainer = true`
-    // — the container would grow with every zoom step and push the page around,
-    // and the auto-refit that keeps a wide diagram fitted (ZEN-1168) is only
-    // installed while zoom is disabled.
+    // GraphViewer's built-in 'zoom' toolbar item would call graph.zoomIn/zoomOut.
+    // We drive the view from our own chip instead of enabling that toolbar,
+    // because `zoomEnabled` is derived from the toolbar config and flips
+    // GraphViewer into `resizeContainer = true` — the container would grow with
+    // every zoom step and push the page around, and the auto-refit that keeps a
+    // wide diagram fitted (ZEN-1168) is only installed while zoom is disabled.
+    // Not graph.zoomIn itself either: it zooms about the centre with no limits,
+    // and every viewport now shares one floor, ceiling and pan limit.
     zoomIn() {
-      this.graphViewer?.graph?.zoomIn();
-      this.updateCaptureBox();
+      const container = this.$refs.graphContainer;
+      this.zoomAt(GRAPH_ZOOM_STEP, (container?.clientWidth ?? 0) / 2, (container?.clientHeight ?? 0) / 2);
     },
     zoomOut() {
-      this.graphViewer?.graph?.zoomOut();
+      const container = this.$refs.graphContainer;
+      this.zoomAt(1 / GRAPH_ZOOM_STEP, (container?.clientWidth ?? 0) / 2, (container?.clientHeight ?? 0) / 2);
+    },
+    /**
+     * Read the opening view while the reader has not moved it: the scale is the
+     * zoom floor, and where a graph smaller than the box sits is the pan rest.
+     */
+    captureOpening() {
+      const view = this.graphViewer?.graph?.view;
+      if (this.userMoved || !(view?.scale > 0)) return;
+      this.openScale = view.scale;
+      this.captureAlign();
+    },
+    captureAlign() {
+      const graph = this.graphViewer?.graph;
+      const container = this.$refs.graphContainer;
+      const box = this.graphBox(graph?.view?.scale, graph?.view?.translate?.x, graph?.view?.translate?.y);
+      if (!box || !container) return;
+      this.alignX = alignOf(box.left, box.width, container.clientWidth);
+      this.alignY = alignOf(box.top, box.height, container.clientHeight);
+    },
+    /**
+     * The graph's box in container pixels for a candidate scale and translate,
+     * border included. mxGraph screen = (model + translate) * scale.
+     */
+    graphBox(scale, tx, ty) {
+      const graph = this.graphViewer?.graph;
+      const view = graph?.view;
+      const bounds = graph?.getGraphBounds?.();
+      if (!view || !bounds || !(view.scale > 0) || !(scale > 0)) return null;
+      const border = graph.border || 0;
+      const modelX = bounds.x / view.scale - view.translate.x;
+      const modelY = bounds.y / view.scale - view.translate.y;
+      return {
+        modelX,
+        modelY,
+        border,
+        left: (modelX + tx) * scale - border,
+        top: (modelY + ty) * scale - border,
+        width: bounds.width / view.scale * scale + 2 * border,
+        height: bounds.height / view.scale * scale + 2 * border,
+      };
+    },
+    /** A translate clamped so the graph stays in view (see `axisOffset`). */
+    limitTranslate(scale, tx, ty) {
+      const container = this.$refs.graphContainer;
+      const box = this.graphBox(scale, tx, ty);
+      if (!box || !container) return { tx, ty };
+      const left = axisOffset(box.left, box.width, container.clientWidth, this.alignX);
+      const top = axisOffset(box.top, box.height, container.clientHeight, this.alignY);
+      return {
+        tx: (left + box.border) / scale - box.modelX,
+        ty: (top + box.border) / scale - box.modelY,
+      };
+    },
+    /** Zoom keeping the model point at (x, y), container pixels, under it. */
+    zoomAt(factor, x, y) {
+      const view = this.graphViewer?.graph?.view;
+      if (!(view?.scale > 0)) return;
+      this.captureOpening();
+      const scale = view.scale;
+      const next = clampScale(scale * factor, zoomLimits(this.openScale));
+      if (next === scale) return;
+      const modelX = x / scale - view.translate.x;
+      const modelY = y / scale - view.translate.y;
+      const { tx, ty } = this.limitTranslate(next, x / next - modelX, y / next - modelY);
+      view.scaleAndTranslate(next, tx, ty);
+      this.userMoved = true;
+      this.updateCaptureBox();
+    },
+    /** Move by (dx, dy) container pixels. */
+    panBy(dx, dy) {
+      const view = this.graphViewer?.graph?.view;
+      if (!(view?.scale > 0)) return;
+      this.captureOpening();
+      const { tx, ty } = this.limitTranslate(view.scale, view.translate.x + dx / view.scale, view.translate.y + dy / view.scale);
+      view.setTranslate(tx, ty);
+      this.userMoved = true;
       this.updateCaptureBox();
     },
     fitAxis(axis) {
@@ -281,10 +376,14 @@ export default {
       if (!(extent > 0) || !(available > 0)) return;
       const x = bounds.x / view.scale - view.translate.x;
       const y = bounds.y / view.scale - view.translate.y;
-      const scale = available / extent;
+      this.captureOpening();
+      const scale = clampScale(available / extent, zoomLimits(this.openScale));
       view.scaleAndTranslate(scale,
         (container.clientWidth / scale - width) / 2 - x,
         (container.clientHeight / scale - height) / 2 - y);
+      // A fit is a deliberate re-layout: the centred position is the new rest.
+      this.userMoved = true;
+      this.captureAlign();
       this.updateCaptureBox();
     },
     /**
@@ -310,65 +409,107 @@ export default {
       // "any non-popup press" rule moves translate by exactly the drag delta.
       // @ts-ignore - mxEvent is a DrawIO global, like mxUtils above
       graph.panningHandler.isForcePanningEvent = (me) => !mxEvent.isPopupTrigger(me.getEvent());
+      this.limitDragPan(graph);
     },
     /**
-     * Ctrl/Cmd + wheel to zoom, the same rule the other three viewports follow —
-     * a plain wheel is left to scroll the page (see `isZoomIntent`). That is also
-     * what mxGraph's own wheel handling would have asked for: GraphViewer leaves
-     * `Graph.zoomWheel` false, which requires Alt or Ctrl to be held.
+     * The same pan limit for a drag. mxPanningHandler moves the graph in two
+     * calls (viewer-static.min.js): `graph.panGraph(dx, dy)` shifts a preview by
+     * screen pixels while the button is down, and on release
+     * `panningHandler.panGraph(tx, ty)` commits the new translate. Both are
+     * limited, so the preview never shows a position the release would undo.
+     */
+    limitDragPan(graph) {
+      if (graph.zenumlPanLimited) return;
+      graph.zenumlPanLimited = true;
+      const preview = graph.panGraph;
+      if (typeof preview === 'function') {
+        graph.panGraph = (dx, dy) => {
+          const view = graph.view;
+          // (0, 0) clears the preview before the commit; it is not a position.
+          if ((dx === 0 && dy === 0) || !(view?.scale > 0)) return preview.call(graph, dx, dy);
+          this.captureOpening();
+          const { tx, ty } = this.limitTranslate(view.scale, view.translate.x + dx / view.scale, view.translate.y + dy / view.scale);
+          return preview.call(graph, (tx - view.translate.x) * view.scale, (ty - view.translate.y) * view.scale);
+        };
+      }
+      const handler = graph.panningHandler;
+      const commit = handler.panGraph;
+      if (typeof commit === 'function') {
+        handler.panGraph = (tx, ty) => {
+          const view = graph.view;
+          if (!(view?.scale > 0)) return commit.call(handler, tx, ty);
+          this.captureOpening();
+          const limited = this.limitTranslate(view.scale, tx, ty);
+          this.userMoved = true;
+          const result = commit.call(handler, limited.tx, limited.ty);
+          this.updateCaptureBox();
+          return result;
+        };
+      }
+    },
+    /**
+     * The wheel rule all four viewports share (see `classifyWheel`): on the page
+     * viewer only Ctrl/Cmd + wheel zooms and a plain wheel scrolls the page; in
+     * Fullscreen and the editor preview a plain wheel zooms and Shift or a
+     * sideways swipe pans. Zoom is at the pointer.
      *
-     * Still not `mxEvent.addMouseWheelListener` though — it offers no way to
-     * unbind, and the container element outlives a re-render (only its children
-     * are cleared), so every `renderViewer()` would stack another listener and
-     * multiply the step.
-     *
-     * A native listener also covers trackpad pinch for free: browsers report it as
-     * a wheel event with `ctrlKey` set. The accumulate-to-a-step behaviour and the
-     * deltaMode normalisation live in `wheelZoom.ts`, shared with the others.
+     * Not `mxEvent.addMouseWheelListener` — it offers no way to unbind, and the
+     * container element outlives a re-render (only its children are cleared),
+     * so every `renderViewer()` would stack another listener and multiply the
+     * zoom. A native listener also covers trackpad pinch: browsers report it as
+     * a wheel event with `ctrlKey` set.
      */
     enableWheelZoom() {
       const container = this.$refs.graphContainer;
       if (!container || this.wheelZoomHandler) return;
       const startsGesture = createGestureGate();
-      const step = createWheelStepper((direction) => {
-        const graph = this.graphViewer?.graph;
-        if (direction > 0) graph.zoomIn();
-        else graph.zoomOut();
-        // One event per gesture, not per step: the gate stays shut for the
-        // rest of a continuous scroll, so a wheel zoom costs the same one event
-        // as a button click and the two can be compared.
+      this.wheelZoomHandler = (event) => {
+        if (!this.graphViewer?.graph) return;
+        const action = classifyWheel(event, {
+          plainWheelZooms: !wheelFallsThroughToPage(this.$store.getters.isDisplayMode),
+          pageHeight: container.clientHeight,
+          pageWidth: container.clientWidth,
+        });
+        // A plain wheel on the page viewer is the page's to scroll.
+        if (action.kind === 'pass') return;
+        event.preventDefault();
+        if (action.kind === 'pan') {
+          this.panBy(action.dx, action.dy);
+          return;
+        }
+        const rect = container.getBoundingClientRect();
+        this.zoomAt(action.factor, event.clientX - rect.left, event.clientY - rect.top);
+        // One event per gesture, not per wheel event: the gate stays shut for
+        // the rest of a continuous scroll, so a wheel zoom costs the same one
+        // event as a button click and the two can be compared.
         if (!startsGesture()) return;
         trackViewportControl({
           macroType: 'graph',
-          viewportAction: direction > 0 ? 'zoom_in' : 'zoom_out',
+          viewportAction: action.factor > 1 ? 'zoom_in' : 'zoom_out',
           viewportInput: 'wheel',
+          wheelModifier: action.modifier,
           isDisplayMode: this.$store.getters.isDisplayMode,
         });
-      });
-      const hint = createZoomHintTrigger(() => this.$refs.zoomHint?.show() ?? false);
-      this.wheelZoomHandler = (event) => {
-        if (!this.graphViewer?.graph) return;
-        if (!isZoomIntent(event)) {
-          // The wheel is on its way to the page -- unless this surface has no
-          // page to give it to, in which case it did nothing and the reader
-          // deserves to be told why.
-          if (!wheelFallsThroughToPage(this.$store.getters.isDisplayMode)) {
-            hint(event, container.clientHeight);
-          }
-          return;
-        }
-        event.preventDefault();
-        step(event, container.clientHeight);
-        this.updateCaptureBox();
       };
+      // Listen on the whole canvas, not only the graph container: the container
+      // is as tall as the diagram, so in Fullscreen a short diagram leaves blank
+      // canvas above and below it that would otherwise ignore the wheel.
+      this.wheelTarget = container.closest('.viewer-canvas') || container;
       // Not passive: a zoom has to take the event away from page scroll. Only
-      // the zoom branch above does, so an ungated wheel still reaches the page.
-      container.addEventListener('wheel', this.wheelZoomHandler, { passive: false });
+      // the zoom and pan branches do, so a page-viewer plain wheel still scrolls.
+      this.wheelTarget.addEventListener('wheel', this.wheelZoomHandler, { passive: false });
+      this.unbindPinch = bindSafariPinch(this.wheelTarget, (factor, clientX, clientY) => {
+        const rect = container.getBoundingClientRect();
+        this.zoomAt(factor, clientX - rect.left, clientY - rect.top);
+      });
     },
     disableWheelZoom() {
       if (!this.wheelZoomHandler) return;
-      this.$refs.graphContainer?.removeEventListener('wheel', this.wheelZoomHandler);
+      this.wheelTarget?.removeEventListener('wheel', this.wheelZoomHandler);
+      this.wheelTarget = null;
       this.wheelZoomHandler = null;
+      this.unbindPinch?.();
+      this.unbindPinch = null;
     },
     goToPage(index) {
       if (!this.graphViewer || index < 0 || index >= this.pageCount) return;
@@ -379,6 +520,12 @@ export default {
     updateCaptureBox() {
       const container = this.$refs.graphContainer;
       const graph = this.graphViewer?.graph;
+      // Every scale change ends here (render, refit, zoom, fit, drag), so the
+      // toolbar's Zoom in/out state is kept in step from this one place.
+      if (graph?.view?.scale > 0) {
+        if (!this.userMoved) this.openScale = graph.view.scale;
+        this.currentScale = graph.view.scale;
+      }
       const bounds = graph?.getGraphBounds?.();
       const border = graph?.border || 0;
       if (!container || !bounds || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) {

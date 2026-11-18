@@ -196,6 +196,10 @@ export type AnalyticsProperties = {
   // the same one event and the two are directly comparable.
   // `keyboard` only from the MCP Apps view (agent_link_app_view_zoomed).
   viewport_input?: "toolbar" | "wheel" | "keyboard";
+  // `viewport_input: wheel` only: whether the gesture held Ctrl/Cmd (a trackpad
+  // pinch arrives as Ctrl too) or was a plain wheel. A plain wheel zooms only in
+  // Fullscreen and the editor preview; on the page it scrolls and is not sent.
+  wheel_modifier?: "none" | "ctrl_meta";
   entry_point?: EntryPoint;
   // Create funnel only (macro_create_started / macro_create_succeeded /
   // macro_create_cancelled). `creation_origin` names the surface that started

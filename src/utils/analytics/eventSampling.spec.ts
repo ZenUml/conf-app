@@ -40,10 +40,10 @@ describe("eventSampling", () => {
       }
     });
 
-    it("stops the six named diagnostics from October 2026 onward", () => {
+    it("stops the five named diagnostics from October 2026 onward", () => {
       for (const name of [
         "cohorts_refreshed", "editor_global_replace_observed",
-        "report_macro_metrics", "snapshot_backfill_skipped", "viewport_control_used",
+        "report_macro_metrics", "snapshot_backfill_skipped",
         "whats_new_banner_evaluated",
       ]) {
         expect(sampleRateFor(name, october)).toBe(0);
@@ -197,7 +197,7 @@ describe("eventSampling", () => {
       for (const name of [
         "diagram_attribution_shown", "diagram_audience_registration_succeeded",
         "related_diagrams_lookup_succeeded", "related_token_indicators_shown",
-        "whats_new_banner_shown",
+        "whats_new_banner_shown", "viewport_control_used",
       ]) {
         expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(true);
         expect(sampleRateFor(name, october)).toBeCloseTo(sampleRateFor(name, before) / 10);

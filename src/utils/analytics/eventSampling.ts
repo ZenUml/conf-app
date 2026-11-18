@@ -80,6 +80,21 @@ export const TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE = 0.1;
 // them over 4,905 user x macro keys (~31k billable events in one day).
 export const LICENSE_NOTICE_REPEAT_SAMPLE_RATE = 0.1;
 
+// Rates that change on a fixed date. Before `until` (exclusive, UTC) the
+// event is sent at `before`; from then on at `after`.
+//
+// editor_preview_element_clicked (P6, 2026-11-18): the owner chose 100% for
+// the first four weeks, so every type gets enough sessions for the read-out
+// (PlantUML has ~600 editor opens a month), then 10%. Worst case one event per
+// Mermaid/PlantUML editor session, ~13k a month (1.3% of the 1M cap); the
+// expected 10-30% of sessions that click an element is ~1.3k-4k a month.
+export const DATED_SAMPLE_RATES: Record<
+  string,
+  { until: string; before: number; after: number }
+> = {
+  editor_preview_element_clicked: { until: "2026-12-23", before: 1, after: 0.1 },
+};
+
 // Prefix rules apply when no exact match is found. `create_attachment` is
 // emitted as `create_attachment<diagramType>` (e.g. create_attachmentmermaid)
 // at forgeIndex.ts, so an exact key cannot cover every variant.
@@ -424,7 +439,12 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
 /** Keep-probability for an event name/action. Defaults to 1 (always emit). */
 export function sampleRateFor(name: string, now = Date.now()): number {
   let currentRate = 1;
-  if (Object.prototype.hasOwnProperty.call(EVENT_SAMPLE_RATES, name)) {
+  const dated = Object.prototype.hasOwnProperty.call(DATED_SAMPLE_RATES, name)
+    ? DATED_SAMPLE_RATES[name]
+    : undefined;
+  if (dated) {
+    currentRate = now < Date.parse(`${dated.until}T00:00:00Z`) ? dated.before : dated.after;
+  } else if (Object.prototype.hasOwnProperty.call(EVENT_SAMPLE_RATES, name)) {
     currentRate = EVENT_SAMPLE_RATES[name];
   } else {
     for (const [prefix, rate] of PREFIX_RULES) {

@@ -5,6 +5,7 @@
     :class="{
       'transform-viewport--interactive': isInteractive,
       'transform-viewport--filled': !sizeToContent,
+      'transform-viewport--dragging': dragging,
     }"
   >
     <div ref="content" class="transform-viewport-content">
@@ -20,7 +21,6 @@
       @fit-height="fitAxis('height')"
       @fit-width="fitAxis('width')"
     />
-    <ViewportZoomHint v-if="isInteractive" ref="zoomHint" :macro-type="macroType" />
   </div>
 </template>
 
@@ -40,21 +40,19 @@
  * tolerance and never swallows a plain click.
  */
 import DiagramViewportToolbar from '@/components/Viewer/DiagramViewportToolbar.vue';
-import { createGestureGate, createWheelStepper, createZoomHintTrigger, isZoomIntent } from '@/utils/viewport/wheelZoom';
+import {
+  alignOf, axisOffset, bindSafariPinch, clampScale, classifyWheel, createGestureGate, zoomLimits,
+} from '@/utils/viewport/wheelZoom';
 import { trackViewportControl } from '@/utils/viewport/trackViewportControl';
 import { wheelFallsThroughToPage } from '@/utils/viewport/surface';
-import ViewportZoomHint from '@/components/Viewer/ViewportZoomHint.vue';
 
-/** Matches svg-pan-zoom's limits on the other viewports. */
-const MIN_ZOOM = 0.2;
-const MAX_ZOOM = 12;
 const ZOOM_STEP = 1.2;
 /** Below this a press is a click on the diagram, not a pan. */
 const DRAG_TOLERANCE_PX = 4;
 
 export default {
   name: 'DiagramTransformViewport',
-  components: { DiagramViewportToolbar, ViewportZoomHint },
+  components: { DiagramViewportToolbar },
   props: {
     /** Analytics `macro_type` — the renderer this viewport is driving. */
     macroType: {
@@ -96,6 +94,11 @@ export default {
       panY: 0,
       resizeObserver: null,
       wheelHandler: null,
+      unbindPinch: null,
+      // Where a diagram smaller than the box sits in it (0 start .. 1 end), read
+      // at opening so the pan limit holds it there rather than recentring it.
+      alignX: 0,
+      alignY: 0,
       pointerId: null,
       dragging: false,
       dragStart: null,
@@ -109,6 +112,11 @@ export default {
     },
     scale() {
       return this.fitScale * this.userZoom;
+    },
+    /** userZoom range: opening size up to natural size (see zoomLimits). */
+    userZoomLimits() {
+      const { min, max } = zoomLimits(this.fitScale);
+      return { min: min / this.fitScale, max: max / this.fitScale };
     },
   },
   mounted() {
@@ -163,7 +171,27 @@ export default {
       if (this.sizeToContent) {
         viewport.style.height = `${height * this.fitScale}px`;
       }
+      this.userZoom = clampScale(this.userZoom, this.userZoomLimits);
+      if (reset) this.captureAlign();
       this.applyTransform();
+    },
+    /** Remember where the diagram sits in the box, for the pan limit. */
+    captureAlign() {
+      const viewport = this.$refs.viewport;
+      if (!viewport) return;
+      this.alignX = alignOf(this.panX, this.naturalWidth * this.scale, viewport.clientWidth);
+      this.alignY = alignOf(this.panY, this.naturalHeight * this.scale, viewport.clientHeight);
+    },
+    /**
+     * Keep the diagram in view: an edge never comes inside the box edge, and a
+     * diagram smaller than the box stays where it opened. Applied on user input
+     * only, so the opening position is exactly what it was before the limit.
+     */
+    limitPan() {
+      const viewport = this.$refs.viewport;
+      if (!viewport || !this.naturalWidth) return;
+      this.panX = axisOffset(this.panX, this.naturalWidth * this.scale, viewport.clientWidth, this.alignX);
+      this.panY = axisOffset(this.panY, this.naturalHeight * this.scale, viewport.clientHeight, this.alignY);
     },
     applyTransform() {
       if (!this.target) return;
@@ -171,19 +199,29 @@ export default {
       this.target.style.transform =
         `translate(${this.panX}px, ${this.panY}px) scale(${this.scale})`;
     },
+    /** Toolbar zoom: about the box centre. */
     zoomBy(factor) {
-      const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.userZoom * factor));
-      if (next === this.userZoom) return;
-      // Keep the box centre fixed rather than the top-left corner, or zooming in
-      // walks the diagram off the bottom-right of the frame.
       const viewport = this.$refs.viewport;
-      const centreX = (viewport?.clientWidth ?? 0) / 2;
-      const centreY = (viewport?.clientHeight ?? 0) / 2;
+      this.zoomAt(factor, (viewport?.clientWidth ?? 0) / 2, (viewport?.clientHeight ?? 0) / 2);
+    },
+    /**
+     * Zoom keeping the content point at (x, y) — box pixels — where it is, so
+     * the part of the diagram under the pointer stays under it.
+     */
+    zoomAt(factor, x, y) {
+      const next = clampScale(this.userZoom * factor, this.userZoomLimits);
+      if (next === this.userZoom) return;
       const ratio = next / this.userZoom;
-      this.panX = centreX - (centreX - this.panX) * ratio;
-      this.panY = centreY - (centreY - this.panY) * ratio;
+      this.panX = x - (x - this.panX) * ratio;
+      this.panY = y - (y - this.panY) * ratio;
       this.userZoom = next;
+      this.limitPan();
       this.applyTransform();
+    },
+    /** Pointer position in box pixels. */
+    boxPoint(clientX, clientY) {
+      const rect = this.$refs.viewport.getBoundingClientRect();
+      return { x: clientX - rect.left, y: clientY - rect.top };
     },
     zoomIn() {
       this.zoomBy(ZOOM_STEP);
@@ -197,46 +235,56 @@ export default {
       const extent = axis === 'width' ? this.naturalWidth : this.naturalHeight;
       const available = axis === 'width' ? viewport.clientWidth : viewport.clientHeight;
       if (!(available > 0)) return;
-      this.userZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, available / extent / this.fitScale));
+      this.userZoom = clampScale(available / extent / this.fitScale, this.userZoomLimits);
       this.panX = (viewport.clientWidth - this.naturalWidth * this.scale) / 2;
       this.panY = (viewport.clientHeight - this.naturalHeight * this.scale) / 2;
+      // A fit is a deliberate re-layout: the centred position is the new rest.
+      this.captureAlign();
+      this.limitPan();
       this.applyTransform();
     },
     bindGestures() {
       const viewport = this.$refs.viewport;
       if (!viewport || this.wheelHandler) return;
       const startsGesture = createGestureGate();
-      const step = createWheelStepper((direction) => {
-        this.zoomBy(direction > 0 ? ZOOM_STEP : 1 / ZOOM_STEP);
-        // One event per gesture, not per step: the gate stays shut for the
-        // rest of a continuous scroll, so a wheel zoom costs the same one event
-        // as a button click and the two can be compared.
+      this.wheelHandler = (event) => {
+        if (!this.target) return;
+        const action = classifyWheel(event, {
+          plainWheelZooms: !wheelFallsThroughToPage(this.$store.getters.isDisplayMode),
+          pageHeight: viewport.clientHeight,
+          pageWidth: viewport.clientWidth,
+        });
+        // A plain wheel on the page viewer is the page's to scroll.
+        if (action.kind === 'pass') return;
+        event.preventDefault();
+        if (action.kind === 'pan') {
+          this.panX += action.dx;
+          this.panY += action.dy;
+          this.limitPan();
+          this.applyTransform();
+          return;
+        }
+        const point = this.boxPoint(event.clientX, event.clientY);
+        this.zoomAt(action.factor, point.x, point.y);
+        // One event per gesture, not per wheel event: the gate stays shut for
+        // the rest of a continuous scroll, so a wheel zoom costs the same one
+        // event as a button click and the two can be compared.
         if (!startsGesture()) return;
         trackViewportControl({
           macroType: this.macroType,
-          viewportAction: direction > 0 ? 'zoom_in' : 'zoom_out',
+          viewportAction: action.factor > 1 ? 'zoom_in' : 'zoom_out',
           viewportInput: 'wheel',
+          wheelModifier: action.modifier,
           isDisplayMode: this.$store.getters.isDisplayMode,
         });
-      });
-      const hint = createZoomHintTrigger(() => this.$refs.zoomHint?.show() ?? false);
-      this.wheelHandler = (event) => {
-        // A plain wheel stays the page's to scroll; only Ctrl/Cmd (or a trackpad
-        // pinch, which arrives as one) means zoom. See isZoomIntent.
-        if (!isZoomIntent(event)) {
-          // ...unless this surface has no page to give it to, in which case the
-          // wheel did nothing and the reader deserves to be told why.
-          if (!wheelFallsThroughToPage(this.$store.getters.isDisplayMode)) {
-            hint(event, viewport.clientHeight);
-          }
-          return;
-        }
-        event.preventDefault();
-        step(event, viewport.clientHeight);
       };
       // Not passive: a zoom has to take the event away from page scroll. Only
-      // the zoom branch above does, so an ungated wheel still reaches the page.
+      // the zoom and pan branches do, so a page-viewer plain wheel still scrolls.
       viewport.addEventListener('wheel', this.wheelHandler, { passive: false });
+      this.unbindPinch = bindSafariPinch(viewport, (factor, clientX, clientY) => {
+        const point = this.boxPoint(clientX, clientY);
+        this.zoomAt(factor, point.x, point.y);
+      });
       viewport.addEventListener('pointerdown', this.onPointerDown);
       viewport.addEventListener('pointermove', this.onPointerMove);
       viewport.addEventListener('pointerup', this.onPointerUp);
@@ -247,6 +295,8 @@ export default {
       if (!viewport) return;
       if (this.wheelHandler) viewport.removeEventListener('wheel', this.wheelHandler);
       this.wheelHandler = null;
+      this.unbindPinch?.();
+      this.unbindPinch = null;
       viewport.removeEventListener('pointerdown', this.onPointerDown);
       viewport.removeEventListener('pointermove', this.onPointerMove);
       viewport.removeEventListener('pointerup', this.onPointerUp);
@@ -268,9 +318,15 @@ export default {
         if (Math.abs(dx) < DRAG_TOLERANCE_PX && Math.abs(dy) < DRAG_TOLERANCE_PX) return;
         this.dragging = true;
         this.$refs.viewport?.setPointerCapture?.(event.pointerId);
+        // Past the tolerance this is a pan, not a text selection. Clear what the
+        // press already started selecting; the dragging class stops the rest.
+        // Only here, not on pointerdown: a click must still reach the editable
+        // participant names, and double-click must still select a word.
+        window.getSelection?.()?.removeAllRanges();
       }
       this.panX = this.dragStart.panX + dx;
       this.panY = this.dragStart.panY + dy;
+      this.limitPan();
       this.applyTransform();
     },
     onPointerUp(event) {
@@ -310,5 +366,11 @@ export default {
 
 .transform-viewport--interactive .transform-viewport-content:active {
   cursor: grabbing;
+}
+
+.transform-viewport--dragging,
+.transform-viewport--dragging :deep(*) {
+  user-select: none;
+  -webkit-user-select: none;
 }
 </style>

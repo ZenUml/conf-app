@@ -303,7 +303,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "editor_load_empty_active_field",
   "swagger_editor_config_empty_with_modal",
   "fullscreen_opened",
-  "viewport_zoom_hint_shown",
   "viewer_source_opened",
   "viewer_source_copied",
   "mermaid_highlight_used",

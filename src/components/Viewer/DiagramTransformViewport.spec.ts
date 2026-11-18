@@ -126,13 +126,76 @@ describe('DiagramTransformViewport', () => {
     await wrapper.vm.layout();
     const viewport = wrapper.get('.transform-viewport').element;
 
-    // 100px of wheel is one notch: 0.5 fit * 1.2.
+    // One 100px notch is capped to 50px of zoom: 0.5 fit * exp(0.1).
     wheel(viewport, { deltaY: -100, ctrlKey: true });
-    expect(scaleOf(wrapper)).toBeCloseTo(0.6, 5);
+    expect(scaleOf(wrapper)).toBeCloseTo(0.5 * Math.exp(0.1), 5);
 
     // macOS holds Cmd, and a trackpad pinch arrives as a ctrlKey wheel.
     wheel(viewport, { deltaY: 100, metaKey: true });
     expect(scaleOf(wrapper)).toBeCloseTo(0.5, 5);
+  });
+
+  it('zooms at the pointer, keeping the point under it still', async () => {
+    const wrapper = mountViewport(false, { width: 500, height: 300 });
+    await wrapper.vm.layout();
+    const viewport = wrapper.get('.transform-viewport').element;
+
+    // Content point under the pointer at fit 0.5: (400 - 0) / 0.5 = 800.
+    wheel(viewport, { deltaY: -100, ctrlKey: true, clientX: 400, clientY: 100 });
+    const scale = scaleOf(wrapper);
+    const x = Number(/translate\((-?[\d.]+)px/.exec(wrapper.get('.rendered').attributes('style') ?? '')?.[1]);
+    expect(x + 800 * scale).toBeCloseTo(400, 3);
+  });
+
+  it('zooms on a plain wheel in fullscreen and the editor preview', async () => {
+    // sizeToContent false is fullscreen/editor: no page behind the diagram.
+    const wrapper = mountViewport(false);
+    await wrapper.vm.layout();
+
+    const event = wheel(wrapper.get('.transform-viewport').element, { deltaY: -100 });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(scaleOf(wrapper)).toBeCloseTo(0.5 * Math.exp(0.1), 5);
+  });
+
+  it('pans on Shift + wheel in fullscreen once the diagram is larger than the box', async () => {
+    const wrapper = mountViewport(false);
+    await wrapper.vm.layout();
+    wrapper.vm.zoomIn();
+    wrapper.vm.zoomIn();
+    const before = wrapper.get('.rendered').attributes('style');
+
+    wheel(wrapper.get('.transform-viewport').element, { deltaY: 40, shiftKey: true });
+
+    expect(scaleOf(wrapper)).toBeCloseTo(0.72, 5);
+    expect(wrapper.get('.rendered').attributes('style')).not.toBe(before);
+  });
+
+  it('never zooms out past the opening size or in past natural size', async () => {
+    const wrapper = mountViewport(false);
+    await wrapper.vm.layout();
+
+    wrapper.vm.zoomOut();
+    expect(scaleOf(wrapper)).toBeCloseTo(0.5, 5);
+
+    for (let i = 0; i < 20; i += 1) wrapper.vm.zoomIn();
+    // 1 = the size ZenUML drew it at; there is no more detail past that.
+    expect(scaleOf(wrapper)).toBeCloseTo(1, 5);
+  });
+
+  it('cancels a Safari pinch so it zooms the diagram, not the page', async () => {
+    const wrapper = mountViewport(true);
+    await wrapper.vm.layout();
+    const viewport = wrapper.get('.transform-viewport').element;
+
+    const start = new Event('gesturestart', { cancelable: true });
+    viewport.dispatchEvent(start);
+    const change = Object.assign(new Event('gesturechange', { cancelable: true }), { scale: 1.2 });
+    viewport.dispatchEvent(change);
+
+    expect(start.defaultPrevented).toBe(true);
+    expect(change.defaultPrevented).toBe(true);
+    expect(scaleOf(wrapper)).toBeCloseTo(0.6, 5);
   });
 
   it('leaves a plain wheel to the page rather than zooming', async () => {
@@ -147,34 +210,66 @@ describe('DiagramTransformViewport', () => {
     expect(event.defaultPrevented).toBe(false);
     // ...and on the page viewer the wheel did what the reader wanted, so no hint.
     await wrapper.vm.$nextTick();
-    expect(wrapper.find('.viewport-zoom-hint').exists()).toBe(false);
-  });
-
-  it('hints at the modifier where a plain wheel has nowhere to go', async () => {
-    // sizeToContent false is fullscreen/editor: the pane is overflow:hidden, so
-    // an ungated wheel there does nothing at all.
-    const wrapper = mountViewport(false);
-    await wrapper.vm.layout();
-
-    wheel(wrapper.get('.transform-viewport').element, { deltaY: -400 });
-    await wrapper.vm.$nextTick();
-
-    expect(wrapper.find('.viewport-zoom-hint').exists()).toBe(true);
   });
 
   it('pans only once the pointer passes the click tolerance', async () => {
-    const wrapper = mountViewport(true);
+    const wrapper = mountViewport(false);
     await wrapper.vm.layout();
+    wrapper.vm.fitAxis('height');
     const viewport = wrapper.get('.transform-viewport');
 
     // A ZenUML participant name is editable and the footer carries the theme
     // control, so a small press-and-release must stay a click.
     await viewport.trigger('pointerdown', { button: 0, pointerId: 1, clientX: 10, clientY: 10 });
     await viewport.trigger('pointermove', { pointerId: 1, clientX: 12, clientY: 11 });
+    expect(wrapper.get('.rendered').attributes('style')).toContain('translate(-125px, 0px)');
+
+    // 750px wide in a 500px box: x moves, y (300 = box) stays.
+    await viewport.trigger('pointermove', { pointerId: 1, clientX: 60, clientY: 40 });
+    expect(wrapper.get('.rendered').attributes('style')).toContain('translate(-75px, 0px)');
+  });
+
+  it('stops a drag at the diagram edge', async () => {
+    const wrapper = mountViewport(false);
+    await wrapper.vm.layout();
+    wrapper.vm.fitAxis('height');
+    const viewport = wrapper.get('.transform-viewport');
+
+    await viewport.trigger('pointerdown', { button: 0, pointerId: 1, clientX: 10, clientY: 10 });
+    await viewport.trigger('pointermove', { pointerId: 1, clientX: 900, clientY: 10 });
+    // The left edge stops at the box's left edge.
     expect(wrapper.get('.rendered').attributes('style')).toContain('translate(0px, 0px)');
+  });
+
+  it('does not move a diagram that already fits when dragged', async () => {
+    const wrapper = mountViewport(true);
+    await wrapper.vm.layout();
+    const viewport = wrapper.get('.transform-viewport');
+
+    await viewport.trigger('pointerdown', { button: 0, pointerId: 1, clientX: 10, clientY: 10 });
+    await viewport.trigger('pointermove', { pointerId: 1, clientX: 60, clientY: 40 });
+    expect(wrapper.get('.rendered').attributes('style')).toContain('translate(0px, 0px)');
+  });
+
+  it('does not select text while dragging, and clicks still select as before', async () => {
+    const wrapper = mountViewport(false);
+    await wrapper.vm.layout();
+    const viewport = wrapper.get('.transform-viewport');
+    const removeAllRanges = vi.fn();
+    vi.spyOn(window, 'getSelection').mockReturnValue({ removeAllRanges } as unknown as Selection);
+
+    await viewport.trigger('pointerdown', { button: 0, pointerId: 1, clientX: 10, clientY: 10 });
+    await viewport.trigger('pointermove', { pointerId: 1, clientX: 12, clientY: 11 });
+    // Still a click: double-click word select and click-to-edit stay untouched.
+    expect(removeAllRanges).not.toHaveBeenCalled();
+    expect(viewport.classes()).not.toContain('transform-viewport--dragging');
 
     await viewport.trigger('pointermove', { pointerId: 1, clientX: 60, clientY: 40 });
-    expect(wrapper.get('.rendered').attributes('style')).toContain('translate(50px, 30px)');
+    expect(removeAllRanges).toHaveBeenCalled();
+    expect(viewport.classes()).toContain('transform-viewport--dragging');
+
+    await viewport.trigger('pointerup', { pointerId: 1 });
+    expect(viewport.classes()).not.toContain('transform-viewport--dragging');
   });
 
   it('leaves the Export PNG surface untransformed and untoolbarred', async () => {

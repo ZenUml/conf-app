@@ -1014,7 +1014,9 @@ export type AnalyticsEventName =
   //     started to zoom at the pointer in Fullscreen and the editor preview.
   //     Wheel events from then carry `wheel_modifier` (none | ctrl_meta); one
   //     event per gesture as before. Wheel zoom is continuous now, so
-  //     `viewport_action` is the gesture's first direction.
+  //     `viewport_action` is the gesture's first direction. The same change
+  //     retired `viewport_zoom_hint_shown` ("use Ctrl/Cmd + scroll"): the plain
+  //     wheel it explained now zooms, so there is nothing left to hint.
   // Header fit controls: one click on Fit height / Fit width fires this event
   // after the ready renderer applies the requested axis fit. Properties:
   // viewport_action=fit_height|fit_width, viewport_input=toolbar,
@@ -1023,19 +1025,6 @@ export type AnalyticsEventName =
   // zoom clicks use zoom_in|zoom_out with the same location/outcome. Disabled
   // (not ready) controls do not emit. Existing editor/wheel events are retained.
   | "viewport_control_used"
-  // Shown when a reader wheels over a diagram WITHOUT the Ctrl/Cmd modifier on a
-  // surface where a plain wheel has nowhere to go (fullscreen and the editor
-  // preview both set `overflow: hidden`), so the gesture did nothing and the
-  // overlay tells them the modifier. Not fired on the page viewer, where a plain
-  // wheel correctly scrolls the Confluence page.
-  //
-  // This is the discovery half of the wheel gate: `viewport_control_used`
-  // counts people who already know how to zoom, and this counts people who
-  // tried and could not. A hint count that stays high per user is the signal
-  // that the affordance is not landing. Fires at most twice per viewer instance
-  // (createZoomHintTrigger) — someone who has been told twice and keeps
-  // wheeling is scrolling, not searching for the zoom.
-  | "viewport_zoom_hint_shown"
   // Viewer "View source" panel (#333): read-only DSL affordance for all viewers
   // (including users without edit permission). Opened from the hover toolbar on
   // text-DSL types only (sequence / mermaid / plantuml).

@@ -11,3 +11,7 @@ BEFORE: origin/main 28b96450. AFTER: branch claude/p1-wheel-zoom-32a4bb 1f4c712d
 Mermaid stories: viewport 1280x380, so the diagram opens below natural size. Graph: 1280x800.
 
 Limits: agent-browser sends wheel input at (0,0) whatever the mouse position, so Storybook captures use dispatched WheelEvents. Real wheel input was checked in the Claude built-in browser (Storybook) and real Chrome (tunnel). Real trackpad pinch and Safari were not tested.
+
+## Staging (lite-stg, CI deploy of c13922d6)
+
+stg-editor-tall*.png: macro editor on a new unpublished draft page, robot test account, Lite. A 25-node Mermaid flowchart opens at scale 0.116; 4 dispatched plain wheel-ups over the preview give 0.173, all prevented. Shift-wheel prevented (pan). Editor iframe document scrollTop stayed 0 (document scrollHeight 660, innerHeight 507).

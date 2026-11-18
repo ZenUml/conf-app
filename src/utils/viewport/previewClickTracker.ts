@@ -58,6 +58,8 @@ export function classifyPreviewTarget(
   target: Element,
   root: Element,
 ): PreviewTargetKind | 'background' | null {
+  // Toolbar buttons carry their own <svg> icons; they are not the diagram.
+  if (target.closest('button, [role="toolbar"]')) return null;
   const svg = target.closest('svg') as SVGSVGElement | null;
   if (!svg || !root.contains(svg)) return null;
   if (target.closest(NODE_SELECTOR)) return 'node';
@@ -225,7 +227,10 @@ export function createPreviewClickTracker(
   preview.addEventListener('dblclick', onDoubleClick, true);
   preview.addEventListener('wheel', onWheel, { capture: true, passive: true });
   document.addEventListener('click', onDocumentClick, true);
+  // focusin alone misses a click into a code editor that already had focus
+  // (svg-pan-zoom keeps the preview from taking it), so a press counts too.
   source?.addEventListener('focusin', onSourceFocus);
+  source?.addEventListener('pointerdown', onSourceFocus, true);
 
   return {
     notifySourceChanged() {
@@ -242,6 +247,7 @@ export function createPreviewClickTracker(
       preview.removeEventListener('wheel', onWheel, true);
       document.removeEventListener('click', onDocumentClick, true);
       source?.removeEventListener('focusin', onSourceFocus);
+      source?.removeEventListener('pointerdown', onSourceFocus, true);
     },
   };
 }

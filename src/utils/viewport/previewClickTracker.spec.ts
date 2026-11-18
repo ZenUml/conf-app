@@ -93,6 +93,13 @@ describe('classifyPreviewTarget', () => {
     expect(classifyPreviewTarget(root.querySelector('svg')!, root)).toBe('background');
   });
 
+  it('ignores the svg icon inside a toolbar button (staging: Zoom in counted as background)', () => {
+    const root = document.createElement('div');
+    root.innerHTML = `<div class="toolbar"><button aria-label="Zoom in"><svg id="icon"><path id="icon-path"></path></svg></button></div>${MERMAID_FLOWCHART}`;
+    expect(classifyPreviewTarget(root.querySelector('#icon')!, root)).toBeNull();
+    expect(classifyPreviewTarget(root.querySelector('#icon-path')!, root)).toBeNull();
+  });
+
   it('ignores anything outside the diagram svg, such as toolbar buttons', () => {
     const root = document.createElement('div');
     root.innerHTML = MERMAID_FLOWCHART;
@@ -189,6 +196,15 @@ describe('createPreviewClickTracker', () => {
       preview_source_focused_in_window: false,
       preview_source_changed_in_window: false,
     });
+    tracker.dispose();
+  });
+
+  it('counts a press in the code pane as looking at the source even when it already had focus', () => {
+    const tracker = make();
+    press(q('node-rect'), 10, 10);
+    source.querySelector('#code')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    vi.advanceTimersByTime(10_000);
+    expect(track.mock.calls[0][0]).toMatchObject({ preview_source_focused_in_window: true });
     tracker.dispose();
   });
 

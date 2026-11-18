@@ -1935,7 +1935,7 @@ export type AnalyticsEventName =
   // inside that window (`preview_window_completed: false`).
   // Mermaid and PlantUML only: the Sequence preview already edits in place and
   // Graph is DrawIO. `preview_source_*_in_window` answer "did the author then
-  // look at or change the source". Read-out rule:
+  // look at (focus or press in the code pane) or change the source". Read-out rule:
   // docs/features/editor-preview-click.md.
   | "editor_preview_element_clicked"
   // Onboarding funnel — "second diagram" prompt (registered ahead of its

@@ -75,7 +75,8 @@ Exclude internal sites (`is_internal_client_domain = "false"`).
 ## Known limits
 
 - A pan drag shorter than 4 px counts as a click.
-- "Looked at the source" is a focus event inside the code pane, so a click
-  into the code without reading counts too.
+- "Looked at the source" is a focus event or a press inside the code pane, so
+  a click into the code without reading counts too. (A press is needed: when
+  the code editor already has focus, clicking it again fires no focus event.)
 - `preview_zoomed_in_before` is true after any zoom-in (button or Ctrl/Cmd
   wheel), even if the author zoomed out again.

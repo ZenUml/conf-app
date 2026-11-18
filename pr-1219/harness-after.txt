@@ -1,0 +1,5 @@
+A no image: OK blob 1008 skipped=0
+B data: image: OK blob 1030 skipped=0
+C external gstatic image, strict (backup PNG): FAIL stage=dom_to_svg error="image error event"
+D same image, skip, after strict run (cached failure): OK blob 1008 skipped=1
+E other external image, skip, first fetch: OK blob 1008 skipped=1

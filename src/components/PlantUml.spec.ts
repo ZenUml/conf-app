@@ -51,6 +51,7 @@ const panZoomInstanceMock = vi.hoisted(() => ({
   setMinZoom: vi.fn(),
   setMaxZoom: vi.fn(),
   setBeforePan: vi.fn(),
+  getSizes: vi.fn(() => ({ realZoom: 1, width: 400, height: 300, viewBox: { width: 400, height: 300 } })),
 }));
 const svgPanZoomMock = vi.hoisted(() => vi.fn(() => panZoomInstanceMock));
 vi.mock('svg-pan-zoom', () => ({ default: svgPanZoomMock }));

@@ -46,6 +46,7 @@ import {
   alignOf, axisOffset, bindSafariPinch, clampScale, classifyWheel, createGestureGate, zoomLimits, zoomRoom,
 } from '@/utils/viewport/wheelZoom';
 import { trackViewportControl } from '@/utils/viewport/trackViewportControl';
+import { endFullscreenZoomSession, rebaseFullscreenZoom, startFullscreenZoomSession } from '@/utils/viewport/fullscreenZoomSummary';
 import { wheelFallsThroughToPage } from '@/utils/viewport/surface';
 
 const ZOOM_STEP = 1.2;
@@ -133,6 +134,7 @@ export default {
     this.bindGestures();
   },
   beforeUnmount() {
+    endFullscreenZoomSession();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.unbindGestures();
@@ -179,6 +181,10 @@ export default {
       this.userZoom = clampScale(this.userZoom, this.userZoomLimits);
       if (reset) this.captureAlign();
       this.applyTransform();
+      // No-op outside Fullscreen; see fullscreenZoomSummary.ts. A re-fit before
+      // the first zoom moves the opening scale; after it, rebase does nothing.
+      rebaseFullscreenZoom();
+      startFullscreenZoomSession({ macroType: this.macroType, readScale: () => this.scale });
     },
     /** Remember where the diagram sits in the box, for the pan limit. */
     captureAlign() {

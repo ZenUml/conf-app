@@ -85,6 +85,15 @@ describe("eventSampling", () => {
       }
     });
 
+    it("keeps fullscreen_zoom_summary at full rate: it samples per view itself", () => {
+      // fullscreenZoomSummary.ts keeps 10% of Fullscreen views and sends every
+      // row of a kept view. A second, per-row cut here would break the
+      // "last row per zoom_session_id" rule and overwrite its sample_rate.
+      expect(OCTOBER_RETAINED_EVENTS.has("fullscreen_zoom_summary")).toBe(true);
+      expect(OCTOBER_REDUCED_EVENTS.has("fullscreen_zoom_summary")).toBe(false);
+      expect(sampleRateFor("fullscreen_zoom_summary", after)).toBe(1);
+    });
+
     it("keeps the unplaced-diagram funnel at full rate", () => {
       // byline_opened and the four unplaced_* events are the only record of
       // whether a byline-created diagram's author was told it was not on the

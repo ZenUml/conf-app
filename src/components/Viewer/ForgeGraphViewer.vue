@@ -56,6 +56,7 @@ import {
   alignOf, axisOffset, bindSafariPinch, clampScale, classifyWheel, createGestureGate, zoomLimits, zoomRoom,
 } from "@/utils/viewport/wheelZoom";
 import { trackViewportControl } from "@/utils/viewport/trackViewportControl";
+import { endFullscreenZoomSession, startFullscreenZoomSession } from "@/utils/viewport/fullscreenZoomSummary";
 import { wheelFallsThroughToPage } from "@/utils/viewport/surface";
 
 /** The step DrawIO's own toolbar zoom uses (mxGraph zoomFactor). */
@@ -98,6 +99,7 @@ export default {
     this.renderViewer();
   },
   beforeUnmount() {
+    endFullscreenZoomSession();
     clearExternalIconState(this.$refs.graphContainer);
     this.captureResizeObserver?.disconnect();
     this.captureResizeObserver = null;
@@ -224,6 +226,13 @@ export default {
         this.enablePanning();
         this.enableWheelZoom();
         this.graphRendered = true;
+        // No-op outside Fullscreen and in the Export PNG host; see fullscreenZoomSummary.ts.
+        if (this.showZoomControls) {
+          startFullscreenZoomSession({
+            macroType: 'graph',
+            readScale: () => this.graphViewer?.graph?.view?.scale ?? 1,
+          });
+        }
         this.pageCount = this.graphViewer.diagrams?.length || 0;
         this.currentPage = this.graphViewer.currentPage || 0;
         // Classify the XML that was rendered (effectiveGraphXml honours the

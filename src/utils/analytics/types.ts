@@ -1091,6 +1091,17 @@ export type AnalyticsProperties = {
   // analysis extrapolates true volume as `count / sample_rate`. Absent ⇒ 1.0
   // (every occurrence emitted).
   sample_rate?: number;
+  // --- fullscreen_zoom_summary (utils/viewport/fullscreenZoomSummary.ts) ---
+  zoom_session_id?: string;
+  summary_seq?: number;
+  summary_trigger?: 'idle' | 'unload';
+  zoom_in_clicks?: number;
+  zoom_out_clicks?: number;
+  fit_clicks?: number;
+  wheel_gestures?: number;
+  zoom_ratio_end?: number;
+  zoom_ratio_max?: number;
+  session_ms?: number;
   // Live Agent Link (see catalog.ts agent_link_* events). `time_to_connect_ms`
   // = waiting→connected latency (agent_link_agent_connected); `render_ok` /
   // `dsl_len_delta` characterize an applied edit (agent_link_edit_applied);

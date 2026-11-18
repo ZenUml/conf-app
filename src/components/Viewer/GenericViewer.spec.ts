@@ -1125,6 +1125,40 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
+  // viewer_source_opened must say where the panel was opened. The surface
+  // property stays 'viewer' in both places (existing reports filter on it),
+  // so the split lives in is_fullscreen.
+  describe('viewer_source_opened location', () => {
+    afterEach(() => {
+      if ((window as any).forgeGlobal?.forgeContext?.extension) {
+        delete (window as any).forgeGlobal.forgeContext.extension.modal
+      }
+    })
+
+    const openSource = async () => {
+      store.commit('updateDiagramType', DiagramType.Mermaid)
+      const wrapper = mountViewer()
+      await wrapper.vm.$nextTick()
+      vi.mocked(trackAnalyticsEvent).mockClear()
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      return vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'viewer_source_opened')?.[1]
+    }
+
+    it('sends is_fullscreen: false from the inline viewer', async () => {
+      const props = await openSource()
+      expect(props).toEqual(expect.objectContaining({ surface: 'viewer', macro_type: 'mermaid', is_fullscreen: false }))
+    })
+
+    it('sends is_fullscreen: true from the Fullscreen viewer', async () => {
+      ;(window as any).forgeGlobal ??= {}
+      ;(window as any).forgeGlobal.forgeContext ??= {}
+      ;(window as any).forgeGlobal.forgeContext.extension ??= {}
+      ;(window as any).forgeGlobal.forgeContext.extension.modal = { macroMode: 'fullscreen' }
+      const props = await openSource()
+      expect(props).toEqual(expect.objectContaining({ surface: 'viewer', macro_type: 'mermaid', is_fullscreen: true }))
+    })
+  })
+
   // Inline title rename: rename a diagram from the viewer's top edge without
   // opening the editor modal. Same gate as the Edit button; persistence is
   // renameDiagramTitle (mocked above).
@@ -1802,6 +1836,7 @@ describe('GenericViewer (chrome-less)', () => {
         surface: 'viewer',
         macro_type: DiagramType.Mermaid,
         has_edit_permission: true,
+        is_fullscreen: false,
       })
     })
 

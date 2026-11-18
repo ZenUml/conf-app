@@ -29,9 +29,13 @@ export const WINDOW_MS = 10_000;
 const TRACKED_TYPES = new Set(['mermaid', 'plantuml']);
 
 // Mermaid: g.node (flowchart, state, class...), ER entities, sequence actors.
-// PlantUML: g.entity / entity_* / elem_* (older SVG output).
+// PlantUML server: g.participant / g.participant-lifeline ([data-entity-uid]);
+// older output: g.entity / entity_* / elem_*.
 const NODE_SELECTOR = [
   'g.node',
+  'g.participant',
+  'g.participant-lifeline',
+  'g[data-entity-uid]',
   'g[id*="-entity-"]',
   'rect.actor',
   'g.entity',
@@ -47,6 +51,8 @@ const EDGE_SELECTOR = [
   '.relation',
   'g.link',
   'g[id^="link_"]',
+  'g.message',
+  'g[data-entity-1]',
 ].join(',');
 
 /**

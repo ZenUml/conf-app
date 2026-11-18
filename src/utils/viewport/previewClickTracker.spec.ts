@@ -93,6 +93,25 @@ describe('classifyPreviewTarget', () => {
     expect(classifyPreviewTarget(root.querySelector('svg')!, root)).toBe('background');
   });
 
+  it('names elements of the structured SVG the PlantUML server draws (lite-stg)', () => {
+    // Trimmed from the PlantUML server output on lite-stg, 2026-11-18.
+    const root = document.createElement('div');
+    root.innerHTML = `
+<svg><g class="svg-pan-zoom_viewport">
+  <g class="participant-lifeline" data-entity-uid="part1" id="part1-lifeline" data-source-line="1"><g><title>Alice</title><rect id="s-lifeline-hit"></rect><line id="s-lifeline"></line></g></g>
+  <g class="participant participant-head" data-entity-uid="part1" id="part1-head" data-source-line="1"><rect id="s-head"></rect><text id="s-head-text">Alice</text></g>
+  <g class="message" data-entity-1="part1" data-entity-2="part2" id="msg1" data-source-line="1"><polygon id="s-arrow"></polygon><line id="s-msg"></line><text id="s-msg-text">Request</text></g>
+</g></svg>`;
+    const kind = (id: string) => classifyPreviewTarget(root.querySelector(`#${id}`)!, root);
+    expect(kind('s-head')).toBe('node');
+    expect(kind('s-head-text')).toBe('node');
+    expect(kind('s-lifeline')).toBe('node');
+    expect(kind('s-lifeline-hit')).toBe('node');
+    expect(kind('s-msg')).toBe('edge');
+    expect(kind('s-arrow')).toBe('edge');
+    expect(kind('s-msg-text')).toBe('edge');
+  });
+
   it('ignores the svg icon inside a toolbar button (staging: Zoom in counted as background)', () => {
     const root = document.createElement('div');
     root.innerHTML = `<div class="toolbar"><button aria-label="Zoom in"><svg id="icon"><path id="icon-path"></path></svg></button></div>${MERMAID_FLOWCHART}`;

@@ -1009,6 +1009,12 @@ export type AnalyticsEventName =
   //     are not a behaviour change; filter `viewport_input == "toolbar"` for a
   //     series comparable with what came before (older events carry no
   //     `viewport_input` at all, so treat absent as toolbar).
+  //   2026-10 stopped (rate 0) under the event budget; no data until:
+  //   2026-11-18 restored at 10% (`sample_rate` stamped) when a plain wheel
+  //     started to zoom at the pointer in Fullscreen and the editor preview.
+  //     Wheel events from then carry `wheel_modifier` (none | ctrl_meta); one
+  //     event per gesture as before. Wheel zoom is continuous now, so
+  //     `viewport_action` is the gesture's first direction.
   // Header fit controls: one click on Fit height / Fit width fires this event
   // after the ready renderer applies the requested axis fit. Properties:
   // viewport_action=fit_height|fit_width, viewport_input=toolbar,

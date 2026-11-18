@@ -95,7 +95,6 @@ export const OCTOBER_STOP_EVENTS = new Set<string>([
   "editor_global_replace_observed",
   "report_macro_metrics",
   "snapshot_backfill_skipped",
-  "viewport_control_used",
   "whats_new_banner_evaluated",
 ]);
 
@@ -256,6 +255,10 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
 // error/failure, feedback, survey, and CSAT names stay at current rates.
 // Unknown names remain unchanged. The full reviewed list follows below.
 export const OCTOBER_REDUCED_EVENTS = new Set<string>([
+  // Restored from the stop list 2026-11-18 at 10% when a plain wheel started to
+  // zoom in Fullscreen and the editor preview: the zoom rule changed, and this
+  // event is the only read on whether readers use it. One event per gesture.
+  "viewport_control_used",
   "markdown_render_requested",
   "markdown_render_succeeded",
   "markdown_seeded_from_mermaid",

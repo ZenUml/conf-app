@@ -12,6 +12,7 @@ import DiagramPortal from '@/components/DiagramPortal.vue'
 import Sequence from '@/components/Sequence.vue'
 import Mermaid from '@/components/Mermaid.vue'
 import PlantUml from '@/components/PlantUml.vue'
+import OpenApiViewer from './OpenApiViewer.vue'
 import store from '@/model/store2'
 import globals from '@/model/globals'
 import forgeGlobal from '@/model/globals/forgeGlobal'
@@ -1209,6 +1210,88 @@ export const SourcePanelFullscreen: Story = {
     })
   },
 }
+
+// P4 — OpenAPI View Source. The panel shows the stored spec text unchanged
+// (YAML stays YAML). The real OpenApiViewer renders Swagger UI under it.
+const SAMPLE_OPENAPI = `openapi: 3.0.0
+info:
+  title: Payments API
+  version: 1.0.0
+paths:
+  /payments:
+    get:
+      summary: List payments
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create a payment
+      responses:
+        '201':
+          description: Created
+`
+
+// About 13,000 lines: the largest spec size the P4 design calls out. No
+// truncation; the panel scrolls and Copy takes the full text.
+function largeOpenApiSpec(pathCount: number): string {
+  const lines = ['openapi: 3.0.0', 'info:', '  title: Large API', '  version: 1.0.0', 'paths:']
+  for (let i = 0; i < pathCount; i++) {
+    lines.push(
+      `  /resource-${i}:`,
+      '    get:',
+      `      summary: Read resource ${i}`,
+      '      responses:',
+      "        '200':",
+      '          description: OK',
+    )
+  }
+  return lines.join('\n') + '\n'
+}
+
+function renderOpenApiViewer() {
+  return {
+    components: { OpenApiViewer },
+    template: '<OpenApiViewer />',
+  }
+}
+
+function openApiSourceStory(name: string, code: string, fullscreenMode: boolean, expectedLines: number): Story {
+  return {
+    name,
+    decorators: [
+      () => {
+        configureStory({ diagramType: DiagramType.OpenApi, title: 'Payments API', code, fullscreenMode })
+        return { template: '<story />' }
+      },
+    ],
+    render: () => renderOpenApiViewer(),
+    play: async () => {
+      // Swagger UI loads and lays out after mount, and the header re-stages
+      // when the frame width settles. Revealing the header before that races it.
+      await waitFor(() => {
+        if (!document.querySelector('#swagger-ui .info')) throw new Error('Swagger UI not rendered yet')
+      }, { timeout: 15000 })
+      await revealHeader()
+      const canvas = within(document.body)
+      await userEvent.click(await canvas.findByTestId('view-source-btn'))
+      const panel = await canvas.findByTestId('view-source-panel')
+      await expect(within(panel).getByText('Diagram source · OpenAPI')).toBeVisible()
+      await expect(within(panel).getByTestId('view-source-code').textContent).toBe(code)
+      await expect(within(panel).getByTestId('view-source-meta')).toHaveTextContent(`${expectedLines} lines`)
+    },
+  }
+}
+
+export const SourcePanelOpenApi = openApiSourceStory(
+  'Source panel — OpenAPI (inline)', SAMPLE_OPENAPI, false, SAMPLE_OPENAPI.trimEnd().split('\n').length,
+)
+export const SourcePanelOpenApiFullscreen = openApiSourceStory(
+  'Source panel — OpenAPI (fullscreen)', SAMPLE_OPENAPI, true, SAMPLE_OPENAPI.trimEnd().split('\n').length,
+)
+const LARGE_OPENAPI = largeOpenApiSpec(2166)
+export const SourcePanelOpenApiLarge = openApiSourceStory(
+  'Source panel — OpenAPI, 13,001-line spec (fullscreen)', LARGE_OPENAPI, true, LARGE_OPENAPI.trimEnd().split('\n').length,
+)
 
 /** Export entry keeps the natural inline Sequence card in its fullscreen host. */
 export const ExportEntrySequenceFraming: Story = {

@@ -1,28 +1,92 @@
 // @vitest-environment node
+import { readFileSync } from 'node:fs';
+import yaml from 'js-yaml';
 import { describe, it, expect } from 'vitest';
 import { waitForRenderMcp } from './wait-for-render-mcp.mjs';
 
 const sha = 'a'.repeat(40);
 const url = 'https://preview.example/mcp/health';
+const manifestUrl = 'https://preview.example/mcp-app/build-info.json';
 const ready = () => Response.json({ commit: sha, dirty: false });
-function fixture(responses, timeoutMs = 120_000) {
+const currentManifest = () => Response.json({ commit: sha });
+function fixture(responses, timeoutMs = 120_000, manifests = [currentManifest]) {
   let clock = 0;
   const requests = [];
+  const manifestRequests = [];
   const sleeps = [];
   return {
-    requests, sleeps, elapsed: () => clock,
+    requests, manifestRequests, sleeps, elapsed: () => clock,
     run: () => waitForRenderMcp({
       url, sha, timeoutMs, now: () => clock,
       sleep: async milliseconds => { sleeps.push(milliseconds); clock += milliseconds; },
       fetchImpl: async (requested, options) => {
-        requests.push({ requested, options });
-        const result = responses[Math.min(requests.length - 1, responses.length - 1)];
+        const isManifest = requested === manifestUrl;
+        const log = isManifest ? manifestRequests : requests;
+        const results = isManifest ? manifests : responses;
+        log.push({ requested, options });
+        const result = results[Math.min(log.length - 1, results.length - 1)];
         if (result instanceof Error) throw result;
         return typeof result === 'function' ? result() : result;
       },
     }),
   };
 }
+describe('bounded Render MCP asset manifest readiness', () => {
+  const previous = () => Response.json({ commit: 'c'.repeat(40) });
+  it('waits while health is current but the manifest is still from the previous deploy', async () => {
+    const f = fixture([ready], 120_000, [previous, previous, currentManifest]);
+    const report = await f.run();
+    expect(report.ok).toBe(true);
+    expect(report.attempts).toHaveLength(3);
+    expect(report.attempts[0].manifestCommit).toBe('c'.repeat(40));
+    expect(report.attempts[0].reason).toMatch(/manifest commit/);
+    expect(report.attempts[2].manifestCommit).toBe(sha);
+    expect(f.sleeps).toEqual([5000, 5000]);
+  });
+  it('still fails when the manifest never reaches the expected commit', async () => {
+    const f = fixture([ready], 12_000, [previous]);
+    await expect(f.run()).rejects.toMatchObject({
+      message: expect.stringMatching(/manifest commit/),
+      evidence: { ok: false, elapsedMs: 12_000 },
+    });
+  });
+  it('does not read the manifest until health is ready', async () => {
+    const f = fixture([new Response('', { status: 404 }), ready]);
+    await f.run();
+    expect(f.manifestRequests).toHaveLength(1);
+  });
+  it('records the edge cache status so the next stale read can be diagnosed', async () => {
+    const stale = () => Response.json({ commit: 'c'.repeat(40) }, { headers: { 'cf-cache-status': 'HIT' } });
+    const f = fixture([ready], 120_000, [stale, currentManifest]);
+    const report = await f.run();
+    expect(report.attempts[0].manifestCacheStatus).toBe('HIT');
+  });
+  it('retries manifest HTTP errors and invalid JSON', async () => {
+    const f = fixture([ready], 120_000, [new Response('', { status: 500 }), () => new Response('<html>'), currentManifest]);
+    const report = await f.run();
+    expect(report.ok).toBe(true);
+    expect(report.attempts[0].reason).toMatch(/manifest HTTP 500/);
+    expect(report.attempts[1].reason).toMatch(/invalid manifest JSON/);
+  });
+  it('rejects a manifest redirect immediately', async () => {
+    const redirect = new Response(null, { status: 302, headers: { location: 'https://elsewhere.example' } });
+    const f = fixture([ready], 120_000, [redirect, currentManifest]);
+    await expect(f.run()).rejects.toThrow(/redirect.*302/i);
+    expect(f.manifestRequests).toHaveLength(1);
+    expect(f.manifestRequests[0].options.redirect).toBe('manual');
+  });
+});
+describe('Render MCP workflow artifact handoff', () => {
+  const { jobs } = yaml.load(readFileSync(new URL('../../.github/workflows/render-mcp-deploy.yml', import.meta.url), 'utf8'));
+  const step = (job, action, path) => job.steps.find(item => item.uses?.startsWith(action) && item.with?.path === path);
+  const assets = 'workers/render-mcp/dist/assets';
+  it('downloads the name the check job uploaded, so a failed-only deploy rerun finds it', () => {
+    const uploaded = step(jobs.check, 'actions/upload-artifact', assets).with.name;
+    const downloaded = step(jobs.deploy, 'actions/download-artifact', assets).with.name;
+    expect(jobs.check.outputs['assets-artifact']).toBe(uploaded);
+    expect(downloaded).toBe('${{ needs.check.outputs.assets-artifact }}');
+  });
+});
 describe('bounded Render MCP health readiness', () => {
   it('waits for a first-deployment 404 to become the expected clean commit', async () => {
     const f = fixture([new Response('', { status: 404 }), ready]);

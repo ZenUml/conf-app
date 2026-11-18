@@ -25,6 +25,8 @@ The build invokes the existing MCP Vite configuration with a separate output dir
 
 The independent `Render MCP Worker` workflow builds and tests changes, then deploys trusted branch/PR candidates to `zenuml-render-mcp-preview.zenuml.workers.dev`. Fork PRs receive checks without deployment credentials. The preview has no production routes and no Mixpanel tracking token. A shared preview can be replaced by another branch, so always check its health commit before testing.
 
+After a deploy, the workflow waits up to 120 seconds for both `/mcp/health` and `/mcp-app/build-info.json` to report the source commit, because a new Worker can answer health while the previous deploy's static assets are still served. Each attempt's `cf-cache-status` is kept in `render-mcp-readiness.json`. A failed `deploy` job can be rerun alone: it downloads the assets the earlier `check` attempt tested.
+
 ## Production
 
 Use the independent workflow's manual production dispatch from `main`, with its exact source SHA. The workflow applies only the dedicated rate-counter migration, uploads this Worker and its tested assets with `wrangler versions upload`, then activates that exact returned version with `wrangler versions deploy <version-id>@100% --yes`. It never publishes production routes. Preview keeps its existing `wrangler deploy` path.

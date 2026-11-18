@@ -78,6 +78,10 @@ jobs:
     needs: select
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      # A failed-only rerun reuses this job at its earlier attempt, so deploy must
+      # read the name from here. Its own github.run_attempt would be newer.
+      assets-artifact: render-mcp-assets-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -146,7 +150,7 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - uses: actions/download-artifact@v6
         with:
-          name: render-mcp-assets-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ needs.check.outputs.assets-artifact }}
           path: workers/render-mcp/dist/assets
       - name: Verify pre-provisioned signing secret
         shell: bash
@@ -214,7 +218,7 @@ jobs:
           else
             pnpm exec wrangler deploy --config workers/render-mcp/wrangler.toml --env "$TARGET"
           fi
-      - name: Wait for exact deployed commit to reach health
+      - name: Wait for exact deployed commit to reach health and asset manifest
         shell: bash
         run: |
           set -euo pipefail
@@ -252,5 +256,5 @@ jobs:
           import { appendFileSync, existsSync, readFileSync } from 'node:fs';
           const smoke = existsSync('render-mcp-smoke.json') ? JSON.parse(readFileSync('render-mcp-smoke.json', 'utf8')) : null;
           const readiness = existsSync('render-mcp-readiness.json') ? JSON.parse(readFileSync('render-mcp-readiness.json', 'utf8')) : null;
-          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Render MCP Worker\n\nEnvironment: ${process.env.TARGET}\n\nCommit: \`${process.env.SOURCE_SHA}\`\n\nStatus: ${process.env.DEPLOY_STATUS}\n\nHealth readiness: ${readiness?.ok ? 'passed' : 'not passed'} (${readiness?.attempts?.length ?? 0} request(s))\n\nSmoke: ${smoke?.ok ? 'passed' : 'not passed'}\n\nThis pipeline deploys the independent Worker; it does not deploy Forge.\n`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Render MCP Worker\n\nEnvironment: ${process.env.TARGET}\n\nCommit: \`${process.env.SOURCE_SHA}\`\n\nStatus: ${process.env.DEPLOY_STATUS}\n\nHealth and manifest readiness: ${readiness?.ok ? 'passed' : 'not passed'} (${readiness?.attempts?.length ?? 0} request(s))\n\nSmoke: ${smoke?.ok ? 'passed' : 'not passed'}\n\nThis pipeline deploys the independent Worker; it does not deploy Forge.\n`);
           NODE

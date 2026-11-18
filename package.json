@@ -4,6 +4,10 @@
   "packageManager": "pnpm@10.34.5",
   "private": true,
   "scripts": {
+    "diagram:setup": "pnpm --dir tools/pi-diagram-agent install --ignore-workspace --frozen-lockfile && pnpm --dir tools/pi-diagram-agent run setup:browser",
+    "diagram:doctor": "pnpm --dir tools/pi-diagram-agent run doctor",
+    "diagram:refine": "pnpm --dir tools/pi-diagram-agent run refine",
+    "test:pi-diagram": "pnpm --dir tools/pi-diagram-agent test",
     "test:unit": "vitest --run",
     "test:worktree-tooling": "node --test scripts/ci/worktree.node-test.mjs",
     "test:ui-details": "playwright test -c tests/ui-details/playwright.config.ts",

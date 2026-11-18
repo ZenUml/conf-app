@@ -1314,6 +1314,85 @@ describe('GenericViewer (chrome-less)', () => {
       }))
     })
 
+    // Where the opening click landed and whether the field was touched ride on
+    // every rename event, so a cancel can be split into "clicked and typed
+    // nothing" vs "typed, then left". A mouse click has event.detail >= 1; a
+    // click synthesised by Enter/Space on the focused button has detail 0.
+    describe('rename_trigger and had_input', () => {
+      const lastCall = (name: string) => vi.mocked(trackAnalyticsEvent).mock.calls.filter(([n]) => n === name).at(-1)?.[1]
+      // VTU's trigger() cannot set the read-only UIEvent.detail; dispatch a real one.
+      const clickWithDetail = async (wrapper: ReturnType<typeof mountViewer>, selector: string, detail: number) => {
+        wrapper.find(selector).element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail }))
+        await flushPromises()
+      }
+      const openBy = async (selector: string, detail: number) => {
+        const wrapper = mountViewer()
+        await flushPromises()
+        await clickWithDetail(wrapper, selector, detail)
+        return wrapper
+      }
+
+      it.each([
+        ['title_text', '[data-testid="viewer-title-rename"] .viewer-title-text', 1],
+        ['pencil', '[data-testid="viewer-title-rename"] .viewer-title-pencil', 1],
+        ['title_edge', '[data-testid="viewer-title-rename"]', 1],
+        ['keyboard', '[data-testid="viewer-title-rename"]', 0],
+      ])('records rename_trigger=%s on started and on the cancel', async (trigger, selector, detail) => {
+        const wrapper = await openBy(selector, detail)
+        expect(lastCall('viewer_rename_started')).toEqual(expect.objectContaining({ rename_trigger: trigger, had_input: false }))
+        await titleInput(wrapper).trigger('keydown', { key: 'Escape' })
+        expect(lastCall('viewer_rename_cancelled')).toEqual(expect.objectContaining({
+          rename_trigger: trigger,
+          had_input: false,
+          rename_exit_reason: 'escape',
+        }))
+      })
+
+      it('records had_input=true once the field changed, and carries both on succeeded', async () => {
+        const wrapper = await openBy('[data-testid="viewer-title-rename"] .viewer-title-text', 1)
+        await titleInput(wrapper).setValue('Checkout flow')
+        await titleInput(wrapper).trigger('keydown', { key: 'Enter' })
+        await flushPromises()
+        expect(lastCall('viewer_rename_succeeded')).toEqual(expect.objectContaining({ rename_trigger: 'title_text', had_input: true }))
+      })
+
+      it('a blank blur is had_input=true (the text was deleted)', async () => {
+        const wrapper = await openBy('[data-testid="viewer-title-rename"] .viewer-title-pencil', 1)
+        await titleInput(wrapper).setValue('')
+        await titleInput(wrapper).trigger('blur')
+        expect(lastCall('viewer_rename_cancelled')).toEqual(expect.objectContaining({
+          rename_trigger: 'pencil',
+          had_input: true,
+          rename_exit_reason: 'empty',
+        }))
+      })
+
+      it('records had_copy=false by default and true after a copy in the field', async () => {
+        const wrapper = await openBy('[data-testid="viewer-title-rename"] .viewer-title-text', 1)
+        expect(lastCall('viewer_rename_started')).toEqual(expect.objectContaining({ had_copy: false }))
+        await titleInput(wrapper).trigger('copy')
+        await titleInput(wrapper).trigger('keydown', { key: 'Escape' })
+        expect(lastCall('viewer_rename_cancelled')).toEqual(expect.objectContaining({
+          rename_trigger: 'title_text',
+          had_input: false,
+          had_copy: true,
+        }))
+        await clickWithDetail(wrapper, '[data-testid="viewer-title-rename"] .viewer-title-text', 1)
+        expect(lastCall('viewer_rename_started')).toEqual(expect.objectContaining({ had_copy: false }))
+      })
+
+      it('carries both on failed, and a second start resets had_input', async () => {
+        renameMock.mockResolvedValueOnce({ ok: false, reason: 'save_error', durationMs: 7, error: new Error('403') } as any)
+        const wrapper = await openBy('[data-testid="viewer-title-rename"]', 0)
+        await titleInput(wrapper).setValue('Checkout flow')
+        await titleInput(wrapper).trigger('keydown', { key: 'Enter' })
+        await flushPromises()
+        expect(lastCall('viewer_rename_failed')).toEqual(expect.objectContaining({ rename_trigger: 'keyboard', had_input: true }))
+        await clickWithDetail(wrapper, '[data-testid="viewer-title-rename"] .viewer-title-text', 1)
+        expect(lastCall('viewer_rename_started')).toEqual(expect.objectContaining({ rename_trigger: 'title_text', had_input: false }))
+      })
+    })
+
     it('disables the input AND the Edit button while the write is in flight, and ignores a blur during it', async () => {
       let resolve!: (v: unknown) => void
       renameMock.mockReturnValue(new Promise((r) => { resolve = r }) as any)

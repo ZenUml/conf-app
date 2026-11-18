@@ -1,5 +1,6 @@
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { viewportSurface } from '@/utils/viewport/surface';
+import { noteFullscreenZoomControl } from '@/utils/viewport/fullscreenZoomSummary';
 
 /** Which control the reader used. One gesture counts as one `wheel`. */
 export type ViewportInput = 'toolbar' | 'wheel';
@@ -21,6 +22,9 @@ export function trackViewportControl(options: {
   isDisplayMode: boolean;
   controlLocation?: 'header' | 'canvas';
 }): void {
+  // Counted here even while `viewport_control_used` is stopped by the event
+  // budget: the Fullscreen summary is how zooming is measured now.
+  noteFullscreenZoomControl(options.viewportAction, options.viewportInput);
   trackAnalyticsEvent('viewport_control_used', {
     feature_area: 'macro',
     surface: viewportSurface(options.isDisplayMode),

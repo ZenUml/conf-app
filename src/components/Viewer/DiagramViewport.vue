@@ -43,6 +43,7 @@ import DiagramViewportToolbar from '@/components/Viewer/DiagramViewportToolbar.v
 import { hasSvgLayout } from '@/utils/mermaid/viewportLayout';
 import { createGestureGate, createWheelStepper, createZoomHintTrigger, isZoomIntent } from '@/utils/viewport/wheelZoom';
 import { trackViewportControl } from '@/utils/viewport/trackViewportControl';
+import { endFullscreenZoomSession, rebaseFullscreenZoom, startFullscreenZoomSession } from '@/utils/viewport/fullscreenZoomSummary';
 import { wheelFallsThroughToPage } from '@/utils/viewport/surface';
 import ViewportZoomHint from '@/components/Viewer/ViewportZoomHint.vue';
 
@@ -111,6 +112,7 @@ export default {
     this.bindWheelZoom();
   },
   beforeUnmount() {
+    endFullscreenZoomSession();
     this.unbindWheelZoom();
     this.detach();
   },
@@ -197,6 +199,11 @@ export default {
       this.panZoomSvg = svgElement;
       this.panZoom.disableDblClickZoom();
       this.reset();
+      // No-op outside Fullscreen; see fullscreenZoomSummary.ts.
+      startFullscreenZoomSession({
+        macroType: this.macroType,
+        readScale: () => this.panZoom?.getSizes().realZoom ?? 1,
+      });
 
       if (typeof ResizeObserver !== 'undefined') {
         this.panZoomResizeObserver = new ResizeObserver(() => {
@@ -323,6 +330,7 @@ export default {
       if (this.isFullscreenMode || !this.isDisplayMode) this.panZoom.zoom(0.875);
       this.clampUpscale();
       this.panZoomDirty = false;
+      rebaseFullscreenZoom();
     },
     /**
      * `fit: true` scales to fill the container in BOTH axes, so a small diagram in

@@ -6,6 +6,7 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
+  trackAnalyticsEventBeforeUnload: vi.fn(() => Promise.resolve()),
 }));
 
 const panZoom = vi.hoisted(() => ({
@@ -245,5 +246,43 @@ describe('DiagramViewport wheel zoom', () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.find('.viewport-zoom-hint').exists()).toBe(false);
+  });
+});
+
+describe('DiagramViewport Fullscreen zoom summary', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    panZoom.getSizes.mockReturnValue({ realZoom: 0.5 });
+    panZoom.getZoom.mockReturnValue(1);
+    vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 322, height: 243,
+    } as DOMRect);
+    vi.spyOn(Math, 'random').mockReturnValue(0.05); // a sampled view
+    (window as { forgeGlobal?: unknown }).forgeGlobal = {
+      forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } },
+    };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    delete (window as { forgeGlobal?: unknown }).forgeGlobal;
+  });
+
+  it('reports toolbar clicks and the scale the reader ended at, relative to the opening scale', async () => {
+    const wrapper = mountViewport(true);
+    await wrapper.vm.attach();
+    panZoom.zoomIn.mockImplementation(() => panZoom.getSizes.mockReturnValue({ realZoom: 0.55 }));
+
+    await wrapper.get('button[aria-label="Zoom in"]').trigger('click');
+    vi.advanceTimersByTime(10_000);
+
+    const rows = vi.mocked(trackAnalyticsEvent).mock.calls
+      .filter(([name]) => name === 'fullscreen_zoom_summary');
+    expect(rows).toHaveLength(1);
+    expect(rows[0][1]).toMatchObject({ surface: 'fullscreen', macro_type: 'plantuml', zoom_in_clicks: 1, sample_rate: 0.1 });
+    expect(rows[0][1].zoom_ratio_end).toBeCloseTo(1.1, 5);
+    wrapper.unmount();
   });
 });

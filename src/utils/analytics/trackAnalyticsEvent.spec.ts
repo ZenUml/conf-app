@@ -543,6 +543,23 @@ describe("trackAnalyticsEvent", () => {
       rnd.mockRestore();
     });
 
+    it("keeps a caller-stamped sample_rate on a full-rate event (per-view sampling)", async () => {
+      // fullscreen_zoom_summary samples per Fullscreen view in its own module
+      // and stamps the rate itself; the table keeps it at 1 so all rows of a
+      // kept view arrive. Enrichment must not drop or overwrite the stamp.
+      const rnd = vi.spyOn(Math, "random").mockReturnValue(0.99);
+      await _awaitableTrackAnalyticsEvent("fullscreen_zoom_summary", {
+        feature_area: "macro",
+        surface: "fullscreen",
+        sample_rate: 0.1,
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "fullscreen_zoom_summary",
+        expect.objectContaining({ sample_rate: 0.1 }),
+      );
+      rnd.mockRestore();
+    });
+
     it("does not stamp sample_rate on full-rate events", async () => {
       await _awaitableTrackAnalyticsEvent("macro_save_succeeded", {
         feature_area: "macro",

@@ -42,6 +42,7 @@
 import DiagramViewportToolbar from '@/components/Viewer/DiagramViewportToolbar.vue';
 import { createGestureGate, createWheelStepper, createZoomHintTrigger, isZoomIntent } from '@/utils/viewport/wheelZoom';
 import { trackViewportControl } from '@/utils/viewport/trackViewportControl';
+import { endFullscreenZoomSession, rebaseFullscreenZoom, startFullscreenZoomSession } from '@/utils/viewport/fullscreenZoomSummary';
 import { wheelFallsThroughToPage } from '@/utils/viewport/surface';
 import ViewportZoomHint from '@/components/Viewer/ViewportZoomHint.vue';
 
@@ -120,6 +121,7 @@ export default {
     this.bindGestures();
   },
   beforeUnmount() {
+    endFullscreenZoomSession();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.unbindGestures();
@@ -164,6 +166,10 @@ export default {
         viewport.style.height = `${height * this.fitScale}px`;
       }
       this.applyTransform();
+      // No-op outside Fullscreen; see fullscreenZoomSummary.ts. A re-fit before
+      // the first zoom moves the opening scale; after it, rebase does nothing.
+      rebaseFullscreenZoom();
+      startFullscreenZoomSession({ macroType: this.macroType, readScale: () => this.scale });
     },
     applyTransform() {
       if (!this.target) return;

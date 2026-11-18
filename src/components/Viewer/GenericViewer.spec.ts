@@ -1367,6 +1367,20 @@ describe('GenericViewer (chrome-less)', () => {
         }))
       })
 
+      it('records had_copy=false by default and true after a copy in the field', async () => {
+        const wrapper = await openBy('[data-testid="viewer-title-rename"] .viewer-title-text', 1)
+        expect(lastCall('viewer_rename_started')).toEqual(expect.objectContaining({ had_copy: false }))
+        await titleInput(wrapper).trigger('copy')
+        await titleInput(wrapper).trigger('keydown', { key: 'Escape' })
+        expect(lastCall('viewer_rename_cancelled')).toEqual(expect.objectContaining({
+          rename_trigger: 'title_text',
+          had_input: false,
+          had_copy: true,
+        }))
+        await clickWithDetail(wrapper, '[data-testid="viewer-title-rename"] .viewer-title-text', 1)
+        expect(lastCall('viewer_rename_started')).toEqual(expect.objectContaining({ had_copy: false }))
+      })
+
       it('carries both on failed, and a second start resets had_input', async () => {
         renameMock.mockResolvedValueOnce({ ok: false, reason: 'save_error', durationMs: 7, error: new Error('403') } as any)
         const wrapper = await openBy('[data-testid="viewer-title-rename"]', 0)

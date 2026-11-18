@@ -103,6 +103,7 @@
                 @keydown.enter.prevent="commitRename"
                 @keydown.esc.prevent="cancelRename"
                 @blur="onRenameBlur"
+                @copy="renameHadCopy = true"
               />
               <span v-else class="viewer-title" :title="title">{{ title }}</span>
               <!-- Fullscreen: multi-page navigation (Graph) sits beside the title. -->
@@ -727,11 +728,12 @@ export default {
     renameError: false,
     renameInputWidth: 0,
     renameMinWidth: 0,
-    // Analytics only (rename_trigger / had_input on every viewer_rename_*
+    // Analytics only (rename_trigger / had_input / had_copy on every viewer_rename_*
     // event): set when a rename opens and NOT cleared on exit, so the final
     // event of the session still carries them.
     renameTrigger: 'unknown',
     renameHadInput: false,
+    renameHadCopy: false,
     magicActive: false,
     magicSvg: null,
     magicHighlightController: null,
@@ -2092,6 +2094,7 @@ export default {
       if (!this.canRename || this.isRenaming) return;
       this.renameTrigger = renameTriggerFromClick(event);
       this.renameHadInput = false;
+      this.renameHadCopy = false;
       this.renameDraft = visibleDiagramTitle(this.diagram?.title).trim();
       this.renameError = false;
       // The input opens at exactly the title's rendered width (never
@@ -2307,6 +2310,7 @@ export default {
         content_id: id,
         rename_trigger: this.renameTrigger,
         had_input: this.renameHadInput,
+        had_copy: this.renameHadCopy,
         ...extra,
       });
     },

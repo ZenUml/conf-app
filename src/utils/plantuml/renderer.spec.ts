@@ -1,55 +1,53 @@
-import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { isPlantUmlLocalRendererEnabled } from '@/apis/aiTitleFeatureFlag';
-import { plantUmlRenderer, resetPlantUmlRendererForTests, PLANTUML_RENDERER_STORAGE_KEY } from './renderer';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import forgeGlobal from '@/model/globals/forgeGlobal';
+import { plantUmlRenderer, PLANTUML_RENDERER_STORAGE_KEY } from './renderer';
 
-vi.mock('@/apis/aiTitleFeatureFlag', () => ({ isPlantUmlLocalRendererEnabled: vi.fn() }));
-
+// ADR-0010. The Forge flag `plantuml-local-renderer-enabled` was retired after
+// it served 100% on Lite and Diagramly (2026-10-31 onward). The engine choice is
+// now fixed per variant: Lite and Diagramly draw locally; Full and AsyncAPI,
+// which never had the flag (so always read it as off), keep the server.
 describe('plantUmlRenderer (ADR-0010)', () => {
-  beforeEach(() => {
-    vi.mocked(isPlantUmlLocalRendererEnabled).mockReset().mockResolvedValue(false);
-    resetPlantUmlRendererForTests();
-  });
-
   afterEach(() => {
     localStorage.removeItem(PLANTUML_RENDERER_STORAGE_KEY);
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
+    forgeGlobal.isForge = true;
   });
 
-  it('follows the Forge flag', async () => {
+  it.each([
+    ['lite', 'local'],
+    ['diagramly', 'local'],
+    ['full', 'server'],
+    ['asyncapi', 'server'],
+  ])('uses the %s default: %s', async (productType, expected) => {
+    vi.stubEnv('PRODUCT_TYPE', productType);
+    await expect(plantUmlRenderer()).resolves.toBe(expected);
+  });
+
+  it('keeps the server outside Forge (standalone dev), as the flag did', async () => {
+    vi.stubEnv('PRODUCT_TYPE', 'lite');
+    forgeGlobal.isForge = false;
     await expect(plantUmlRenderer()).resolves.toBe('server');
-    resetPlantUmlRendererForTests();
-    vi.mocked(isPlantUmlLocalRendererEnabled).mockResolvedValue(true);
-    await expect(plantUmlRenderer()).resolves.toBe('local');
   });
 
-  it('asks the flag once per iframe', async () => {
-    await plantUmlRenderer();
-    await plantUmlRenderer();
-    expect(isPlantUmlLocalRendererEnabled).toHaveBeenCalledTimes(1);
-  });
-
-  it('keeps the server when the flag lookup rejects', async () => {
-    vi.mocked(isPlantUmlLocalRendererEnabled).mockRejectedValue(new Error('down'));
-    await expect(plantUmlRenderer()).resolves.toBe('server');
-  });
-
-  it('lets localStorage override the flag either way', async () => {
+  it('lets localStorage override the default either way', async () => {
+    vi.stubEnv('PRODUCT_TYPE', 'full');
     localStorage.setItem(PLANTUML_RENDERER_STORAGE_KEY, 'local');
     await expect(plantUmlRenderer()).resolves.toBe('local');
-    vi.mocked(isPlantUmlLocalRendererEnabled).mockResolvedValue(true);
+    vi.stubEnv('PRODUCT_TYPE', 'lite');
     localStorage.setItem(PLANTUML_RENDERER_STORAGE_KEY, 'server');
     await expect(plantUmlRenderer()).resolves.toBe('server');
-    expect(isPlantUmlLocalRendererEnabled).not.toHaveBeenCalled();
   });
 
   it('ignores an unknown override value', async () => {
+    vi.stubEnv('PRODUCT_TYPE', 'lite');
     localStorage.setItem(PLANTUML_RENDERER_STORAGE_KEY, 'yes');
-    await expect(plantUmlRenderer()).resolves.toBe('server');
+    await expect(plantUmlRenderer()).resolves.toBe('local');
   });
 
-  it('lets the flag decide when storage throws', async () => {
+  it('uses the default when storage throws', async () => {
+    vi.stubEnv('PRODUCT_TYPE', 'diagramly');
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
-    vi.mocked(isPlantUmlLocalRendererEnabled).mockResolvedValue(true);
     await expect(plantUmlRenderer()).resolves.toBe('local');
   });
 });

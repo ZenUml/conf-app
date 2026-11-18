@@ -101,6 +101,23 @@ const WIDE_COLUMN_GRAPH = `
           </div>
         </div>`
 
+// A graph whose icon sits on a host the iframe cannot fetch (in Forge, a host
+// the CSP blocks; here, a reserved name that never resolves). Before the fix
+// the preview and every Download/Copy failed with "image error event".
+const GRAPH_WITH_UNLOADABLE_IMAGE = `
+        <div style="height:0; overflow:hidden;">
+          <div ref="diagramRef" style="width:320px; padding:24px; background:#ffffff;">
+            <svg width="270" height="110" viewBox="0 0 270 110" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+              <rect x="4" y="30" width="80" height="40" rx="4" fill="#ffffff" stroke="#111827"/>
+              <text x="44" y="55" font-size="12" text-anchor="middle" font-family="sans-serif">Client</text>
+              <line x1="84" y1="50" x2="132" y2="50" stroke="#111827"/>
+              <rect x="132" y="30" width="84" height="40" rx="4" fill="#ffffff" stroke="#111827"/>
+              <text x="174" y="55" font-size="12" text-anchor="middle" font-family="sans-serif">Service</text>
+              <image x="226" y="34" width="32" height="32" xlink:href="https://icons.example.invalid/cloud-icon.png"/>
+            </svg>
+          </div>
+        </div>`
+
 const SHALLOW_LONG_WATERMARK = `
         <div style="height:0; overflow:hidden;">
           <div ref="diagramRef" style="width:554px; height:70px; background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:13px; color:#0f172a;"></div>
@@ -297,6 +314,26 @@ export const WideColumnSequence: Story = {
 export const WideColumnGraph: Story = {
   name: 'Fullscreen column, small graph',
   render: (args: Args) => withCaptureStage(args, undefined, WIDE_COLUMN_GRAPH),
+}
+
+/**
+ * A graph with an icon the iframe cannot fetch. The preview shows the diagram
+ * with that icon left blank, and Download image succeeds without the error
+ * message.
+ */
+export const GraphUnloadableImage: Story = {
+  name: 'Graph with an icon that cannot be fetched',
+  render: (args: Args) => withCaptureStage(args, undefined, GRAPH_WITH_UNLOADABLE_IMAGE),
+  play: async () => {
+    const canvas = within(document.body)
+    // Generous timeout: the unresolvable host fails on DNS, which can take
+    // seconds here; in Forge the CSP refuses the fetch at once.
+    await waitFor(() => expect(document.querySelector('.export-modal img[src^="data:image/png"], .export-modal img[src^="blob:"]')).not.toBeNull(), { timeout: 30000 })
+    expect(canvas.queryByText(/Export failed/)).toBeNull()
+    await userEvent.click(canvas.getByRole('button', { name: 'Download image' }))
+    await waitFor(() => expect(canvas.queryByRole('button', { name: 'Download image' })).toBeNull(), { timeout: 30000 })
+    expect(canvas.queryByText(/Export failed/)).toBeNull()
+  },
 }
 
 /**

@@ -17,6 +17,7 @@ const panZoom = vi.hoisted(() => ({
   resize: vi.fn(),
   zoom: vi.fn(),
   zoomIn: vi.fn(),
+  zoomBy: vi.fn(),
   zoomOut: vi.fn(),
   zoomAtPointBy: vi.fn(),
   panBy: vi.fn(),
@@ -257,6 +258,23 @@ describe('DiagramViewport wheel zoom', () => {
     // svg-pan-zoom's limits are relative to its fit: 0.875 per 0.5 natural.
     expect(panZoom.setMinZoom).toHaveBeenLastCalledWith(0.875);
     expect(panZoom.setMaxZoom).toHaveBeenLastCalledWith(1.75);
+  });
+
+  it('steps x1.25 per toolbar click, the step shared by every renderer', async () => {
+    panZoom.getSizes.mockReturnValue({ realZoom: 0.5 });
+    panZoom.getZoom.mockReturnValue(0.875);
+    const wrapper = mountViewport(false);
+    await wrapper.vm.attach();
+    await wrapper.vm.$nextTick();
+
+    await wrapper.get('[aria-label="Zoom in"]').trigger('click');
+    expect(panZoom.zoomBy).toHaveBeenLastCalledWith(1.25);
+    expect(panZoom.zoomIn).not.toHaveBeenCalled();
+    const [, options] = vi.mocked(svgPanZoom).mock.calls.at(-1)!;
+    options!.onZoom!(1.2);
+    await wrapper.vm.$nextTick();
+    await wrapper.get('[aria-label="Zoom out"]').trigger('click');
+    expect(panZoom.zoomBy).toHaveBeenLastCalledWith(1 / 1.25);
   });
 
   it('disables Zoom in at natural size and Zoom out at the opening size', async () => {

@@ -98,12 +98,12 @@ describe('DiagramTransformViewport', () => {
     expect(wrapper.get('.transform-viewport').attributes('style') ?? '').not.toContain('height:');
   });
 
-  it('zooms from the toolbar on top of the fit', async () => {
+  it('zooms from the toolbar on top of the fit, x1.25 a click', async () => {
     const wrapper = mountViewport(true);
     await wrapper.vm.layout();
 
     await wrapper.get('[aria-label="Zoom in"]').trigger('click');
-    expect(scaleOf(wrapper)).toBeCloseTo(0.6, 5);
+    expect(scaleOf(wrapper)).toBeCloseTo(0.625, 5);
 
     await wrapper.get('[aria-label="Zoom out"]').trigger('click');
     expect(scaleOf(wrapper)).toBeCloseTo(0.5, 5);
@@ -167,7 +167,7 @@ describe('DiagramTransformViewport', () => {
 
     wheel(wrapper.get('.transform-viewport').element, { deltaY: 40, shiftKey: true });
 
-    expect(scaleOf(wrapper)).toBeCloseTo(0.72, 5);
+    expect(scaleOf(wrapper)).toBeCloseTo(0.5 * 1.25 * 1.25, 5);
     expect(wrapper.get('.rendered').attributes('style')).not.toBe(before);
   });
 

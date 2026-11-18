@@ -45,6 +45,7 @@ const panZoomInstanceMock = vi.hoisted(() => ({
   resize: vi.fn(),
   zoom: vi.fn(),
   zoomIn: vi.fn(),
+  zoomBy: vi.fn(),
   zoomOut: vi.fn(),
   zoomAtPointBy: vi.fn(),
   panBy: vi.fn(),
@@ -203,7 +204,7 @@ describe('PlantUml pan/zoom viewport', () => {
 
     await wrapper.get('[aria-label="Zoom in"]').trigger('click');
 
-    expect(panZoomInstanceMock.zoomIn).toHaveBeenCalled();
+    expect(panZoomInstanceMock.zoomBy).toHaveBeenCalledWith(1.25);
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewport_control_used', {
       feature_area: 'macro',
       surface: 'viewer',

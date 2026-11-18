@@ -283,8 +283,9 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
       const { wrapper } = await mountGraph(graph);
       expect(wrapper.get('[role="toolbar"]').attributes('aria-label')).toBe('Graph zoom controls');
 
+      // x1.25 a click, the step shared by every renderer's toolbar.
       await wrapper.get('[aria-label="Zoom in"]').trigger('click');
-      expect(graph.view.scale).toBeCloseTo(0.6, 5);
+      expect(graph.view.scale).toBeCloseTo(0.625, 5);
       await wrapper.get('[aria-label="Zoom out"]').trigger('click');
       expect(graph.view.scale).toBeCloseTo(0.5, 5);
 

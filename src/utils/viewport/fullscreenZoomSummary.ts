@@ -104,12 +104,27 @@ function row(s: Session, trigger: 'idle' | 'unload') {
   };
 }
 
+/**
+ * Analytics must never break the viewer: the teardown send runs inside the
+ * renderers' beforeUnmount, and the idle send inside a timer.
+ */
+function safeSend(send: () => unknown): void {
+  try {
+    const result = send();
+    if (result && typeof (result as Promise<unknown>).catch === 'function') {
+      (result as Promise<unknown>).catch(() => undefined);
+    }
+  } catch {
+    // dropped: a lost summary row is acceptable, a broken unmount is not
+  }
+}
+
 function schedule(s: Session): void {
   if (s.timer) clearTimeout(s.timer);
   s.timer = setTimeout(() => {
     s.timer = null;
     if (session !== s || !s.dirty) return;
-    trackAnalyticsEvent('fullscreen_zoom_summary', row(s, 'idle'));
+    safeSend(() => trackAnalyticsEvent('fullscreen_zoom_summary', row(s, 'idle')));
   }, SUMMARY_IDLE_MS);
 }
 
@@ -179,5 +194,5 @@ export function endFullscreenZoomSession(): void {
   session = null;
   if (s.timer) clearTimeout(s.timer);
   if (typeof window !== 'undefined') window.removeEventListener('pagehide', endFullscreenZoomSession);
-  if (s.dirty) void trackAnalyticsEventBeforeUnload('fullscreen_zoom_summary', row(s, 'unload'));
+  if (s.dirty) safeSend(() => trackAnalyticsEventBeforeUnload('fullscreen_zoom_summary', row(s, 'unload')));
 }

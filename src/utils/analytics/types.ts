@@ -782,6 +782,10 @@ export type AnalyticsProperties = {
   // at least one input event) is also sent on viewer_rename_*: true once the
   // field changed after it opened. Deletion counts, so every 'empty' exit is
   // had_input=true — true means "touched the field", not "typed a new name".
+  // viewer_rename_*: true once a `copy` event fired in the open rename field
+  // (Cmd/Ctrl+C or the context menu). Tests whether some title clicks are an
+  // attempt to copy the title. The copied text is never read.
+  had_copy?: boolean;
   // Copy outcome, shared by the "Copy diagram link" action (deeplink_copied —
   // catalog.ts), viewer_source_copied and the Connect MCP dialog copies:
   // 'copied' = clipboard write succeeded, 'clipboard_failed' = the write

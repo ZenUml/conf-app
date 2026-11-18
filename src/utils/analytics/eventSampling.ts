@@ -80,6 +80,21 @@ export const TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE = 0.1;
 // them over 4,905 user x macro keys (~31k billable events in one day).
 export const LICENSE_NOTICE_REPEAT_SAMPLE_RATE = 0.1;
 
+// Rates that change on a fixed date. Before `until` (exclusive, UTC) the
+// event is sent at `before`; from then on at `after`.
+//
+// editor_preview_element_clicked (P6, 2026-11-18): the owner chose 100% for
+// the first four weeks, so every type gets enough sessions for the read-out
+// (PlantUML has ~600 editor opens a month), then 10%. Worst case one event per
+// Mermaid/PlantUML editor session, ~13k a month (1.3% of the 1M cap); the
+// expected 10-30% of sessions that click an element is ~1.3k-4k a month.
+export const DATED_SAMPLE_RATES: Record<
+  string,
+  { until: string; before: number; after: number }
+> = {
+  editor_preview_element_clicked: { until: "2026-12-23", before: 1, after: 0.1 },
+};
+
 // Prefix rules apply when no exact match is found. `create_attachment` is
 // emitted as `create_attachment<diagramType>` (e.g. create_attachmentmermaid)
 // at forgeIndex.ts, so an exact key cannot cover every variant.
@@ -95,7 +110,6 @@ export const OCTOBER_STOP_EVENTS = new Set<string>([
   "editor_global_replace_observed",
   "report_macro_metrics",
   "snapshot_backfill_skipped",
-  "viewport_control_used",
   "whats_new_banner_evaluated",
 ]);
 
@@ -256,6 +270,10 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
 // error/failure, feedback, survey, and CSAT names stay at current rates.
 // Unknown names remain unchanged. The full reviewed list follows below.
 export const OCTOBER_REDUCED_EVENTS = new Set<string>([
+  // Restored from the stop list 2026-11-18 at 10% when a plain wheel started to
+  // zoom in Fullscreen and the editor preview: the zoom rule changed, and this
+  // event is the only read on whether readers use it. One event per gesture.
+  "viewport_control_used",
   "markdown_render_requested",
   "markdown_render_succeeded",
   "markdown_seeded_from_mermaid",
@@ -300,7 +318,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "editor_load_empty_active_field",
   "swagger_editor_config_empty_with_modal",
   "fullscreen_opened",
-  "viewport_zoom_hint_shown",
   "viewer_source_opened",
   "viewer_source_copied",
   "mermaid_highlight_used",
@@ -424,7 +441,12 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
 /** Keep-probability for an event name/action. Defaults to 1 (always emit). */
 export function sampleRateFor(name: string, now = Date.now()): number {
   let currentRate = 1;
-  if (Object.prototype.hasOwnProperty.call(EVENT_SAMPLE_RATES, name)) {
+  const dated = Object.prototype.hasOwnProperty.call(DATED_SAMPLE_RATES, name)
+    ? DATED_SAMPLE_RATES[name]
+    : undefined;
+  if (dated) {
+    currentRate = now < Date.parse(`${dated.until}T00:00:00Z`) ? dated.before : dated.after;
+  } else if (Object.prototype.hasOwnProperty.call(EVENT_SAMPLE_RATES, name)) {
     currentRate = EVENT_SAMPLE_RATES[name];
   } else {
     for (const [prefix, rate] of PREFIX_RULES) {

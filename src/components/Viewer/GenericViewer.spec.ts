@@ -1798,9 +1798,44 @@ describe('GenericViewer (chrome-less)', () => {
       },
     )
 
+    // P4: OpenAPI readers used the editor only to read the spec. The panel
+    // shows the stored text unchanged: YAML stays YAML, JSON stays JSON.
+    it.each([
+      ['YAML', 'openapi: 3.0.0\ninfo:\n  title: Pets\n  version: 1.0.0\npaths: {}'],
+      ['JSON', '{\n  "openapi": "3.0.0",\n  "info": { "title": "Pets", "version": "1.0.0" },\n  "paths": {}\n}'],
+    ] as const)('shows Source for OpenAPI with the stored %s text unchanged', async (_format, spec) => {
+      store.state.diagram.code = spec
+      store.commit('updateDiagramType', DiagramType.OpenApi)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const btn = wrapper.find('[data-testid="view-source-btn"]')
+      expect(btn.exists()).toBe(true)
+      await btn.trigger('click')
+      await wrapper.vm.$nextTick()
+
+      const panel = wrapper.find('[data-testid="view-source-panel"]')
+      expect(panel.find('#view-source-panel-title').text()).toBe('Diagram source · OpenAPI')
+      expect(panel.find('[data-testid="view-source-code"]').text()).toBe(spec)
+    })
+
+    it('does not truncate a large OpenAPI spec', async () => {
+      const lines = Array.from({ length: 13000 }, (_, i) => `    x-line-${i}: value`)
+      const spec = ['openapi: 3.0.0', 'info:', '  title: Big', ...lines].join('\n')
+      store.state.diagram.code = spec
+      store.commit('updateDiagramType', DiagramType.OpenApi)
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      const panel = wrapper.find('[data-testid="view-source-panel"]')
+      expect(panel.find('[data-testid="view-source-code"]').text()).toBe(spec)
+      expect(panel.find('[data-testid="view-source-meta"]').text()).toContain('13003 lines')
+    })
+
     it.each([
       DiagramType.Graph,
-      DiagramType.OpenApi,
       DiagramType.AsyncApi,
       DiagramType.Embed,
     ])('hides Source for non-text-DSL type %s', async (type) => {

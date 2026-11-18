@@ -12,3 +12,14 @@ Baseline: `main` @ cff157ef. Candidate: `fix/graph-export-unloadable-images` @ b
 | harness-after.txt | Headless Chrome + Forge-like CSP, production `captureBlob` bundled with esbuild: strict mode still fails (C); skip mode succeeds and counts 1 skipped image (D, E), including after a cached failed fetch |
 
 Fixture data is fictional. Limitation: the "Diagram backup could not be saved" toast in tunnel-macro-devbar.jpg is the backup PNG path, which keeps strict capture on purpose and is not changed by this PR.
+
+## Staging (CI-deployed, 2026-11-19)
+
+Lite staging, deployed by the PR validation run for head dc1093b7 (candidate merge 8e221a8). Test page created via REST with the same fictional Graph (icon href `https://icons.example.invalid/cloud-icon.png`), viewed as the robot test user.
+
+| File | What it shows |
+|---|---|
+| stg-macro-devbar.png | Macro on lite-stg; dev bar shows build `8e221a8`; the icon shows as a broken image in the viewer |
+| stg-export-dialog.png | Export PNG dialog: preview 451 × 81 renders, icon area blank |
+
+Download image: a URL.createObjectURL hook recorded a 3,947-byte `image/png` blob; no error text in the dialog.

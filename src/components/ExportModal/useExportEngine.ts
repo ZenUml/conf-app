@@ -17,9 +17,15 @@ import type { Annotation } from './useAnnotations';
 import { cropCanvasToBox, measureCaptureCrop } from './captureCrop';
 
 export type CaptureFailureReason = 'no_capture_node' | 'blob_null' | 'plantuml_fetch_failed';
-export type RenderResult = { ok: true; blob: Blob } | { ok: false; reason: CaptureFailureReason };
-export type ExportResult = { ok: true } | { ok: false; reason: CaptureFailureReason };
-export type ClipboardExportResult = { ok: true } | { ok: false; reason: CaptureFailureReason | 'clipboard_denied' };
+// `skippedImageCount` is present only when the capture blanked images it could
+// not fetch (see captureBlob's skipUnloadableImages).
+export type RenderResult = { ok: true; blob: Blob; skippedImageCount?: number } | { ok: false; reason: CaptureFailureReason };
+export type ExportResult = { ok: true; skippedImageCount?: number } | { ok: false; reason: CaptureFailureReason };
+export type ClipboardExportResult = { ok: true; skippedImageCount?: number } | { ok: false; reason: CaptureFailureReason | 'clipboard_denied' };
+
+function okResult(skippedImageCount?: number): { ok: true; skippedImageCount?: number } {
+  return skippedImageCount ? { ok: true, skippedImageCount } : { ok: true };
+}
 
 /**
  * What is being exported, when the caller knows. Only PlantUML changes the
@@ -455,6 +461,7 @@ type BaseCapture =
   | {
       ok: true;
       blob: Blob;
+      skippedImageCount?: number;
       /**
        * The node the raster was scraped from, and therefore the node whose
        * layout the crop step must measure. `null` when the raster did not come
@@ -496,16 +503,21 @@ async function acquireBaseBlob(
   // the node's CSS box, which throws away everything a vector diagram carries
   // beyond its on-screen size — see exportPixelRatio.ts. The page-snapshot
   // caller in Attachment.ts deliberately keeps the cheap default.
+  // skipUnloadableImages: a Graph image on a host the Forge CSP blocks made the
+  // whole export fail; the person now gets the diagram with that image blank.
+  let skippedImageCount = 0;
   const blob = await captureBlob(captureNode, {
     backgroundColor: effectiveBg ?? undefined,
     skipFonts: true,
     pixelRatio: computeExportPixelRatio(captureNode),
+    skipUnloadableImages: true,
+    onSkippedImages: (count) => { skippedImageCount = count; },
   });
   if (!blob) {
     console.warn('[useExportEngine] capture returned null');
     return { ok: false, reason: 'blob_null' };
   }
-  return { ok: true, blob, cropNode: captureNode };
+  return { ok: true, blob, cropNode: captureNode, ...(skippedImageCount ? { skippedImageCount } : {}) };
 }
 
 async function renderPngBlob(
@@ -553,7 +565,7 @@ async function renderPngBlob(
     return { ok: false, reason: 'blob_null' };
   }
 
-  return { ok: true, blob: pngBlob };
+  return { ok: true, blob: pngBlob, ...(base.skippedImageCount ? { skippedImageCount: base.skippedImageCount } : {}) };
 }
 
 export function useExportEngine() {
@@ -566,7 +578,7 @@ export function useExportEngine() {
     const rendered = await renderPngBlob(options, node, context);
     if (!rendered.ok) return rendered;
     saveAs(rendered.blob, slugifyFilename(diagramTitle));
-    return { ok: true };
+    return okResult(rendered.skippedImageCount);
   }
 
   async function exportDiagramToClipboard(
@@ -578,7 +590,7 @@ export function useExportEngine() {
     if (!rendered.ok) return rendered;
     try {
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': rendered.blob })]);
-      return { ok: true };
+      return okResult(rendered.skippedImageCount);
     } catch (e) {
       console.warn('[useExportEngine] clipboard write failed:', e);
       return { ok: false, reason: 'clipboard_denied' };

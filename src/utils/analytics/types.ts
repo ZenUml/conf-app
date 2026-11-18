@@ -428,6 +428,20 @@ export type AnalyticsProperties = {
   // often the panel is hidden vs. which control gets reached for — and only
   // 'gutter_drag' is one-way (there is no drag-open).
   code_panel_trigger?: CodePanelToggleTrigger;
+  // editor_preview_element_clicked only (P6 measurement). The first element
+  // clicked in the editor preview, what came before it, and what followed it
+  // inside the 10 s window.
+  preview_target_kind?: "node" | "cluster" | "edge" | "label";
+  preview_zoomed_in_before?: boolean;
+  preview_code_panel_hidden?: boolean;
+  preview_drag_count_before?: number;
+  preview_background_click_count_before?: number;
+  preview_click_count_in_window?: number;
+  preview_double_click_count_in_window?: number;
+  preview_source_focused_in_window?: boolean;
+  preview_source_changed_in_window?: boolean;
+  preview_window_completed?: boolean;
+  preview_ms_since_editor_open?: number;
   change_kind?: "request" | "syntax_repair" | "undo" | "rollback";
   version_id?: string;
   version_number?: number;

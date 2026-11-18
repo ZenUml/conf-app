@@ -13,6 +13,20 @@ describe("eventSampling", () => {
   beforeEach(() => vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-15T00:00:00Z")));
   afterEach(() => vi.mocked(Date.now).mockRestore());
 
+  describe("dated rates", () => {
+    it("sends editor_preview_element_clicked at 100% until 2026-12-23, then 10%", () => {
+      const lastFullDay = Date.parse("2026-12-22T23:59:59.999Z");
+      const firstSampledDay = Date.parse("2026-12-23T00:00:00Z");
+      expect(sampleRateFor("editor_preview_element_clicked", Date.parse("2026-11-25T00:00:00Z"))).toBe(1);
+      expect(sampleRateFor("editor_preview_element_clicked", lastFullDay)).toBe(1);
+      expect(sampleRateFor("editor_preview_element_clicked", firstSampledDay)).toBe(0.1);
+      expect(decideSample("editor_preview_element_clicked", () => 0.05, firstSampledDay))
+        .toEqual({ keep: true, rate: 0.1 });
+      expect(decideSample("editor_preview_element_clicked", () => 0.5, firstSampledDay))
+        .toEqual({ keep: false, rate: 0.1 });
+    });
+  });
+
   describe("event budget (from October 2026, ongoing)", () => {
     const october = Date.parse("2026-10-12T00:00:00Z");
     const before = Date.parse("2026-09-30T23:59:59.999Z");

@@ -483,3 +483,82 @@ describe("Workspace code-panel collapse", () => {
     expect(splitCalls.at(-1)).toEqual({ sizes: [45, 55] });
   });
 });
+
+// P6 measurement: the editor preview pane carries the element-click counter.
+// The tracker's own rules are in utils/viewport/previewClickTracker.spec.ts;
+// this proves Workspace attaches it to the real panes and sends the event.
+describe("Workspace editor preview click counter", () => {
+  let wrapper;
+
+  function mountWorkspace() {
+    return mount(Workspace, {
+      attachTo: document.body,
+      global: {
+        plugins: [store],
+        stubs: {
+          Header: true,
+          Editor: { template: '<div data-testid="editor-stub"><textarea id="code" /></div>' },
+          DiagramPortal: {
+            template: '<svg id="mermaid-1"><g class="node"><rect id="node-rect" /></g></svg>',
+          },
+          SyntaxErrorBox: true,
+          ForeignDialectHint: true,
+          AIChatPanel: true,
+        },
+      },
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(trackAnalyticsEvent).mockClear();
+    delete (window as any).split;
+    store.commit("updateDiagramType", DiagramType.Mermaid);
+    store.commit("updateCode2", "graph TD\nA-->B");
+    wrapper = mountWorkspace();
+  });
+
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = null;
+    vi.useRealTimers();
+  });
+
+  function clickNode() {
+    const rect = wrapper.get("#node-rect").element;
+    rect.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 5, clientY: 5 }));
+    rect.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 5, clientY: 5 }));
+  }
+
+  it("sends editor_preview_element_clicked after a node click and a source edit", async () => {
+    clickNode();
+    store.dispatch("updateMermaidCode", "graph TD\nA-->C");
+    await wrapper.vm.$nextTick();
+    vi.advanceTimersByTime(10_000);
+
+    const calls = vi.mocked(trackAnalyticsEvent).mock.calls.filter(
+      ([name]) => name === "editor_preview_element_clicked",
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1]).toMatchObject({
+      feature_area: "macro",
+      surface: "editor",
+      macro_type: DiagramType.Mermaid,
+      preview_target_kind: "node",
+      preview_code_panel_hidden: false,
+      preview_source_changed_in_window: true,
+      preview_window_completed: true,
+    });
+  });
+
+  it("sends the open window when the editor closes early", () => {
+    clickNode();
+    wrapper.unmount();
+    wrapper = null;
+    const calls = vi.mocked(trackAnalyticsEvent).mock.calls.filter(
+      ([name]) => name === "editor_preview_element_clicked",
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1]).toMatchObject({ preview_window_completed: false });
+  });
+});

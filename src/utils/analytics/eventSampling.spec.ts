@@ -13,6 +13,20 @@ describe("eventSampling", () => {
   beforeEach(() => vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-15T00:00:00Z")));
   afterEach(() => vi.mocked(Date.now).mockRestore());
 
+  describe("dated rates", () => {
+    it("sends editor_preview_element_clicked at 100% until 2026-12-23, then 10%", () => {
+      const lastFullDay = Date.parse("2026-12-22T23:59:59.999Z");
+      const firstSampledDay = Date.parse("2026-12-23T00:00:00Z");
+      expect(sampleRateFor("editor_preview_element_clicked", Date.parse("2026-11-25T00:00:00Z"))).toBe(1);
+      expect(sampleRateFor("editor_preview_element_clicked", lastFullDay)).toBe(1);
+      expect(sampleRateFor("editor_preview_element_clicked", firstSampledDay)).toBe(0.1);
+      expect(decideSample("editor_preview_element_clicked", () => 0.05, firstSampledDay))
+        .toEqual({ keep: true, rate: 0.1 });
+      expect(decideSample("editor_preview_element_clicked", () => 0.5, firstSampledDay))
+        .toEqual({ keep: false, rate: 0.1 });
+    });
+  });
+
   describe("event budget (from October 2026, ongoing)", () => {
     const october = Date.parse("2026-10-12T00:00:00Z");
     const before = Date.parse("2026-09-30T23:59:59.999Z");
@@ -26,10 +40,10 @@ describe("eventSampling", () => {
       }
     });
 
-    it("stops the six named diagnostics from October 2026 onward", () => {
+    it("stops the five named diagnostics from October 2026 onward", () => {
       for (const name of [
         "cohorts_refreshed", "editor_global_replace_observed",
-        "report_macro_metrics", "snapshot_backfill_skipped", "viewport_control_used",
+        "report_macro_metrics", "snapshot_backfill_skipped",
         "whats_new_banner_evaluated",
       ]) {
         expect(sampleRateFor(name, october)).toBe(0);
@@ -69,6 +83,15 @@ describe("eventSampling", () => {
         expect(decideSample(name, () => { throw new Error("RNG must not run"); }, after))
           .toEqual({ keep: true, rate: 1 });
       }
+    });
+
+    it("keeps fullscreen_zoom_summary at full rate: it samples per view itself", () => {
+      // fullscreenZoomSummary.ts keeps 10% of Fullscreen views and sends every
+      // row of a kept view. A second, per-row cut here would break the
+      // "last row per zoom_session_id" rule and overwrite its sample_rate.
+      expect(OCTOBER_RETAINED_EVENTS.has("fullscreen_zoom_summary")).toBe(true);
+      expect(OCTOBER_REDUCED_EVENTS.has("fullscreen_zoom_summary")).toBe(false);
+      expect(sampleRateFor("fullscreen_zoom_summary", after)).toBe(1);
     });
 
     it("keeps the unplaced-diagram funnel at full rate", () => {
@@ -183,7 +206,7 @@ describe("eventSampling", () => {
       for (const name of [
         "diagram_attribution_shown", "diagram_audience_registration_succeeded",
         "related_diagrams_lookup_succeeded", "related_token_indicators_shown",
-        "whats_new_banner_shown",
+        "whats_new_banner_shown", "viewport_control_used",
       ]) {
         expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(true);
         expect(sampleRateFor(name, october)).toBeCloseTo(sampleRateFor(name, before) / 10);

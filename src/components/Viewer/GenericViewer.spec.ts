@@ -1125,6 +1125,40 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
+  // viewer_source_opened must say where the panel was opened. The surface
+  // property stays 'viewer' in both places (existing reports filter on it),
+  // so the split lives in is_fullscreen.
+  describe('viewer_source_opened location', () => {
+    afterEach(() => {
+      if ((window as any).forgeGlobal?.forgeContext?.extension) {
+        delete (window as any).forgeGlobal.forgeContext.extension.modal
+      }
+    })
+
+    const openSource = async () => {
+      store.commit('updateDiagramType', DiagramType.Mermaid)
+      const wrapper = mountViewer()
+      await wrapper.vm.$nextTick()
+      vi.mocked(trackAnalyticsEvent).mockClear()
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      return vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'viewer_source_opened')?.[1]
+    }
+
+    it('sends is_fullscreen: false from the inline viewer', async () => {
+      const props = await openSource()
+      expect(props).toEqual(expect.objectContaining({ surface: 'viewer', macro_type: 'mermaid', is_fullscreen: false }))
+    })
+
+    it('sends is_fullscreen: true from the Fullscreen viewer', async () => {
+      ;(window as any).forgeGlobal ??= {}
+      ;(window as any).forgeGlobal.forgeContext ??= {}
+      ;(window as any).forgeGlobal.forgeContext.extension ??= {}
+      ;(window as any).forgeGlobal.forgeContext.extension.modal = { macroMode: 'fullscreen' }
+      const props = await openSource()
+      expect(props).toEqual(expect.objectContaining({ surface: 'viewer', macro_type: 'mermaid', is_fullscreen: true }))
+    })
+  })
+
   // Inline title rename: rename a diagram from the viewer's top edge without
   // opening the editor modal. Same gate as the Edit button; persistence is
   // renameDiagramTitle (mocked above).
@@ -1764,9 +1798,44 @@ describe('GenericViewer (chrome-less)', () => {
       },
     )
 
+    // P4: OpenAPI readers used the editor only to read the spec. The panel
+    // shows the stored text unchanged: YAML stays YAML, JSON stays JSON.
+    it.each([
+      ['YAML', 'openapi: 3.0.0\ninfo:\n  title: Pets\n  version: 1.0.0\npaths: {}'],
+      ['JSON', '{\n  "openapi": "3.0.0",\n  "info": { "title": "Pets", "version": "1.0.0" },\n  "paths": {}\n}'],
+    ] as const)('shows Source for OpenAPI with the stored %s text unchanged', async (_format, spec) => {
+      store.state.diagram.code = spec
+      store.commit('updateDiagramType', DiagramType.OpenApi)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const btn = wrapper.find('[data-testid="view-source-btn"]')
+      expect(btn.exists()).toBe(true)
+      await btn.trigger('click')
+      await wrapper.vm.$nextTick()
+
+      const panel = wrapper.find('[data-testid="view-source-panel"]')
+      expect(panel.find('#view-source-panel-title').text()).toBe('Diagram source · OpenAPI')
+      expect(panel.find('[data-testid="view-source-code"]').text()).toBe(spec)
+    })
+
+    it('does not truncate a large OpenAPI spec', async () => {
+      const lines = Array.from({ length: 13000 }, (_, i) => `    x-line-${i}: value`)
+      const spec = ['openapi: 3.0.0', 'info:', '  title: Big', ...lines].join('\n')
+      store.state.diagram.code = spec
+      store.commit('updateDiagramType', DiagramType.OpenApi)
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      const panel = wrapper.find('[data-testid="view-source-panel"]')
+      expect(panel.find('[data-testid="view-source-code"]').text()).toBe(spec)
+      expect(panel.find('[data-testid="view-source-meta"]').text()).toContain('13003 lines')
+    })
+
     it.each([
       DiagramType.Graph,
-      DiagramType.OpenApi,
       DiagramType.AsyncApi,
       DiagramType.Embed,
     ])('hides Source for non-text-DSL type %s', async (type) => {
@@ -1802,6 +1871,7 @@ describe('GenericViewer (chrome-less)', () => {
         surface: 'viewer',
         macro_type: DiagramType.Mermaid,
         has_edit_permission: true,
+        is_fullscreen: false,
       })
     })
 

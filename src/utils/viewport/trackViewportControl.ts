@@ -21,6 +21,8 @@ export function trackViewportControl(options: {
   viewportInput: ViewportInput;
   isDisplayMode: boolean;
   controlLocation?: 'header' | 'canvas';
+  /** Wheel only: whether Ctrl/Cmd (or a pinch) was held. */
+  wheelModifier?: 'none' | 'ctrl_meta';
 }): void {
   // Counted here even while `viewport_control_used` is stopped by the event
   // budget: the Fullscreen summary is how zooming is measured now.
@@ -31,6 +33,7 @@ export function trackViewportControl(options: {
     macro_type: options.macroType,
     viewport_action: options.viewportAction,
     viewport_input: options.viewportInput,
+    ...(options.wheelModifier ? { wheel_modifier: options.wheelModifier } : {}),
     ...(options.controlLocation ? {
       viewport_control_location: options.controlLocation,
       viewport_outcome: 'applied' as const,

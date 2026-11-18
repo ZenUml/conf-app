@@ -42,6 +42,12 @@ const panZoomInstanceMock = vi.hoisted(() => ({
   zoom: vi.fn(),
   zoomIn: vi.fn(),
   zoomOut: vi.fn(),
+  zoomAtPointBy: vi.fn(),
+  panBy: vi.fn(),
+  setMinZoom: vi.fn(),
+  setMaxZoom: vi.fn(),
+  setBeforePan: vi.fn(),
+  getSizes: vi.fn(() => ({ realZoom: 0.5, width: 400, height: 300, viewBox: { width: 800, height: 600 } })),
 }));
 const svgPanZoomMock = vi.hoisted(() => vi.fn(() => panZoomInstanceMock));
 vi.mock('svg-pan-zoom', () => ({ default: svgPanZoomMock }));
@@ -744,8 +750,11 @@ describe('Mermaid fullscreen viewport controls', () => {
 
     const zoomOutCalls = panZoomInstanceMock.zoomOut.mock.calls.length;
     const zoomInCalls = panZoomInstanceMock.zoomIn.mock.calls.length;
-    await wrapper.get('[aria-label="Zoom out"]').trigger('click');
+    // Opened at the floor: zoom in first, then svg-pan-zoom reports the new zoom.
     await wrapper.get('[aria-label="Zoom in"]').trigger('click');
+    svgPanZoomMock.mock.calls.at(-1)![1].onZoom(10);
+    await wrapper.vm.$nextTick();
+    await wrapper.get('[aria-label="Zoom out"]').trigger('click');
     expect(panZoomInstanceMock.zoomOut).toHaveBeenCalledTimes(zoomOutCalls + 1);
     expect(panZoomInstanceMock.zoomIn).toHaveBeenCalledTimes(zoomInCalls + 1);
     expect(panZoomInstanceMock.reset).toHaveBeenCalled();

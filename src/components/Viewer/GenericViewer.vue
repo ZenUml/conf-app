@@ -164,7 +164,7 @@
               <span v-if="isFullscreenMode && diagramType === 'mermaid' && (magicAvailable || magicActive)" class="viewer-header-sep" aria-hidden="true"></span>
               <span :ref="setZoomHeaderTarget" class="viewer-header-zoom"></span>
               <!-- View Source (#333): visible to ALL viewers, including users without
-                   edit permission. Text-DSL types only (sequence / mermaid / plantuml). -->
+                   edit permission. Text types only (sequence / mermaid / plantuml / markdown / openapi). -->
               <button
                 v-if="showViewSource"
                 type="button"
@@ -1014,10 +1014,13 @@ export default {
     connectMcpSupported() {
       return !!this.diagramType && this.diagramType !== DiagramType.Unknown;
     },
-    // View Source (#333): text-DSL types only. NOT gated on canUserEdit — the
-    // audience includes readers without edit permission.
+    // View Source (#333): text types only. NOT gated on canUserEdit — the
+    // audience includes readers without edit permission. OpenAPI added
+    // 2026-11-18 (P4): readers opened the editor only to read the spec. The
+    // panel shows the stored text unchanged (YAML or JSON). Graph (DrawIO XML)
+    // and AsyncAPI (own viewer) stay out.
     showViewSource() {
-      return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown].includes(this.diagramType);
+      return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown, DiagramType.OpenApi].includes(this.diagramType);
     },
     // agent_link_mcp_button_shown: the button is rendered for a viewer.
     connectMcpShownEligible() {
@@ -1041,6 +1044,7 @@ export default {
     viewSourceDslLabel() {
       switch (this.diagramType) {
         case DiagramType.Markdown: return 'Markdown';
+        case DiagramType.OpenApi: return 'OpenAPI';
         case DiagramType.Mermaid: return 'Mermaid';
         case DiagramType.PlantUml: return 'PlantUML';
         case DiagramType.Sequence:
@@ -2334,6 +2338,7 @@ export default {
         surface: 'viewer',
         macro_type: this.diagramType ?? 'none',
         has_edit_permission: !!this.canUserEdit,
+        is_fullscreen: !!this.isFullscreenMode,
         ...(actionLocation ? { action_location: actionLocation } : {}),
       });
     },

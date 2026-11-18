@@ -38,7 +38,9 @@ vi.mock('svg-pan-zoom', () => ({
   default: vi.fn(() => ({
     destroy: vi.fn(), disableDblClickZoom: vi.fn(), getPan: vi.fn(() => ({ x: 0, y: 0 })),
     getZoom: vi.fn(() => 1), pan: vi.fn(), reset: vi.fn(), resize: vi.fn(), zoom: vi.fn(),
-    zoomIn: vi.fn(), zoomOut: vi.fn(),
+    zoomIn: vi.fn(), zoomOut: vi.fn(), zoomAtPointBy: vi.fn(), panBy: vi.fn(),
+    setMinZoom: vi.fn(), setMaxZoom: vi.fn(), setBeforePan: vi.fn(),
+    getSizes: vi.fn(() => ({ realZoom: 1, width: 400, height: 300, viewBox: { width: 400, height: 300 } })),
   })),
 }));
 vi.mock('hammerjs', () => ({

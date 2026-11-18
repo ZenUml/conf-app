@@ -2334,6 +2334,7 @@ export default {
         surface: 'viewer',
         macro_type: this.diagramType ?? 'none',
         has_edit_permission: !!this.canUserEdit,
+        is_fullscreen: !!this.isFullscreenMode,
         ...(actionLocation ? { action_location: actionLocation } : {}),
       });
     },

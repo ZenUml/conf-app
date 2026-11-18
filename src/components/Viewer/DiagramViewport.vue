@@ -47,6 +47,7 @@ import {
 } from '@/utils/viewport/wheelZoom';
 import { trackViewportControl } from '@/utils/viewport/trackViewportControl';
 import { TOOLBAR_ZOOM_STEP } from '@/utils/viewport/zoomStep';
+import { endFullscreenZoomSession, rebaseFullscreenZoom, startFullscreenZoomSession } from '@/utils/viewport/fullscreenZoomSummary';
 import { wheelFallsThroughToPage } from '@/utils/viewport/surface';
 
 /**
@@ -134,6 +135,7 @@ export default {
     this.bindWheelZoom();
   },
   beforeUnmount() {
+    endFullscreenZoomSession();
     this.unbindWheelZoom();
     this.detach();
   },
@@ -223,6 +225,11 @@ export default {
       this.panZoomSvg = svgElement;
       this.panZoom.disableDblClickZoom();
       this.reset();
+      // No-op outside Fullscreen; see fullscreenZoomSummary.ts.
+      startFullscreenZoomSession({
+        macroType: this.macroType,
+        readScale: () => this.panZoom?.getSizes().realZoom ?? 1,
+      });
 
       if (typeof ResizeObserver !== 'undefined') {
         this.panZoomResizeObserver = new ResizeObserver(() => {
@@ -365,6 +372,7 @@ export default {
       this.clampUpscale();
       this.applyLimits();
       this.panZoomDirty = false;
+      rebaseFullscreenZoom();
     },
     /**
      * Zoom from the opening size up to natural size (see `zoomLimits`), and keep

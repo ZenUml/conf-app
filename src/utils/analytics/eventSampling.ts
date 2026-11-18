@@ -116,6 +116,10 @@ export const OCTOBER_STOP_EVENTS = new Set<string>([
 // The reviewed core/error list is explicit so an expanded success/info
 // allowlist cannot silently reduce a protected event during this budget.
 export const OCTOBER_RETAINED_EVENTS = new Set<string>([
+  // Rate 1 on purpose: fullscreenZoomSummary.ts keeps 10% of Fullscreen views
+  // and stamps sample_rate itself, so a kept view sends every row. About 500 a
+  // month. Must not sit in OCTOBER_REDUCED_EVENTS (a second, per-row cut).
+  "fullscreen_zoom_summary",
   "title_draft_requested",
   "title_draft_flag_shown",
   "title_draft_not_now",

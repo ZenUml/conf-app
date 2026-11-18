@@ -1,8 +1,8 @@
-本文件仅供中文审阅。英文主文件：[SKILL.md](SKILL.md)。规则、执行和后续修改以英文主文件为准；本译本不作为独立 skill 入口。同步日期：2026-11-11。
+本文件仅供中文审阅。英文主文件：[SKILL.md](SKILL.md)。规则、执行和后续修改以英文主文件为准；本译本不作为独立 skill 入口。同步日期：2026-11-19。
 
 技能名称：marketplace
 
-用途：查询 ZenUML 应用在 Atlassian Marketplace 上的实时定价、许可证、交易和收入 cohort。适用于按席位定价、月度/年度报价、平台分成、续费窗口、逾期候选、头部客户和产品组合汇总。区分已记录的购买、来源报告的付款和供应商收款；Open 订单不代表没有发生购买。价格和分成使用 `mp_pricing.py`；批量导出、限定范围的许可证/交易关联和本地快照使用 `mp_report.py`。查询单个租户的状态、资料或试用到期时间时使用 `tenant`，它会复用此引擎；单个租户的价格仍由本 skill 负责。
+用途：查询 ZenUML 应用在 Atlassian Marketplace 上的实时定价、许可证、交易和收入 cohort。适用于按席位定价、月度/年度报价、平台分成、续费窗口、逾期候选、头部客户和产品组合汇总。区分已记录的购买、来源报告的付款和供应商收款；Open 订单不代表没有发生购买。价格和分成使用 `mp_pricing.py`；批量导出、限定范围的许可证/交易关联和本地快照使用 `mp_report.py`。查询单个租户的状态、资料或试用到期时间时使用 `tenant`，它会复用此引擎；单个租户的价格仍由本 skill 负责。listing 可见度（Marketplace 搜索关键词报告：我们应用的搜索出现次数、搜索词的需求份额，以及网站搜索排名）使用 `mp_listing.py`。
 
 # Marketplace
 
@@ -45,6 +45,37 @@ python3 $S tiers            # 价格档位表
 2. 档位表只存在于 `extend-space-license/scripts/grant_extension.py` 中，作为私有函数 `full_plan_arr()` 返回年度金额，因此有人问月价时只能反向推导。`docs/pricing-model.yml` 只涵盖 Lite，并明确声明 Full 定价不在范围内。
 
 `validate` 用于防止档位本身漂移：它会重新对照真实的 Full 月度续费并打印匹配率。2026-08-11 核验结果为 82/102 完全匹配；不匹配项是 1–3 用户站点在周期中途变更档位后按比例结算。如果匹配率下降，说明 Atlassian 修改了价格表，`BANDS` 已过时。
+
+## listing 能被找到吗？——`mp_listing.py`
+
+搜索需求和 listing 可见度。安装数变化、要分清"搜的人少了"还是"搜了找不到我们"时使用。
+
+```bash
+L=.claude/skills/marketplace/scripts/mp_listing.py
+
+python3 $L rank mermaid "sequence diagram" uml diagram flowchart plantuml   # 网站搜索排名（公开 API，无需认证），前 50 条
+python3 $L keywords --app lite --period 2026-06-14..2026-08-30 --period 2026-09-06..2026-11-15 --term mermaid
+python3 $L keywords --app lite --period ... --demand-from 2026-08-01 --demand-to 2026-10-31 --term mermaid
+python3 $L keywords --app '' --weekly --since 2026-06-01
+```
+
+| 输出 | 含义 |
+|---|---|
+| `all` / `brand` / `generic` | 时间窗内应用的 "search appearances"。`brand` 指匹配 `--brand-regex`（默认 `zen ?-?uml`）的词。Atlassian 没有定义"出现" |
+| `share` | top 500 搜索词中匹配 `--demand-regex` 的词的份额之和，已去掉乱码词。只有份额：全部搜索同时下降时看不出来 |
+| `marketplace` / `embedded-marketplace` | 网站搜索 / 产品内搜索（"Find new apps"） |
+| `rank_<term>` | 该词在 Marketplace 全部搜索词中的排名和份额 |
+
+陷阱（都在 2026-11 安装下跌调查中遇到；脚本处理了前五条）：
+
+1. **v2 reporting 路径返回 410。** 关键词报告在 v3：`https://api.atlassian.com/marketplace/rest/3/reporting/developer-space/<developerId>/`。`developerId` 是 UUID，来自 `GET /rest/3/developer-space/vendor/1215266`。认证与导出相同。
+2. **2026-06-12 cookie 断点。** Atlassian 在受监管地区默认关闭分析 cookie；报告基于浏览器分析，所有序列在此下台阶（Lite 一周 -70%，安装不变）。跨越该日期的 `--period` 会被标出。不要把 2026 年 6 月的下降读成需求减少。
+3. **`search-keywords-v2`** 计入全部用户，但仅从 2026-09-25 起；之前与 v1 相同。按应用的报告没有 v2。
+4. **周以周日标记。** 其他地方的安装序列按周一。
+5. **按词报告中同一个词出现两次**（`hostingFilter` 为 `cloud` 和 null），脚本会合并。乱码词（20 位以上随机字符串，曾占产品内份额 21%）不计入份额。
+6. **品牌词 / 通用词拆分只是一个视角，不是结论。** 它是看到数据后选的，计数小。汇报时要说明。
+7. **产品内排名没有 API。** 在 staging 站点以站点管理员身份读取：`https://<site>/wiki/marketplace/discover?q=<term>&page=N`，每页 24 条，应用名是 4 级标题（agent-browser `atlassian` profile）。点击结果打开产品内页面 `/wiki/marketplace/discover/objects/<productId>`。
+8. **listing 的 GA4（property 420159616）有两条路径。** 网站页面 `/apps/<appId>/...`，以及约 2026-09-21 起的产品内页面 `/wiki/marketplace/discover/objects/<productId>`。按 app id 搜索会漏掉后者；还要搜 `discover`。
 
 ## 快速开始
 

@@ -70,8 +70,8 @@ export async function expectNotMagnified(frame: FrameLocator): Promise<void> {
 /**
  * Zoom in grows the diagram, up to natural size and no further.
  *
- * Each engine steps by its own factor (svg-pan-zoom 1.1, the Graph and CSS
- * viewports 1.2), so this asserts the direction rather than the size. The
+ * Every engine's toolbar steps x1.25 (TOOLBAR_ZOOM_STEP), but the last step is
+ * clamped at the ceiling, so this asserts the direction rather than the size. The
  * ceiling is natural size: a diagram that already opens there has nothing to
  * zoom into, and its Zoom in button is disabled instead of doing nothing.
  */

@@ -484,17 +484,22 @@ export default {
           isDisplayMode: this.$store.getters.isDisplayMode,
         });
       };
+      // Listen on the whole canvas, not only the graph container: the container
+      // is as tall as the diagram, so in Fullscreen a short diagram leaves blank
+      // canvas above and below it that would otherwise ignore the wheel.
+      this.wheelTarget = container.closest('.viewer-canvas') || container;
       // Not passive: a zoom has to take the event away from page scroll. Only
       // the zoom and pan branches do, so a page-viewer plain wheel still scrolls.
-      container.addEventListener('wheel', this.wheelZoomHandler, { passive: false });
-      this.unbindPinch = bindSafariPinch(container, (factor, clientX, clientY) => {
+      this.wheelTarget.addEventListener('wheel', this.wheelZoomHandler, { passive: false });
+      this.unbindPinch = bindSafariPinch(this.wheelTarget, (factor, clientX, clientY) => {
         const rect = container.getBoundingClientRect();
         this.zoomAt(factor, clientX - rect.left, clientY - rect.top);
       });
     },
     disableWheelZoom() {
       if (!this.wheelZoomHandler) return;
-      this.$refs.graphContainer?.removeEventListener('wheel', this.wheelZoomHandler);
+      this.wheelTarget?.removeEventListener('wheel', this.wheelZoomHandler);
+      this.wheelTarget = null;
       this.wheelZoomHandler = null;
       this.unbindPinch?.();
       this.unbindPinch = null;

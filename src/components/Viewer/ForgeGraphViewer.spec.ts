@@ -23,7 +23,7 @@ vi.mock('@/model/globals', () => ({
 vi.mock('@/components/Viewer/GenericViewer.vue', () => ({
   default: {
     name: 'GenericViewer',
-    template: '<div class="generic-viewer"><div class="header-nav-slot"><slot name="header-nav" /></div><slot /></div>',
+    template: '<div class="generic-viewer"><div class="header-nav-slot"><slot name="header-nav" /></div><div class="viewer-canvas"><slot /></div></div>',
   },
 }));
 
@@ -352,6 +352,22 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
       const zooms = vi.mocked(trackAnalyticsEvent).mock.calls
         .filter(([name, props]) => name === 'viewport_control_used' && props?.viewport_input === 'wheel');
       expect(zooms[0][1]).toMatchObject({ surface: 'fullscreen', wheel_modifier: 'none' });
+    });
+
+    it('zooms on a wheel over the blank canvas around a short diagram in Fullscreen', async () => {
+      (window as { forgeGlobal?: unknown }).forgeGlobal = {
+        forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } },
+      };
+      const graph = graphStub();
+      const { wrapper } = await mountGraph(graph);
+
+      // The graph container is only as tall as the diagram; the Fullscreen
+      // canvas around it is taller. A wheel above or below the diagram must
+      // zoom too, or most of the screen ignores the wheel.
+      const event = wheel(wrapper.get('.viewer-canvas').element, { deltaY: -100 });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(graph.view.scale).toBeCloseTo(0.5 * Math.exp(0.1), 5);
     });
 
     it('zooms a little on each small trackpad delta', async () => {

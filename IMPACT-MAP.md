@@ -507,7 +507,7 @@
 
 **交互面**：`inline-viewer` G；`page-editor-preview` G；`editor` G；`fullscreen-editor` G；`fullscreen-viewer` G；`graph-editor` ●；`embedded-viewer` G。
 
-**契约与边界**：SVG/transform/mxGraph 使用不同实现；普通滚轮滚动页面，Ctrl/Cmd-wheel 缩放；支持适配宽/高与拖动。导出采集可禁用交互。embedded Graph 有图页导航，但没有普通 Graph 的同等自定义 viewport 控件。
+**契约与边界**：SVG/transform/mxGraph 使用不同实现。`inline-viewer` 中普通滚轮滚动页面，Ctrl/Cmd-wheel 或触控板捏合在指针处缩放；`fullscreen-viewer` 与编辑器预览中普通滚轮在指针处缩放，Shift 或横向滚轮平移。缩放范围从打开尺寸到原始尺寸（1:1），平移时图边不进入框内；拖动 Sequence 不选中文字。支持适配宽/高与拖动。导出采集可禁用交互。embedded Graph 有图页导航，但没有普通 Graph 的同等自定义 viewport 控件。
 
 **代码证据**：[src/components/Viewer/DiagramViewport.vue:1](src/components/Viewer/DiagramViewport.vue#L1)；[src/components/Viewer/DiagramViewport.vue:95](src/components/Viewer/DiagramViewport.vue#L95)；[src/components/Viewer/DiagramTransformViewport.vue:1](src/components/Viewer/DiagramTransformViewport.vue#L1)；[src/components/Viewer/ForgeGraphViewer.vue:234](src/components/Viewer/ForgeGraphViewer.vue#L234)；[src/components/Viewer/ForgeGraphViewerEmbed.vue:1](src/components/Viewer/ForgeGraphViewerEmbed.vue#L1)；[src/components/Viewer/ForgeEmbedViewer.vue:12](src/components/Viewer/ForgeEmbedViewer.vue#L12)；[src/components/Viewer/GenericViewer.vue:12](src/components/Viewer/GenericViewer.vue#L12)。
 

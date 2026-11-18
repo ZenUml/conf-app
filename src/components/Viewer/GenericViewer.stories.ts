@@ -1289,6 +1289,22 @@ export const SourcePanelOpenApiFullscreen = openApiSourceStory(
   'Source panel — OpenAPI (fullscreen)', SAMPLE_OPENAPI, true, SAMPLE_OPENAPI.trimEnd().split('\n').length,
 )
 const LARGE_OPENAPI = largeOpenApiSpec(2166)
+
+// Inline, Swagger UI makes the macro as tall as its endpoint list. The panel
+// must stay a bounded sheet at the top, so its header, Close and Copy stay
+// in reach instead of sitting at the bottom of a page-long macro.
+export const SourcePanelOpenApiLargeInline: Story = {
+  ...openApiSourceStory('Source panel — OpenAPI, 13,001-line spec (inline)', LARGE_OPENAPI, false,
+    LARGE_OPENAPI.trimEnd().split('\n').length),
+  play: async (context) => {
+    await openApiSourceStory('', LARGE_OPENAPI, false, LARGE_OPENAPI.trimEnd().split('\n').length).play!(context)
+    const panel = document.querySelector<HTMLElement>('[data-testid="view-source-panel"]')!
+    const frame = document.querySelector<HTMLElement>('.viewer-frame')!
+    const panelHeight = panel.getBoundingClientRect().height
+    if (frame.getBoundingClientRect().height < 2000) throw new Error('fixture must make the macro taller than the panel cap')
+    if (panelHeight > 560) throw new Error(`inline panel is ${Math.round(panelHeight)}px tall; expected at most 560px`)
+  },
+}
 export const SourcePanelOpenApiLarge = openApiSourceStory(
   'Source panel — OpenAPI, 13,001-line spec (fullscreen)', LARGE_OPENAPI, true, LARGE_OPENAPI.trimEnd().split('\n').length,
 )

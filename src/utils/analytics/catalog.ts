@@ -1030,6 +1030,27 @@ export type AnalyticsEventName =
   // (createZoomHintTrigger) — someone who has been told twice and keeps
   // wheeling is scrolling, not searching for the zoom.
   | "viewport_zoom_hint_shown"
+  // One reader's zooming in one Fullscreen view, summed (proposal P2: does
+  // Fullscreen open too small, and does each click move far enough?). Sent
+  // from utils/viewport/fullscreenZoomSummary.ts, Fullscreen surface only.
+  //
+  // Sent 10 s after the view settles (open, then each zoom) with the running
+  // totals, so one view can send several rows. They share `zoom_session_id`;
+  // `summary_seq` counts up. ANALYSIS: take the row with the highest
+  // `summary_seq` per `zoom_session_id`. The last send at teardown
+  // (`summary_trigger: unload`) is best-effort; a view closed within 10 s of
+  // opening may send nothing.
+  //
+  // Sampling is per view, not per row: 10% of views send all their rows
+  // (stamped `sample_rate: 0.1` by the caller), the rest send none, so the
+  // last-row rule still holds. Never a forced session replay.
+  //
+  // Properties: zoom_in_clicks / zoom_out_clicks / fit_clicks = toolbar
+  // clicks; wheel_gestures = whole wheel gestures (one per gesture, as in
+  // viewport_control_used); zoom_ratio_end / zoom_ratio_max = scale divided
+  // by the opening scale (1 = as opened); session_ms = time since the view
+  // opened.
+  | "fullscreen_zoom_summary"
   // Viewer "View source" panel (#333): read-only DSL affordance for all viewers
   // (including users without edit permission). Opened from the hover toolbar on
   // text-DSL types only (sequence / mermaid / plantuml).

@@ -301,6 +301,10 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "swagger_editor_config_empty_with_modal",
   "fullscreen_opened",
   "viewport_zoom_hint_shown",
+  // Rate 1 here on purpose: fullscreenZoomSummary.ts samples 10% per
+  // Fullscreen view and stamps sample_rate itself, so a kept view keeps all of
+  // its rows. About 500 a month at 10%.
+  "fullscreen_zoom_summary",
   "viewer_source_opened",
   "viewer_source_copied",
   "mermaid_highlight_used",

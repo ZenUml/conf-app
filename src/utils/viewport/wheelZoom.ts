@@ -164,6 +164,21 @@ export function clampScale(scale: number, limits: { min: number; max: number }):
   return Math.min(limits.max, Math.max(limits.min, scale));
 }
 
+/** Within this ratio of a limit, a scale counts as at the limit (sub-pixel rounding). */
+const LIMIT_TOLERANCE = 1e-4;
+
+/**
+ * Whether Zoom in and Zoom out can still move the diagram. A button that cannot
+ * is shown disabled rather than left to do nothing: a diagram that opens at
+ * natural size has no Zoom in at all.
+ */
+export function zoomRoom(scale: number, limits: { min: number; max: number }): { in: boolean; out: boolean } {
+  return {
+    in: scale < limits.max * (1 - LIMIT_TOLERANCE),
+    out: scale > limits.min * (1 + LIMIT_TOLERANCE),
+  };
+}
+
 /**
  * Where a diagram's leading edge (left or top, in box pixels) may sit on one
  * axis.

@@ -16,6 +16,8 @@
       :macro-type="macroType"
       :label="label"
       :ready="!!target"
+      :can-zoom-in="room.in"
+      :can-zoom-out="room.out"
       @zoom-in="zoomIn"
       @zoom-out="zoomOut"
       @fit-height="fitAxis('height')"
@@ -41,7 +43,7 @@
  */
 import DiagramViewportToolbar from '@/components/Viewer/DiagramViewportToolbar.vue';
 import {
-  alignOf, axisOffset, bindSafariPinch, clampScale, classifyWheel, createGestureGate, zoomLimits,
+  alignOf, axisOffset, bindSafariPinch, clampScale, classifyWheel, createGestureGate, zoomLimits, zoomRoom,
 } from '@/utils/viewport/wheelZoom';
 import { trackViewportControl } from '@/utils/viewport/trackViewportControl';
 import { wheelFallsThroughToPage } from '@/utils/viewport/surface';
@@ -117,6 +119,9 @@ export default {
     userZoomLimits() {
       const { min, max } = zoomLimits(this.fitScale);
       return { min: min / this.fitScale, max: max / this.fitScale };
+    },
+    room() {
+      return zoomRoom(this.userZoom, this.userZoomLimits);
     },
   },
   mounted() {

@@ -14,6 +14,8 @@
       :macro-type="macroType"
       :label="label"
       :ready="!!panZoom"
+      :can-zoom-in="room.in"
+      :can-zoom-out="room.out"
       @zoom-in="zoomIn"
       @zoom-out="zoomOut"
       @fit-height="fitAxis('height')"
@@ -41,7 +43,7 @@ import Hammer from 'hammerjs';
 import DiagramViewportToolbar from '@/components/Viewer/DiagramViewportToolbar.vue';
 import { hasSvgLayout } from '@/utils/mermaid/viewportLayout';
 import {
-  alignOf, axisOffset, bindSafariPinch, classifyWheel, createGestureGate, zoomLimits,
+  alignOf, axisOffset, bindSafariPinch, classifyWheel, createGestureGate, zoomLimits, zoomRoom,
 } from '@/utils/viewport/wheelZoom';
 import { trackViewportControl } from '@/utils/viewport/trackViewportControl';
 import { wheelFallsThroughToPage } from '@/utils/viewport/surface';
@@ -100,11 +102,19 @@ export default {
       // Where a diagram smaller than the box sits in it (0 start .. 1 end).
       alignX: 0.5,
       alignY: 0.5,
+      // svg-pan-zoom's relative zoom and the limits applyLimits() set, mirrored
+      // for the toolbar: Zoom in is disabled at the ceiling, Zoom out at the floor.
+      zoomRelative: 1,
+      zoomMin: 0,
+      zoomMax: Infinity,
       inlineAspectRatio: null,
       inlineMaxWidth: null,
     };
   },
   computed: {
+    room() {
+      return zoomRoom(this.zoomRelative, { min: this.zoomMin, max: this.zoomMax });
+    },
     isDisplayMode() {
       return this.$store.getters.isDisplayMode;
     },
@@ -202,7 +212,10 @@ export default {
         // PlantUML diagram used to swallow the page's scroll.
         mouseWheelZoomEnabled: false,
         onPan: () => { this.panZoomDirty = true; },
-        onZoom: () => { this.panZoomDirty = true; },
+        onZoom: (zoom) => {
+          this.panZoomDirty = true;
+          this.zoomRelative = zoom;
+        },
         panEnabled: true,
         zoomEnabled: true,
       });
@@ -367,8 +380,11 @@ export default {
       const relative = this.panZoom.getZoom();
       if (!(real > 0) || !(relative > 0)) return;
       const { min, max } = zoomLimits(real);
-      this.panZoom.setMinZoom(min * relative / real);
-      this.panZoom.setMaxZoom(max * relative / real);
+      this.zoomMin = min * relative / real;
+      this.zoomMax = max * relative / real;
+      this.zoomRelative = relative;
+      this.panZoom.setMinZoom(this.zoomMin);
+      this.panZoom.setMaxZoom(this.zoomMax);
       const viewBox = sizes.viewBox;
       if (viewBox?.width > 0 && sizes.width > 0) {
         const pan = this.panZoom.getPan();

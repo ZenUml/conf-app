@@ -259,6 +259,35 @@ describe('DiagramViewport wheel zoom', () => {
     expect(panZoom.setMaxZoom).toHaveBeenLastCalledWith(1.75);
   });
 
+  it('disables Zoom in at natural size and Zoom out at the opening size', async () => {
+    panZoom.getSizes.mockReturnValue({ realZoom: 0.5 });
+    panZoom.getZoom.mockReturnValue(0.875);
+    const wrapper = mountViewport(false);
+    await wrapper.vm.attach();
+    await wrapper.vm.$nextTick();
+    const button = (name: string) => wrapper.get(`[aria-label="${name}"]`);
+
+    expect(button('Zoom in').attributes('disabled')).toBeUndefined();
+    expect(button('Zoom out').attributes('disabled')).toBeDefined();
+
+    // svg-pan-zoom reports each zoom through onZoom, relative to its fit.
+    const [, options] = vi.mocked(svgPanZoom).mock.calls.at(-1)!;
+    options!.onZoom!(1.75);
+    await wrapper.vm.$nextTick();
+    expect(button('Zoom in').attributes('disabled')).toBeDefined();
+    expect(button('Zoom out').attributes('disabled')).toBeUndefined();
+  });
+
+  it('offers no Zoom in for a diagram that opens at natural size', async () => {
+    panZoom.getSizes.mockReturnValue({ realZoom: 1 });
+    panZoom.getZoom.mockReturnValue(1);
+    const wrapper = mountViewport(true);
+    await wrapper.vm.attach();
+    await wrapper.vm.$nextTick();
+    expect(wrapper.get('[aria-label="Zoom in"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('[aria-label="Zoom out"]').attributes('disabled')).toBeDefined();
+  });
+
   it('keeps the diagram edge at the box edge when panned', async () => {
     panZoom.getSizes.mockReturnValue({
       realZoom: 2, width: 400, height: 300, viewBox: { x: 0, y: 0, width: 322, height: 243 },

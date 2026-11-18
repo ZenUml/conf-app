@@ -15,6 +15,8 @@
           v-if="showZoomControls"
           macro-type="graph"
           label="Graph"
+          :can-zoom-in="room.in"
+          :can-zoom-out="room.out"
           @zoom-in="zoomIn"
           @zoom-out="zoomOut"
           @fit-height="fitAxis('height')"
@@ -51,7 +53,7 @@ import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { clearExternalIconState, startExternalIconProxy } from "@/utils/graph/externalIcons";
 import { getForgeCustomContentId, setViewerLoadState } from "@/utils/viewerLoadOutcome";
 import {
-  alignOf, axisOffset, bindSafariPinch, clampScale, classifyWheel, createGestureGate, zoomLimits,
+  alignOf, axisOffset, bindSafariPinch, clampScale, classifyWheel, createGestureGate, zoomLimits, zoomRoom,
 } from "@/utils/viewport/wheelZoom";
 import { trackViewportControl } from "@/utils/viewport/trackViewportControl";
 import { wheelFallsThroughToPage } from "@/utils/viewport/surface";
@@ -86,6 +88,8 @@ export default {
       // auto-fit last produced (it refits on resize), so it is re-read each time.
       userMoved: false,
       openScale: 1,
+      // view.scale is not reactive; mirrored here for the toolbar's limits.
+      currentScale: 1,
       alignX: 0.5,
       alignY: 0.5,
     };
@@ -100,6 +104,9 @@ export default {
     this.disableWheelZoom();
   },
   computed: {
+    room() {
+      return zoomRoom(this.currentScale, zoomLimits(this.openScale));
+    },
     // Same rule as DiagramViewport: the Export PNG host renders the diagram only
     // to photograph it, and a zoom would change what `updateCaptureBox` reports.
     showZoomControls() {
@@ -513,6 +520,12 @@ export default {
     updateCaptureBox() {
       const container = this.$refs.graphContainer;
       const graph = this.graphViewer?.graph;
+      // Every scale change ends here (render, refit, zoom, fit, drag), so the
+      // toolbar's Zoom in/out state is kept in step from this one place.
+      if (graph?.view?.scale > 0) {
+        if (!this.userMoved) this.openScale = graph.view.scale;
+        this.currentScale = graph.view.scale;
+      }
       const bounds = graph?.getGraphBounds?.();
       const border = graph?.border || 0;
       if (!container || !bounds || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) {

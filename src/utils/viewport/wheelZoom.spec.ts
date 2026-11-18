@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  alignOf, axisOffset, classifyWheel, clampScale, createGestureGate, isZoomIntent, zoomLimits,
+  alignOf, axisOffset, classifyWheel, clampScale, createGestureGate, isZoomIntent, zoomLimits, zoomRoom,
 } from '@/utils/viewport/wheelZoom';
 
 const wheel = (init: WheelEventInit) => new WheelEvent('wheel', init);
@@ -140,6 +140,22 @@ describe('zoomLimits', () => {
     expect(clampScale(0.2, limits)).toBe(0.5);
     expect(clampScale(3, limits)).toBe(1);
     expect(clampScale(0.7, limits)).toBe(0.7);
+  });
+});
+
+describe('zoomRoom', () => {
+  it.each([
+    // scale, opening scale -> can zoom in, can zoom out
+    [0.5, 0.5, true, false],
+    [0.7, 0.5, true, true],
+    [1, 0.5, false, true],
+    // A diagram that opens at natural size has nowhere to go.
+    [1, 1, false, false],
+    // Sub-pixel rounding at a limit still counts as at the limit.
+    [0.9999999, 0.5, false, true],
+    [0.5000001, 0.5, true, false],
+  ])('scale %s, opened at %s -> in %s, out %s', (scale, open, canIn, canOut) => {
+    expect(zoomRoom(scale, zoomLimits(open))).toEqual({ in: canIn, out: canOut });
   });
 });
 

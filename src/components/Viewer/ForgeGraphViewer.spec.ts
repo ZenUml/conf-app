@@ -391,6 +391,29 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
       expect(graph.view.scale).toBeCloseTo(1, 5);
     });
 
+    it('disables Zoom in at natural size and Zoom out at the opening size', async () => {
+      const graph = graphStub();
+      const { wrapper } = await mountGraph(graph);
+      const button = (name: string) => wrapper.get(`[aria-label="${name}"]`);
+
+      // Opened at 0.5: room to zoom in, none to zoom out.
+      expect(button('Zoom in').attributes('disabled')).toBeUndefined();
+      expect(button('Zoom out').attributes('disabled')).toBeDefined();
+
+      for (let i = 0; i < 10; i += 1) await button('Zoom in').trigger('click');
+      expect(button('Zoom in').attributes('disabled')).toBeDefined();
+      expect(button('Zoom out').attributes('disabled')).toBeUndefined();
+    });
+
+    it('offers no Zoom in for a graph that opens at natural size', async () => {
+      const graph = graphStub();
+      graph.view.scale = 1;
+      const { wrapper } = await mountGraph(graph);
+      await wrapper.vm.$nextTick();
+      expect(wrapper.get('[aria-label="Zoom in"]').attributes('disabled')).toBeDefined();
+      expect(wrapper.get('[aria-label="Zoom out"]').attributes('disabled')).toBeDefined();
+    });
+
     it('stops a drag at the diagram edge', async () => {
       const graph = graphStub();
       // mxGraph's own pan calls, kept before the viewer wraps them.

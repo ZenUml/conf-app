@@ -183,6 +183,29 @@ describe('DiagramTransformViewport', () => {
     expect(scaleOf(wrapper)).toBeCloseTo(1, 5);
   });
 
+  it('disables Zoom in at natural size and Zoom out at the opening size', async () => {
+    const wrapper = mountViewport(false);
+    await wrapper.vm.layout();
+    await wrapper.vm.$nextTick();
+    const button = (name: string) => wrapper.get(`[aria-label="${name}"]`);
+
+    expect(button('Zoom in').attributes('disabled')).toBeUndefined();
+    expect(button('Zoom out').attributes('disabled')).toBeDefined();
+
+    for (let i = 0; i < 20; i += 1) wrapper.vm.zoomIn();
+    await wrapper.vm.$nextTick();
+    expect(button('Zoom in').attributes('disabled')).toBeDefined();
+    expect(button('Zoom out').attributes('disabled')).toBeUndefined();
+  });
+
+  it('offers no Zoom in for a diagram that opens at natural size', async () => {
+    const wrapper = mountViewport(false, { width: 2000, height: 1000 });
+    await wrapper.vm.layout();
+    await wrapper.vm.$nextTick();
+    expect(wrapper.get('[aria-label="Zoom in"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('[aria-label="Zoom out"]').attributes('disabled')).toBeDefined();
+  });
+
   it('cancels a Safari pinch so it zooms the diagram, not the page', async () => {
     const wrapper = mountViewport(true);
     await wrapper.vm.layout();

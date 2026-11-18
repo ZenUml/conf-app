@@ -58,13 +58,38 @@ export function classifyPreviewTarget(
   target: Element,
   root: Element,
 ): PreviewTargetKind | 'background' | null {
-  const svg = target.closest('svg');
+  const svg = target.closest('svg') as SVGSVGElement | null;
   if (!svg || !root.contains(svg)) return null;
   if (target.closest(NODE_SELECTOR)) return 'node';
   if (target.closest(EDGE_SELECTOR)) return 'edge';
   if (target.closest(CLUSTER_SELECTOR)) return 'cluster';
   if (target.closest('text, tspan, foreignObject')) return 'label';
+  return classifyFlatShape(target, svg);
+}
+
+/**
+ * The in-browser PlantUML engine draws flat SVG: participant boxes are bare
+ * <rect>s beside their <text>, lifelines sit in a <g> with a <title>, messages
+ * are <line> + <polygon> arrowheads. Read the shape itself.
+ */
+function classifyFlatShape(target: Element, svg: SVGSVGElement): PreviewTargetKind | 'background' {
+  if (target === svg) return 'background';
+  const group = target.closest('g');
+  if (group && svg.contains(group) && group.querySelector(':scope > title')) return 'node';
+  const tag = target.tagName.toLowerCase();
+  if (tag === 'line' || tag === 'polyline' || tag === 'polygon') return 'edge';
+  if (tag === 'rect' && coversDiagram(target, svg)) return 'background';
+  if (tag === 'rect' || tag === 'ellipse' || tag === 'circle' || tag === 'path') return 'node';
   return 'background';
+}
+
+/** A rect at least 90% of the viewBox in both axes is the diagram's backdrop. */
+function coversDiagram(rect: Element, svg: SVGSVGElement): boolean {
+  const box = (svg.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number);
+  const width = Number(rect.getAttribute('width'));
+  const height = Number(rect.getAttribute('height'));
+  if (box.length !== 4 || !box[2] || !box[3] || !width || !height) return false;
+  return width >= box[2] * 0.9 && height >= box[3] * 0.9;
 }
 
 export interface PreviewClickTrackerOptions {

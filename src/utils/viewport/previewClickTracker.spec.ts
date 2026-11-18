@@ -9,13 +9,33 @@ const MERMAID_FLOWCHART = `
   <path class="flowchart-link" id="edge-path"></path>
   <g class="edgeLabel"><text id="edge-text">yes</text></g>
   <text id="free-text">title</text>
-  <rect id="bg"></rect>
 </svg>`;
 
 const PLANTUML = `
 <svg>
   <g class="entity" data-entity="Alice" data-source-line="2" id="entity_Alice"><rect id="pu-node"></rect></g>
   <g class="link" id="link_Alice_Bob"><path id="pu-edge"></path></g>
+</svg>`;
+
+// Trimmed from the in-browser PlantUML engine (1.2026.9beta4) in Storybook,
+// story Editor/Diagram/WorkspacePreviewClick / PlantUmlSequence.
+const PLANTUML_LOCAL_SEQUENCE = `
+<svg viewBox="0 0 152 159" data-diagram-type="SEQUENCE"><defs></defs><g font-family="sans-serif">
+  <g><title>Alice</title><rect id="lifeline-hit" x="30" y="41" width="8" height="76" fill-opacity="0"></rect><line id="lifeline" x1="33" y1="41" x2="33" y2="117"></line></g>
+  <rect id="participant" x="10" y="10" width="47" height="30" fill="#E2E2F0"></rect><text id="participant-text" x="17" y="29">Alice</text>
+  <polygon id="arrowhead" points="109,67,119,71,109,75,113,71"></polygon><line id="message" x1="33" y1="71" x2="115" y2="71"></line>
+  <rect id="backdrop" x="0" y="0" width="152" height="159"></rect>
+</g></svg>`;
+
+// Trimmed from Mermaid 11 in Storybook (WorkspacePreviewClick / MermaidFlowchart
+// and MermaidEr): labels are HTML inside <foreignObject>.
+const MERMAID_REAL = `
+<svg id="mermaid-9">
+  <g class="cluster" id="mermaid-9-Core"><rect id="m-cluster"></rect><g class="cluster-label"><foreignObject><div id="m-cluster-label">Core</div></foreignObject></g></g>
+  <g class="node default" id="mermaid-9-flowchart-A-0"><rect id="m-node" class="basic label-container"></rect><g class="label"><foreignObject><div><span id="m-node-label">Order API</span></div></foreignObject></g></g>
+  <g class="edgePaths"><path id="m-link" class="flowchart-link"></path><path id="m-er-line" class="relationshipLine"></path></g>
+  <g class="edgeLabels"><g class="edgeLabel"><foreignObject><div><span id="m-edge-label">POST</span></div></foreignObject></g></g>
+  <g class="node default" id="mermaid-9-entity-ORDER-1"><path id="m-entity"></path></g>
 </svg>`;
 
 function press(el: Element, x: number, y: number, upX = x, upY = y) {
@@ -34,7 +54,6 @@ describe('classifyPreviewTarget', () => {
     expect(classifyPreviewTarget(q('edge-path'), root)).toBe('edge');
     expect(classifyPreviewTarget(q('edge-text'), root)).toBe('edge');
     expect(classifyPreviewTarget(q('free-text'), root)).toBe('label');
-    expect(classifyPreviewTarget(q('bg'), root)).toBe('background');
     expect(classifyPreviewTarget(q('mermaid-1'), root)).toBe('background');
   });
 
@@ -43,6 +62,35 @@ describe('classifyPreviewTarget', () => {
     root.innerHTML = PLANTUML;
     expect(classifyPreviewTarget(root.querySelector('#pu-node')!, root)).toBe('node');
     expect(classifyPreviewTarget(root.querySelector('#pu-edge')!, root)).toBe('edge');
+  });
+
+  it('names elements of real Mermaid 11 output, labels inside foreignObject included', () => {
+    const root = document.createElement('div');
+    root.innerHTML = MERMAID_REAL;
+    const kind = (id: string) => classifyPreviewTarget(root.querySelector(`#${id}`)!, root);
+    expect(kind('m-node')).toBe('node');
+    expect(kind('m-node-label')).toBe('node');
+    expect(kind('m-cluster')).toBe('cluster');
+    expect(kind('m-cluster-label')).toBe('cluster');
+    expect(kind('m-link')).toBe('edge');
+    expect(kind('m-er-line')).toBe('edge');
+    expect(kind('m-edge-label')).toBe('edge');
+    expect(kind('m-entity')).toBe('node');
+    expect(kind('mermaid-9')).toBe('background');
+  });
+
+  it('names elements of the flat SVG the in-browser PlantUML engine draws', () => {
+    const root = document.createElement('div');
+    root.innerHTML = PLANTUML_LOCAL_SEQUENCE;
+    const kind = (id: string) => classifyPreviewTarget(root.querySelector(`#${id}`)!, root);
+    expect(kind('participant')).toBe('node');
+    expect(kind('participant-text')).toBe('label');
+    expect(kind('lifeline')).toBe('node');
+    expect(kind('lifeline-hit')).toBe('node');
+    expect(kind('message')).toBe('edge');
+    expect(kind('arrowhead')).toBe('edge');
+    expect(kind('backdrop')).toBe('background');
+    expect(classifyPreviewTarget(root.querySelector('svg')!, root)).toBe('background');
   });
 
   it('ignores anything outside the diagram svg, such as toolbar buttons', () => {
@@ -123,7 +171,7 @@ describe('createPreviewClickTracker', () => {
   it('counts a press that moved more than 4 px as a pan drag, not a click', () => {
     const tracker = make();
     press(q('node-rect'), 10, 10, 30, 10);
-    press(q('bg'), 10, 10);
+    press(q('mermaid-1'), 10, 10);
     vi.advanceTimersByTime(60_000);
     expect(track).not.toHaveBeenCalled();
 

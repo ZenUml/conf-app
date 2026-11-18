@@ -37,16 +37,27 @@ sessions click an element.
 
 ## Read-out rule
 
-Read 28 days after the production release that carries the event, per
-diagram type (Mermaid, PlantUML separately). Denominator: editor sessions of
-that type (`macro_edit_started` + `macro_create_started`).
+Read 28 days after the Lite production release that carries the event, per
+diagram type (Mermaid, PlantUML separately).
+
+Denominator: editor sessions that showed that type. A new diagram opens as
+Sequence and authors often switch to Mermaid before pasting, and
+`macro_create_started` / `macro_authoring_ended` keep the type the editor
+opened with. So count, per account and editor session, `macro_edit_started`
+or `macro_create_started` with that `macro_type`, plus `macro_type_changed`
+with `to_macro_type` = that type. The numerator's `macro_type` is the type at
+click time.
+
+The 100% window ends on a fixed date, 2026-12-23. If Lite reaches production
+later than 2026-11-25, move that date (one line in `DATED_SAMPLE_RATES`) so the
+first 28 days stay at 100%.
 
 Build "click a node to select its source line" for a type only when all three
 hold:
 
 | # | Measure | Threshold |
 |---|---|---|
-| 1 | Sessions with `preview_target_kind` = node, divided by editor sessions | ≥ 10% |
+| 1 | Sessions with `preview_target_kind` = node, divided by the denominator above | ≥ 10% |
 | 2 | Those sessions (after `sample_rate` extrapolation) | ≥ 50 |
 | 3 | Of those, share with `preview_source_focused_in_window` or `preview_source_changed_in_window` | ≥ 30% |
 

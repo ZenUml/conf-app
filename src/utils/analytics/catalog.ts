@@ -1032,7 +1032,8 @@ export type AnalyticsEventName =
   | "viewport_zoom_hint_shown"
   // Viewer "View source" panel (#333): read-only DSL affordance for all viewers
   // (including users without edit permission). Opened from the hover toolbar on
-  // text-DSL types only (sequence / mermaid / plantuml).
+  // text-DSL types only (sequence / mermaid / plantuml). `is_fullscreen` on
+  // viewer_source_opened splits inline from Fullscreen opens (2026-11-18).
   | "viewer_source_opened"
   | "viewer_source_copied"
   // Inline title rename from the viewer's top edge (no editor modal). Gated by

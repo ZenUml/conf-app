@@ -1927,6 +1927,18 @@ export type AnalyticsEventName =
   // but a different surface and a different question ("does AI chat need the
   // code visible?"), so the two are not merged.
   | "editor_code_panel_toggled"
+  // Editor preview element click (P6 measurement, 2026-11-18). Replays show
+  // authors clicking boxes of the Mermaid/PlantUML preview, maybe expecting to
+  // edit the node or find it in the source; nothing else counts this. Fires at
+  // most once per editor session, 10 s after the first click on a diagram
+  // element (node, subgraph, edge or label; a press that moved more than 4 px
+  // is a pan drag and never starts the window), or when the editor closes
+  // inside that window (`preview_window_completed: false`).
+  // Mermaid and PlantUML only: the Sequence preview already edits in place and
+  // Graph is DrawIO. `preview_source_*_in_window` answer "did the author then
+  // look at (focus or press in the code pane) or change the source". Read-out rule:
+  // docs/features/editor-preview-click.md.
+  | "editor_preview_element_clicked"
   // Onboarding funnel — "second diagram" prompt (registered ahead of its
   // producer: this task only registers the event names + properties so the
   // catalog/types are ready; no call site exists yet in this codebase. A

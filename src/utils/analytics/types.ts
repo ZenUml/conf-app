@@ -777,6 +777,11 @@ export type AnalyticsProperties = {
   // `viewer_source_opened` / `viewer_source_copied` so read-only vs editor
   // audience for the View Source panel (#333) can be split.
   has_edit_permission?: boolean;
+  // `viewer_source_opened`: true when the panel was opened in the Fullscreen
+  // viewer, false in the inline page viewer. `surface` stays 'viewer' in both
+  // places so existing reports keep working. Added 2026-11-18; before that the
+  // split could only be inferred from session_replay_source.
+  is_fullscreen?: boolean;
   // Inline title rename from the viewer (viewer_rename_cancelled): why edit
   // mode was left without a write. 'escape' = Esc pressed; 'unchanged' =
   // committed the same title; 'empty' = committed a blank title (refused,

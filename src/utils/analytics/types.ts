@@ -768,6 +768,20 @@ export type AnalyticsProperties = {
   // committed the same title; 'empty' = committed a blank title (refused,
   // the previous title stands).
   rename_exit_reason?: 'escape' | 'unchanged' | 'empty';
+  // Inline title rename, on all four viewer_rename_* events: where the click
+  // that opened the rename landed, and whether the field changed before the
+  // exit. Together with the next action (Edit click, a new start) they split
+  // cancels into "clicked the title text / the pencil and typed nothing"
+  // (likely not a rename) and "typed, then left" (a rename that stopped).
+  // rename_trigger: 'title_text' = the title's text span; 'pencil' = the
+  // pencil icon; 'title_edge' = the button's padding outside both;
+  // 'keyboard' = Enter or Space on the focused button (click with
+  // event.detail 0); 'unknown' = started with no click event.
+  rename_trigger?: 'title_text' | 'pencil' | 'title_edge' | 'keyboard' | 'unknown';
+  // had_input (declared below with the editor's input summary, same meaning:
+  // at least one input event) is also sent on viewer_rename_*: true once the
+  // field changed after it opened. Deletion counts, so every 'empty' exit is
+  // had_input=true — true means "touched the field", not "typed a new name".
   // Copy outcome, shared by the "Copy diagram link" action (deeplink_copied —
   // catalog.ts), viewer_source_copied and the Connect MCP dialog copies:
   // 'copied' = clipboard write succeeded, 'clipboard_failed' = the write

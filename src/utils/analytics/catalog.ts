@@ -1045,6 +1045,10 @@ export type AnalyticsEventName =
   // (`rename_exit_reason`: escape / unchanged / empty — a blank title on
   // Enter is refused inline and keeps editing, so it fires nothing; `empty`
   // is a blank title on blur, where the previous title simply stands).
+  // All four carry `rename_trigger` (title_text / pencil / title_edge /
+  // keyboard / unknown: where the opening click landed) and `had_input` (the
+  // field changed before the exit) — see types.ts. Added 2026-11-18 to tell
+  // a mistaken title click from a rename that was dropped.
   // A rename writes a new custom-content version but is deliberately NOT a
   // macro_save_succeeded: that event is the edit-volume signal for dashboards
   // and rides on saveToPlatform (snapshot upload, CSAT, surface: editor), none

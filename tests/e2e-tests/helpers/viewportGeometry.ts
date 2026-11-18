@@ -84,8 +84,11 @@ export async function expectZoomInGrows(frame: FrameLocator, label: string): Pro
   const zoomIn = frame
     .getByRole('toolbar', { name: `${label} zoom controls` })
     .getByRole('button', { name: 'Zoom in' });
-  if (before >= NATURAL_SIZE) {
-    await expect(zoomIn, `Zoom in is enabled at ${before.toFixed(2)}x, already natural size`).toBeDisabled();
+  // The button decides the branch, not the measured scale: a diagram that fits
+  // at 0.99x still has 1% to go and keeps Zoom in, which a scale threshold here
+  // misread as "already natural size" (Mermaid, CI 2026-11-18).
+  if (await zoomIn.isDisabled()) {
+    expect(before, `Zoom in is disabled at ${before.toFixed(2)}x, below natural size`).toBeGreaterThanOrEqual(NATURAL_SIZE);
     return;
   }
   await zoomIn.click();

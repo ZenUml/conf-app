@@ -21,3 +21,9 @@ Measurements (Storybook, Chrome, 1280x800, pane in background): 13,001-line / 25
 Copy: clicked in the Forge iframe on lite-dev, button changed to "Copied". Clipboard contents not read back.
 
 Not related to this PR: the tooltip "Diagram backup could not be saved" on the 256 KB test macro also appears on the deployed build without this branch.
+
+## CI staging (lite-stg, PR validation run 44295747666, head 661884f0)
+
+![staging](staging-small-inline.jpg)
+
+Source button shown; panel title "Diagram source · OpenAPI"; 16 lines, stored YAML unchanged.

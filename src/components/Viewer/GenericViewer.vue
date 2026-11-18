@@ -588,6 +588,16 @@ import { attachPreparedSvgHighlights } from '../../../tools/mermaid-highlights/s
 import { controlsWidth, maxHeaderStage, moreMenuItems, pickHeaderStage } from '@/utils/viewerHeaderLayout'
 
 const DEFAULT_TITLE = 'Untitled diagram'
+// Where the click that opened an inline rename landed (rename_trigger).
+// A click synthesised by Enter/Space on the focused button has detail 0.
+function renameTriggerFromClick(event) {
+  if (!event || typeof event.detail !== 'number') return 'unknown';
+  if (event.detail === 0) return 'keyboard';
+  const target = event.target;
+  if (target?.closest?.('.viewer-title-pencil')) return 'pencil';
+  if (target?.closest?.('.viewer-title-text')) return 'title_text';
+  return 'title_edge';
+}
 // Inline title rename input sizing (see startRename / updateRenameWidth).
 // MAX mirrors .viewer-title's max-width; CHROME is the input's horizontal
 // padding (6px × 2) + border (1px × 2) plus a few px so the caret has room
@@ -717,6 +727,11 @@ export default {
     renameError: false,
     renameInputWidth: 0,
     renameMinWidth: 0,
+    // Analytics only (rename_trigger / had_input on every viewer_rename_*
+    // event): set when a rename opens and NOT cleared on exit, so the final
+    // event of the session still carries them.
+    renameTrigger: 'unknown',
+    renameHadInput: false,
     magicActive: false,
     magicSvg: null,
     magicHighlightController: null,
@@ -2073,8 +2088,10 @@ export default {
     // viewer_rename_cancelled; a blank Enter stays put with the error state so
     // the user sees why nothing happened. The store's title changes only on a
     // landed write; every other exit leaves it exactly as it was.
-    startRename() {
+    startRename(event) {
       if (!this.canRename || this.isRenaming) return;
+      this.renameTrigger = renameTriggerFromClick(event);
+      this.renameHadInput = false;
       this.renameDraft = visibleDiagramTitle(this.diagram?.title).trim();
       this.renameError = false;
       // The input opens at exactly the title's rendered width (never
@@ -2095,6 +2112,7 @@ export default {
     },
     onRenameInput(e) {
       this.renameDraft = e.target.value;
+      this.renameHadInput = true;
       if (this.renameError && this.renameDraft.trim()) this.renameError = false;
       this.$nextTick(this.updateRenameWidth);
     },
@@ -2287,6 +2305,8 @@ export default {
         macro_type: this.diagramType ?? 'none',
         custom_content_id: id,
         content_id: id,
+        rename_trigger: this.renameTrigger,
+        had_input: this.renameHadInput,
         ...extra,
       });
     },

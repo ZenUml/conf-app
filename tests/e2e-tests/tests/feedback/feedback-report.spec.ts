@@ -211,7 +211,10 @@ test.describe('Feedback reporting', { tag: ['@test:feedback-report', '@variant:l
     const pageHostEdge = macroFrame.locator('#zenuml-feedback-host [data-testid="feedback-edge"]');
     await expect(pageHostEdge).toBeVisible({ timeout: TIMEOUTS.FRAME_LOAD });
     const pageHostTrigger = pageHostEdge.locator('[data-testid="feedback-trigger"]');
-    await expect(pageHostTrigger).toHaveAttribute('aria-label', 'Send feedback');
+    // With diagram-comments-enabled on (#1047) the edge gains a Comments button and
+    // this one is renamed "Report a bug"; with it off the name stays "Send feedback".
+    // Both are the same feedback trigger, so accept either.
+    await expect(pageHostTrigger).toHaveAttribute('aria-label', /^(Send feedback|Report a bug)$/);
 
     // Label text is only revealed on hover/focus (edge collapses to an icon
     // otherwise) — assert the collapsed -> revealed transition, not just
@@ -219,7 +222,7 @@ test.describe('Feedback reporting', { tag: ['@test:feedback-report', '@variant:l
     await expect(pageHostEdge).not.toHaveClass(/revealed/);
     await pageHostTrigger.hover();
     await expect(pageHostEdge).toHaveClass(/revealed/);
-    await expect(pageHostTrigger.getByText('Feedback', { exact: true })).toBeVisible();
+    await expect(pageHostTrigger.getByText(/^(Feedback|Report a bug)$/)).toBeVisible();
 
     await pageHostTrigger.click();
 

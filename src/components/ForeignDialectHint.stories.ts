@@ -55,7 +55,7 @@ function prepare(mermaidCode: string) {
 }
 
 const meta: Meta<typeof Workspace> = {
-  title: 'Editor/ForeignDialectHint on a Mermaid macro',
+  title: 'Editor/Diagram/ForeignDialectHint',
   component: Workspace,
   parameters: { layout: 'fullscreen' },
   render: () => ({

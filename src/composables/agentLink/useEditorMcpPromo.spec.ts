@@ -172,15 +172,27 @@ describe('useEditorMcpPromo', () => {
     expect(second.api.showNewDiagramCard.value).toBe(false)
   })
 
-  it('stays hidden with the flag off or for an unsupported type', async () => {
+  it('stays hidden with the flag off or for a diagram of unknown type', async () => {
     vi.mocked(isAgentLinkEnabled).mockResolvedValue(false)
     const off = setup()
     await flushPromises()
     expect(off.api.showNewDiagramCard.value).toBe(false)
     vi.mocked(isAgentLinkEnabled).mockResolvedValue(true)
-    const graph = setup({ type: DiagramType.Graph })
+    const unknown = setup({ type: DiagramType.Unknown })
     await flushPromises()
-    expect(graph.api.showNewDiagramCard.value).toBe(false)
+    expect(unknown.api.showNewDiagramCard.value).toBe(false)
+  })
+
+  it.each([
+    [DiagramType.Markdown, 'Markdown'],
+    [DiagramType.Graph, 'draw.io (diagrams.net XML)'],
+    [DiagramType.OpenApi, 'OpenAPI'],
+    [DiagramType.AsyncApi, 'AsyncAPI'],
+  ])('shows the new-diagram card for %s, and the draft prompt asks for %s', async (type, dialect) => {
+    const { api } = setup({ type, code: 'starter' })
+    await flushPromises()
+    expect(api.showNewDiagramCard.value).toBe(true)
+    expect(api.dialogPrompt.value).toMatch(new RegExp(`draw an? ${dialect.replace(/[()]/g, '\\$&')} diagram`))
   })
 
   describe('new-diagram card and the selected tab', () => {

@@ -30,7 +30,8 @@ import store from "@/model/store2";
 import { showCloseWithoutSavingDialog } from './utils/modalService';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney, setEditJourneyMeta } from '@/utils/journeyTracking';
 import uuidv4 from '@/utils/uuid';
-import { createApp } from 'vue';
+import { computed, createApp, defineComponent, h } from 'vue';
+import EditorMcpPromo from '@/components/AgentLink/EditorMcpPromo.vue';
 import SyntaxErrorBox from "@/components/SyntaxErrorBox.vue";
 import { validateOpenApiSpecForStore } from '@/utils/openapi/validate';
 import { debounce } from 'lodash';
@@ -97,6 +98,29 @@ let editorBaseline: OpenApiEditorBaseline | undefined;
 function hadEditorChanges(): boolean {
   return editorBaseline !== undefined
     && hasOpenApiEditorChanges(editorBaseline, window.specContent, window.diagram);
+}
+
+/**
+ * MCP promo over the OpenAPI editor (EditorMcpPromo), on the same store.
+ * Mounted after the document is in the store, so the source it first sees is
+ * the one the author starts from. A new spec's store code starts empty while
+ * the editor shows OpenApiExample and then syncs it back, so both count as
+ * the same untouched starting point.
+ */
+function mountEditorMcpPromo(diagramId: string | undefined) {
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  createApp(defineComponent({
+    setup() {
+      const code = computed(() => store.state.diagram.code || OpenApiExample);
+      return () => h(EditorMcpPromo, {
+        diagramType: 'OpenAPI',
+        code: code.value,
+        diagramId: diagramId ?? '',
+        diagramTitle: store.state.diagram.title || '',
+      });
+    },
+  })).use(store).mount(host);
 }
 
 function bootstrapSwaggerUi(mountEl: HTMLElement | null) {
@@ -496,6 +520,8 @@ async function initializeMacro() {
         },
       }).use(store).mount(syntaxErrorBoxContainer);
     }
+
+    mountEditorMcpPromo(isNewOpenApi ? undefined : customContentId);
 
     // Track begin event (create or edit)
     // conf-app: MacroUtil.isCreateNew() reads only extension.config.customContentId

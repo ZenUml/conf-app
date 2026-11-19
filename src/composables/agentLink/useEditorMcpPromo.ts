@@ -31,14 +31,19 @@ export const TIP_TYPED_CHARS = 400
 export const TIP_MIN_EDITS = 10
 export const TIP_EDIT_MS = 3 * 60_000
 
-// Same scope as the viewer's Connect MCP: agent-native DSL types only.
-const SUPPORTED: readonly string[] = [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml]
-
+// Every diagram type, matching the viewer's Connect MCP and the headless
+// tools, which read, create and update all of them. The name is the language
+// the draft prompt asks the agent to write (buildEditorDraftPrompt).
 const DIALECT: Record<string, string> = {
   [DiagramType.Sequence]: 'ZenUML sequence',
   [DiagramType.Mermaid]: 'Mermaid',
   [DiagramType.PlantUml]: 'PlantUML',
+  [DiagramType.Markdown]: 'Markdown',
+  [DiagramType.Graph]: 'draw.io (diagrams.net XML)',
+  [DiagramType.OpenApi]: 'OpenAPI',
+  [DiagramType.AsyncApi]: 'AsyncAPI',
 }
+const SUPPORTED: readonly string[] = Object.keys(DIALECT)
 
 type PromoPlacement = Extract<AgentLinkMcpButtonPlacement, 'editor_new_diagram' | 'editor_tip'>
 

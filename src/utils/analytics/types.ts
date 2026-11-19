@@ -442,6 +442,12 @@ export type AnalyticsProperties = {
   feedback_has_screenshot?: boolean;
   feedback_dismiss_reason?: FeedbackDismissReason;
   feedback_handoff_outcome?: FeedbackHandoffOutcome;
+  // Join keys between the viewer iframe and the Feedback modal iframe, which
+  // are separate Mixpanel sessions. `feedback_token` is the per-open random id;
+  // `viewer_replay_id` is the viewer's `$mp_replay_id`. Both are registered as
+  // super-properties, never report content.
+  feedback_token?: string;
+  viewer_replay_id?: string;
   // Viewer Create slash-command guide (create_guide_*).
   create_guide_variant?: CreateGuideVariant;
   create_guide_close_method?: CreateGuideCloseMethod;
@@ -1147,6 +1153,10 @@ export type AnalyticsProperties = {
   // `is_internal_client_domain` expects).
   mcp_tool?: string;
   mcp_tool_outcome?: AgentLinkMcpToolOutcome;
+  // On a successful page-scoped list_diagrams: how many of the listed diagrams
+  // are embedded on that page from another page (an embed macro's target),
+  // rather than stored on it. Omitted on every other call.
+  embedded_diagram_count?: number;
   // On a `reason: 'upstream'` tool_error: which step failed, the HTTP status
   // it got (when there was one), and for step 'identity' the resolver's
   // refusal. See AgentLinkFailureStep.

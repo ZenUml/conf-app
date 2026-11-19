@@ -407,6 +407,8 @@ export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
 // the deliberate-intent viewer surface, and it cannot be expressed as a Forge
 // flag because the cohort system buckets by install/account, not by surface.
 // `feedback` records the explicit start requested by the Feedback trigger.
+// `feedback_dialog` records the Feedback modal iframe itself, which starts at
+// 100% on init (the viewer's `feedback` source covers only the trigger click).
 // `license_notice` records the explicit start requested when the Full
 // "No active license" notice is shown (license_notice_shown).
 // `timeout` means the Forge flag download did not settle within
@@ -421,6 +423,7 @@ export type SessionReplayEventSource =
   | "feedback"
   | "license_notice"
   | "title_draft_preview"
+  | "feedback_dialog"
   | "timeout"
   | "off";
 

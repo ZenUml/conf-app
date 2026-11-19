@@ -16,6 +16,20 @@
          Save & Exit button. currentXml feeds the AI auto-title watcher with the
          live diagram content (initial body, then each DrawIO autosave). -->
     <DrawIoExtension :doc="doc" :current-xml="currentXml" :editor-mode="editorMode" />
+    <!-- MCP promo (useEditorMcpPromo). Fed only from autosaves DrawIO marks
+         modified: its load-time autosave is not an edit by the author, and
+         treating it as one would hide the new-diagram card at once. It sits
+         in the canvas's bottom-right corner: clear of the shape library on the
+         left, the Format panel (240px) on the right and the page tabs below. -->
+    <EditorMcpPromo
+      diagram-type="graph"
+      :code="mcpPromoXml"
+      :diagram-id="customContentId || ''"
+      :diagram-title="doc?.title || ''"
+      corner="bottom-right"
+      :inset-side="264"
+      :inset-bottom="48"
+    />
     <!-- Publishing overlay. The graph macro's Publish button lives INSIDE the
          DrawIO iframe (Save & Exit, relabeled), so unlike the other editors it
          can't show the PublishButton "Publishing…" spinner. Without this,
@@ -39,6 +53,7 @@
 
 <script>
 import DrawIoExtension from "@/components/DrawIoExtension/DrawIoExtension.vue";
+import EditorMcpPromo from "@/components/AgentLink/EditorMcpPromo.vue";
 import "@/components/DrawIoExtension/graphEditor.css";
 import { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
 import { setupCloseGuard } from "@/utils/closeGuard";
@@ -74,7 +89,8 @@ const EMPTY_GRAPH = `<mxfile>
 export default {
   name: "ForgeGraphEditor",
   components: {
-    DrawIoExtension
+    DrawIoExtension,
+    EditorMcpPromo,
   },
   props: {
     graphXml: String,
@@ -268,6 +284,9 @@ export default {
       mountTimers: [],
       isUnmounted: false,
       drawioModified: false,
+      // The source the MCP promo watches: empty until the author's first
+      // modifying autosave, then each modified autosave's xml.
+      mcpPromoXml: '',
       publishing: false,
       closeGuardOff: null,
       closeOutcomeOff: null,
@@ -333,6 +352,7 @@ export default {
       }
       else if (payload.event === 'autosave') {
         this.drawioModified = !!payload.modified;
+        if (payload.xml && this.drawioModified) this.mcpPromoXml = payload.xml;
         if (payload.xml) {
           this.setXmlForMode(this.editorMode, payload.xml);
           if (this.drawioModified && this.draftSaver) {

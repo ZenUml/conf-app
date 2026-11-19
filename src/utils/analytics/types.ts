@@ -68,6 +68,7 @@ import type {
   CodePanelToggleTrigger,
   SessionReplayEventSource,
   SessionReplayStartCallOutcome,
+  ClarityReplayOutcome,
   GraphEditorModeValue,
   EditorReplaceScope,
   EditorInputMethod,
@@ -241,6 +242,12 @@ export type AnalyticsProperties = {
   session_replay_source?: SessionReplayEventSource;
   session_replay_percent?: number;
   session_replay_start_call_outcome?: SessionReplayStartCallOutcome;
+  // Microsoft Clarity replay (editor + fullscreen iframes, behind the
+  // `clarity-replay-enabled` Forge flag). Registered as super-properties once
+  // per iframe, so no new event is sent. `clarity_session_id` joins a Mixpanel
+  // event to its Clarity recording; set only when the outcome is 'started'.
+  clarity_replay_outcome?: ClarityReplayOutcome;
+  clarity_session_id?: string;
   // Milliseconds from the first retained track call to Mixpanel init completion.
   // Registered once per iframe as a super-property (#707).
   analytics_init_ms?: number;

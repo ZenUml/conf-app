@@ -33,6 +33,8 @@ describe('classifyRepairFailure', () => {
     ['line 3:4 mismatched input \'}\' expecting ID', 'zenuml_parse'],
     ['ZenUML could not parse the diagram (syntax error).', 'zenuml_parse'],
     ['OpenAPI document is missing the required paths object.', 'openapi_structure'],
+    ['PlantUML syntax error at line 4: Syntax Error?', 'plantuml_syntax'],
+    ['PlantUML code must end with @enduml: add it and remove any text after it.', 'plantuml_frame'],
     ['Something the parser said', 'other'],
   ])('maps a syntax rejection %j to syntax_error / %s', (error, syntaxKind) => {
     expect(classifyRepairFailure(invalid(error))).toEqual({
@@ -67,6 +69,12 @@ describe('classifyRepairFailure', () => {
         output: { repairAttempts: 0, timedOut: true },
       }),
     ).toEqual({ backend_failure_kind: 'time_budget' })
+  })
+
+  it('maps a COMPLETED job without diagram code to missing_output', () => {
+    expect(classifyRepairFailure({ status: 'COMPLETED', message: 'Complete!', output: {} })).toEqual({
+      backend_failure_kind: 'missing_output',
+    })
   })
 
   it('returns unknown for an unrecognised failed job', () => {

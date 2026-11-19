@@ -101,6 +101,7 @@ export type RepairBackendFailureKind =
   | 'reply_not_diagram'
   | 'time_budget'
   | 'exception'
+  | 'missing_output'
   | 'unknown';
 
 /** Which parser rejected an AI Repair candidate (backend_failure_kind=syntax_error). */
@@ -111,6 +112,8 @@ export type RepairSyntaxErrorKind =
   | 'gantt_build'
   | 'zenuml_parse'
   | 'openapi_structure'
+  | 'plantuml_syntax'
+  | 'plantuml_frame'
   | 'other';
 
 export type AnalyticsProperties = {

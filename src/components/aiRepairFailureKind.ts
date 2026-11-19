@@ -14,6 +14,7 @@
 //     time budget
 //   apps/web/modules/saas/diagram/services/deterministic-syntax-parser.ts —
 //     mermaid / zenuml / openapi parser messages
+//   apps/web/modules/saas/diagram/services/plantuml-syntax-check.ts — PlantUML
 // If the worker starts returning `output.failureCode`, that wins.
 
 import type { RepairBackendFailureKind, RepairSyntaxErrorKind } from '@/utils/analytics/types';
@@ -26,6 +27,7 @@ export interface RepairFailureClassification {
 }
 
 interface FailedJobLike {
+  status?: unknown;
   message?: unknown;
   error?: unknown;
   output?: { failureCode?: unknown; timedOut?: unknown } | null;
@@ -44,6 +46,8 @@ const syntaxKind = (error: string): RepairSyntaxErrorKind => {
   if (/^(Parse error|Parsing failed)/i.test(error)) return 'parse_error';
   if (/^ZenUML could not parse|^line \d+:\d+ /.test(error)) return 'zenuml_parse';
   if (/^OpenAPI document /.test(error)) return 'openapi_structure';
+  if (/^PlantUML syntax error/.test(error)) return 'plantuml_syntax';
+  if (/^PlantUML code must (start|end) with/.test(error)) return 'plantuml_frame';
   return 'other';
 };
 
@@ -52,6 +56,9 @@ export function classifyRepairFailure(job?: FailedJobLike | null): RepairFailure
   const message = typeof job?.message === 'string' ? job.message : '';
   const code = job?.output?.failureCode;
 
+  if (job?.status === 'COMPLETED') {
+    return { backend_failure_kind: 'missing_output' };
+  }
   if (job?.output?.timedOut === true || error === 'Repair time budget exhausted') {
     return { backend_failure_kind: 'time_budget' };
   }

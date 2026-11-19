@@ -1013,7 +1013,9 @@ export async function callHeadlessTool(
         return { result: 'already_present', contentId, pageId };
       }
 
-      adf.content.push(buildMacroNode(extensionKey, contentId, (ctx.nowMs ?? Date.now)()));
+      const macroNode = buildMacroNode(extensionKey, contentId, (ctx.nowMs ?? Date.now)());
+      const macroLocalId = (macroNode.attrs as { localId?: unknown }).localId;
+      adf.content.push(macroNode);
       const published = await request(`/wiki/api/v2/pages/${encodeURIComponent(pageId)}`, {
         method: 'PUT',
         body: {
@@ -1080,6 +1082,7 @@ export async function callHeadlessTool(
         title,
         diagramType: storedType,
         dsl,
+        macroLocalId: typeof macroLocalId === 'string' ? macroLocalId : undefined,
       };
     }
 

@@ -506,6 +506,27 @@ describe('tool usage analytics', () => {
     expect(called?.properties.cloud_id).toBeUndefined();
   });
 
+  it('records a numeric content id and drops free-text ids', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    await call(env, token, 'tools/call', {
+      name: 'read_diagram',
+      arguments: { cloudId: 'not-a-uuid', contentId: '2647916556' },
+    });
+    const called = events.find((e) => e.event === 'agent_link_mcp_tool_called');
+    expect(called?.properties.content_id).toBe('2647916556');
+    expect(called?.properties.macro_local_id).toBeUndefined();
+
+    events.length = 0;
+    await call(env, token, 'tools/call', {
+      name: 'read_diagram',
+      arguments: { cloudId: 'not-a-uuid', contentId: 'cc-1' },
+    });
+    const freeText = events.find((e) => e.event === 'agent_link_mcp_tool_called');
+    expect(freeText?.properties.content_id).toBeUndefined();
+  });
+
   it('records the site a call targeted', async () => {
     const events = captureEvents();
     const env = await trackedEnv();

@@ -1110,6 +1110,10 @@ export type AnalyticsProperties = {
   // agent_link_diagram_updated only: true when the call renamed the diagram
   // (a non-blank `title` that differs from the stored one, #789).
   title_changed?: boolean;
+  // Headless diagram tools. `content_id` (declared above) is the custom content
+  // the call read or wrote, digits only. `macro_local_id` is the ADF extension
+  // localId, and only when create_diagram actually placed that macro.
+  macro_local_id?: string;
   // Z — Connect MCP dialog (agent_link_mcp_dialog_*). `mcp_mode` says how the
   // dialog connects the agent (headless only, for now); `mcp_copy_target` says
   // which block a Copy click targeted. The copy outcome rides the shared

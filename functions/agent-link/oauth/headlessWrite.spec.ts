@@ -513,11 +513,12 @@ describe('create_diagram', () => {
       'create_diagram',
       { cloudId: CLOUD, pageId: 'page-1', type: 'Sequence', dsl: 'A.b()', title: 'Login' },
       ctx,
-    )) as { result: string; contentId: string; pageVersion: number };
+    )) as { result: string; contentId: string; pageVersion: number; macroLocalId: string };
 
     expect(out.result).toBe('added');
     expect(out.contentId).toBe('new-1');
     expect(out.pageVersion).toBe(5);
+    expect(out.macroLocalId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
     expect(countExtensions(site.pageAdf)).toBe(2); // the seeded one, plus ours
     // the node names the diagram, so the page renders it
     expect(referencesCustomContent(site.pageAdf, 'new-1', CLOUD)).toBe(true);

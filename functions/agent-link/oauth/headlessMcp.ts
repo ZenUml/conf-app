@@ -133,6 +133,7 @@ async function trackWrite(
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
   const out = (value ?? {}) as { result?: unknown; gate?: unknown; titleChanged?: unknown };
+  const ids = diagramIdsForAnalytics(undefined, value);
   const event = WRITE_EVENT_BY_TOOL[tool];
   if (!event) return;
   try {
@@ -145,6 +146,8 @@ async function trackWrite(
         cloud_id: cloudId,
         client_domain: clientDomain,
         macro_type: macroType,
+        content_id: ids.content_id,
+        macro_local_id: ids.macro_local_id,
         result: typeof out.result === 'string' ? out.result : undefined,
         paywall_gate: typeof out.gate === 'string' ? out.gate : undefined,
         // update_diagram only: did the call rename the diagram (#789)?
@@ -283,6 +286,7 @@ async function trackWriteRefusal(
   cloudId: string | undefined,
   failure: HeadlessToolError,
   clientDomain: string | undefined,
+  args: unknown,
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
   const event = WRITE_EVENT_BY_TOOL[tool];
@@ -302,6 +306,7 @@ async function trackWriteRefusal(
         guardrail_rejected: failure.code === 'guardrail_rejected' || undefined,
         guardrail_reason: guardrailReasonOf(failure),
         macro_type: refusedMacroType(failure),
+        content_id: diagramIdsForAnalytics(args, undefined, failure).content_id,
       },
       env.MIXPANEL_TOKEN,
       env,
@@ -362,6 +367,37 @@ function cloudIdOf(args: unknown): string | undefined {
   return typeof value === 'string' && CLOUD_ID_RE.test(value) ? value : undefined;
 }
 
+/** Confluence custom-content ids are decimal. Anything else is client free text. */
+const CONTENT_ID_RE = /^\d{1,30}$/;
+
+/**
+ * Ids safe to put on a Mixpanel event.
+ *
+ * `content_id` is the custom content the tool read or wrote. `macro_local_id`
+ * is the ADF extension `localId`, and only when this call placed that macro
+ * (`result: 'added'`). A failed create may have stored content and then not
+ * placed it; that id stays on `content_id` and does not pretend a macro exists.
+ */
+export function diagramIdsForAnalytics(
+  args: unknown,
+  value: unknown,
+  failure?: HeadlessToolError,
+): { content_id?: string; macro_local_id?: string } {
+  const detail = failure?.detail as { contentId?: unknown } | undefined;
+  const candidates = [
+    (value as { contentId?: unknown } | null)?.contentId,
+    (args as { contentId?: unknown } | null)?.contentId,
+    detail?.contentId,
+  ];
+  const content = candidates.find((candidate) => typeof candidate === 'string' && CONTENT_ID_RE.test(candidate));
+  const placed = (value as { result?: unknown; macroLocalId?: unknown } | null)?.result === 'added';
+  const local = placed ? (value as { macroLocalId?: unknown } | null)?.macroLocalId : undefined;
+  return {
+    ...(typeof content === 'string' ? { content_id: content } : {}),
+    ...(typeof local === 'string' && CLOUD_ID_RE.test(local) ? { macro_local_id: local } : {}),
+  };
+}
+
 /** Client-supplied text, bounded before it reaches Mixpanel. */
 function clip(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value.slice(0, 64) : undefined;
@@ -373,7 +409,8 @@ function clip(value: unknown): string | undefined {
  * are otherwise invisible on the headless path. Arguments and results are
  * never sent — only the tool's name, the site it targeted, how it ended, and
  * how long it took. `cloud_id` is what makes usage readable per customer: the
- * token says who, but only the call says which site.
+ * token says who, but only the call says which site. `content_id` and
+ * `macro_local_id` name the diagram when the call has one; the DSL does not.
  *
  * The call carries no `clientInfo`, so the host comes from the token's OAuth
  * registration. That KV read runs here, after the response when `waitUntil` is
@@ -392,6 +429,8 @@ async function trackToolCall(
     clientDomain?: string;
     macroType?: string;
     guardrailReason?: string;
+    contentId?: string;
+    macroLocalId?: string;
   },
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
@@ -413,6 +452,8 @@ async function trackToolCall(
       guardrail_reason: call.guardrailReason,
       duration_ms: call.durationMs,
       macro_type: call.macroType,
+      content_id: call.contentId,
+      macro_local_id: call.macroLocalId,
     },
     env.MIXPANEL_TOKEN,
   ));
@@ -600,7 +641,7 @@ export async function handleHeadlessRpc(
       const trackCall = (
         outcome: ToolOutcome,
         reason?: string,
-        extra: { macroType?: string; guardrailReason?: string } = {},
+        extra: { macroType?: string; guardrailReason?: string; contentId?: string; macroLocalId?: string } = {},
       ) =>
         defer(trackToolCall(env, store, auth.token, {
           tool,
@@ -633,6 +674,7 @@ export async function handleHeadlessRpc(
           ctx,
         );
         const macroType = macroTypeOf(params.name, value);
+        const ids = diagramIdsForAnalytics(params.arguments, value);
         await trackWrite(
           env,
           params.name,
@@ -642,7 +684,11 @@ export async function handleHeadlessRpc(
           clientDomainOf(reachableSites, params.arguments),
           macroType,
         );
-        await trackCall('success', undefined, { macroType });
+        await trackCall('success', undefined, {
+          macroType,
+          contentId: ids.content_id,
+          macroLocalId: ids.macro_local_id,
+        });
         // MCP's content envelope: clients render `content`, and a structured
         // copy keeps the data usable without re-parsing the text.
         return result(id, {
@@ -651,6 +697,7 @@ export async function handleHeadlessRpc(
         });
       } catch (e) {
         if (e instanceof HeadlessToolError) {
+          const ids = diagramIdsForAnalytics(params.arguments, undefined, e);
           await trackWriteRefusal(
             env,
             params.name,
@@ -658,10 +705,12 @@ export async function handleHeadlessRpc(
             cloudId,
             e,
             clientDomainOf(reachableSites, params.arguments),
+            params.arguments,
           );
           await trackCall('tool_error', e.code, {
             macroType: refusedMacroType(e),
             guardrailReason: guardrailReasonOf(e),
+            contentId: ids.content_id,
           });
           // A dead grant is the one failure the user can act on, so it is a
           // 401 with the challenge rather than a tool-level error buried in a

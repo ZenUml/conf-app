@@ -128,6 +128,9 @@ importers:
       autoprefixer:
         specifier: ^10.4.13
         version: 10.4.23(postcss@8.4.31)
+      clarity-js:
+        specifier: 0.8.77
+        version: 0.8.77
       clipboard:
         specifier: ^2.0.11
         version: 2.0.11
@@ -5448,6 +5451,9 @@ packages:
   cipher-base@1.0.7:
     resolution: {integrity: sha512-Mz9QMT5fJe7bKI7MH31UilT5cEK5EHHRCccw/YRFsRY47AuNgaV6HY3rscp0/I4Q+tTW/5zoqpSeRRI54TkDWA==}
     engines: {node: '>= 0.10'}
+
+  clarity-js@0.8.77:
+    resolution: {integrity: sha512-r1sDoeqZRxBUqhb4B6g4aOfCo14OIxz4ICUJTo4gApdPRMizsCVLGCG5FNYQs7NVe1sYTkYOfSJNxx/VDKdp0A==}
 
   class-variance-authority@0.7.1:
     resolution: {integrity: sha512-Ka+9Trutv7G8M6WT6SeiRWz792K5qEqIGEGzXKhAE6xOWAY6pPH8U+9IY3oCMv6kqTmLsv7Xh/2w2RigkePMsg==}
@@ -17317,6 +17323,8 @@ snapshots:
       inherits: 2.0.4
       safe-buffer: 5.2.1
       to-buffer: 1.2.2
+
+  clarity-js@0.8.77: {}
 
   class-variance-authority@0.7.1:
     dependencies:

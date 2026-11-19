@@ -151,7 +151,8 @@ permissions:
     - read:app-system-token
     - storage:app
   external:
-    # Adding a host here is a MAJOR version that needs admin approval, as in #490 and #498.
+    # Adding a host here is a MAJOR version that needs admin approval, as in #490 and #498,
+    # even with `category: analytics` (measured 2026-11-19).
     # Classify first with `./scripts/forgex lint -e staging --verbose`. See CLAUDE.md,
     # "Forge app versions".
     fetch:

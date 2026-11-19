@@ -152,6 +152,23 @@ describe('fullscreenZoomSummary', () => {
     expect(summaries()).toHaveLength(1);
   });
 
+  it('never throws out of a renderer teardown when the analytics send throws', () => {
+    vi.mocked(trackAnalyticsEventBeforeUnload).mockImplementationOnce(() => {
+      throw new Error('analytics unavailable');
+    });
+    start();
+    noteFullscreenZoomControl('zoom_in', 'toolbar');
+    expect(() => endFullscreenZoomSession()).not.toThrow();
+  });
+
+  it('never throws out of the idle timer when the analytics send throws', () => {
+    vi.mocked(trackAnalyticsEvent).mockImplementationOnce(() => {
+      throw new Error('analytics unavailable');
+    });
+    start();
+    expect(() => vi.advanceTimersByTime(SUMMARY_IDLE_MS)).not.toThrow();
+  });
+
   it('sends nothing at teardown when the last row is current', () => {
     start();
     vi.advanceTimersByTime(SUMMARY_IDLE_MS);

@@ -14,6 +14,7 @@ import {
   trackAnalyticsEventBeforeUnload,
 } from "./trackAnalyticsEvent";
 import { getSessionReplayConfig } from "./sessionReplayFlags";
+import { startClarityReplay } from "./clarityReplay";
 import { normalizeProductType } from "./productType";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
 import { EVENT_SAMPLE_RATES } from "./eventSampling";
@@ -32,6 +33,12 @@ vi.mock("mixpanel-browser", () => ({
 
 vi.mock("./sessionReplayFlags", () => ({
   getSessionReplayConfig: vi.fn(),
+}));
+
+// Never settles by default, so existing assertions on the last register()
+// call are unaffected; the Clarity test below resolves it explicitly.
+vi.mock("./clarityReplay", () => ({
+  startClarityReplay: vi.fn(() => new Promise(() => {})),
 }));
 
 vi.mock("./demoPageStatus", () => ({
@@ -1986,5 +1993,27 @@ describe("trackAnalyticsEvent", () => {
         surface: "modal",
       })
     ).resolves.not.toThrow();
+  });
+});
+
+describe("trackAnalyticsEvent — Clarity replay super-properties", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    _resetForTesting();
+    // @ts-ignore
+    window.globals = mockGlobals;
+    vi.mocked(forgeGlobal).isForge = true;
+    vi.mocked(forgeGlobal).forgeContext = { localId: "macro-abc" } as any;
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({ percent: 0, source: "off" } as any);
+  });
+
+  it.each([
+    [{ outcome: "started", sessionId: "s1" }, { clarity_replay_outcome: "started", clarity_session_id: "s1" }],
+    [{ outcome: "skipped_geo" }, { clarity_replay_outcome: "skipped_geo" }],
+  ])("registers %j as %j", async (result, expected) => {
+    vi.mocked(startClarityReplay).mockResolvedValueOnce(result as any);
+    await _awaitableTrackAnalyticsEvent("macro_viewed", { feature_area: "macro", surface: "viewer" });
+    await vi.waitFor(() => expect(mixpanel.register).toHaveBeenCalledWith(expected));
   });
 });

@@ -474,6 +474,24 @@ export type SessionReplayStartCallOutcome =
   | "skipped_daily_cap";
 
 /**
+ * Microsoft Clarity replay start outcome, registered once per iframe as the
+ * `clarity_replay_outcome` super-property (no event of its own).
+ * `started`         — clarity.start() was called (text and images masked,
+ *                     no cookies, no account id).
+ * `skipped_surface` — not an editor or fullscreen iframe.
+ * `skipped_flag`    — `clarity-replay-enabled` is off for this user/site.
+ * `skipped_geo`     — stats.zenuml.com/clarity/allow refused (EEA/UK/CH
+ *                     visitor) or could not be reached.
+ * `failed`          — the SDK threw while starting.
+ */
+export type ClarityReplayOutcome =
+  | "started"
+  | "skipped_surface"
+  | "skipped_flag"
+  | "skipped_geo"
+  | "failed";
+
+/**
  * Which 404 NOT_FOUND envelope a failed custom-content CREATE returned.
  * `bare_not_found`      — `"title":"Not Found"`, detail null: the permission-
  *                          masked refusal (verified 2026-08-30 on lite-stg).

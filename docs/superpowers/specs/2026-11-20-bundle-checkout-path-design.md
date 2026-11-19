@@ -1,10 +1,10 @@
 # Enterprise Bundle checkout path — design
 
-Status: draft, rev 2, 2026-11-20 (Melbourne). Owner decision needed on the items marked **[owner]**.
+Status: draft, rev 3, 2026-11-20 (Melbourne). Owner decision needed on the items marked **[owner]**.
 
 Rev 2: Phase 1 now opens checkout through a `*.zenuml.com` redirect, because a production test
 showed that Forge shows no external-page dialog for our own domain (see "Dialog test" below).
-Rev 1 assumed the dialog could not be removed.
+Rev 1 assumed the dialog could not be removed. Rev 3: the redirect is a 3-second handoff page, not a bare 302. High-fidelity screens: Figma frame 06.13.
 
 ## Problem
 
@@ -67,7 +67,7 @@ Three phases. Each phase ships and is measured on its own.
 
 ```
 Before:  Unlock ─▶ router.open(buy.stripe.com/…)                      ─▶ [dialog] ─▶ Stripe
-Phase 1: Unlock ─▶ router.open(conf-lite.zenuml.com/bundle-checkout?…) ─▶ 302 ─────▶ Stripe Payment Link
+Phase 1: Unlock ─▶ router.open(conf-lite.zenuml.com/bundle-checkout?…) ─▶ handoff page (3 s) ─▶ Stripe Payment Link
 Phase 2: Unlock ─▶ router.open(conf-lite.zenuml.com/bundle-checkout?…) ─▶ server creates
                                                                          Checkout Session ─▶ 302 ─▶ Stripe
 ```
@@ -79,8 +79,17 @@ Phase 2: Unlock ─▶ router.open(conf-lite.zenuml.com/bundle-checkout?…) ─
    - Query: `ref` (the existing `<domain>__<spaceKey>` value, same sanitising as
      `src/utils/paywall/enterpriseBundleCheckout.ts`) and `surface`.
    - Validates `ref` against `^[A-Za-z0-9_-]{1,200}$`; on failure answers 400 with a short HTML page.
-   - Answers `302` to the fixed Payment Link with `client_reference_id=<ref>`. The target is a
-     constant, so this is not an open redirect.
+   - Answers `200` with a short **handoff page** (owner decision, 2026-11-20), not a bare `302`:
+     a summary card (space and site, $299 per year plus tax where applicable, what the space gets,
+     card payment by Stripe with no Confluence admin needed), a 3-second countdown with a progress
+     bar, a **Stop** link that pauses it, and a **Continue to Stripe now** button. When the countdown
+     ends, or on Continue, the page goes to the fixed Payment Link with `client_reference_id=<ref>`.
+     The target is a constant, so this is not an open redirect. The page also says that Stripe may
+     show the registered company name (C3). Nothing to fill in, so it adds no click.
+   - Why not a bare `302`: the 5 sessions that reached Checkout had no input at all, so trust and
+     price clarity at the moment of payment may matter (inferred). Why not a page that waits for a
+     click: one extra step (the dialog) lost 16 of 18 sites. The page's own drop is measured by
+     `bundle_checkout_continued` against `bundle_checkout_redirected`.
    - Records `bundle_checkout_redirected` server-side (see Analytics) before redirecting. This gives
      an exact count of users who passed the click, which the Payment Link alone cannot give.
    - Trust: `ref` comes from the client, exactly as `client_reference_id` does today, so this step
@@ -135,7 +144,8 @@ invoice.
 
 | Event | Trigger | Key properties |
 |---|---|---|
-| `bundle_checkout_redirected` | `/bundle-checkout` answers 302 (Phase 1, server-side) | `feature_area: upgrade`, `surface`, `client_reference_id`, `outcome: redirected \| invalid_ref` |
+| `bundle_checkout_redirected` | `/bundle-checkout` serves the handoff page or the 400 page (Phase 1, server-side) | `feature_area: upgrade`, `surface`, `client_reference_id`, `outcome: served \| invalid_ref` |
+| `bundle_checkout_continued` | Handoff page leaves for Stripe (Phase 1, page script) | `feature_area: upgrade`, `surface`, `client_reference_id`, `trigger: auto \| button`, `stopped_first` |
 | `bundle_checkout_open_result` | `router.open` rejects after a Bundle click (Phase 1, client-side) | `feature_area: upgrade`, `surface`, `outcome: declined \| error` |
 | `bundle_checkout_session_created` | Phase 2 endpoint creates a session | `surface`, `client_reference_id`, `outcome: created \| failed`, `error_kind` |
 | `bundle_checkout_returned` | Plan and usage loads from `success_url` (Phase 2) | `client_reference_id`, `space_paid` (after status refresh) |

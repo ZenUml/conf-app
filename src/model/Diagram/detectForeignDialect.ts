@@ -104,3 +104,95 @@ export function detectForeignDialect(code: string | null | undefined): ForeignDi
   if (extractMermaidSource(code) !== null) return "mermaid";
   return null;
 }
+
+// Content a Mermaid macro cannot render although the user meant it to.
+// `plantuml`: the source is PlantUML (`@startuml`), which needs the PlantUML
+// tab. `leading_text`: prose (for example a Markdown heading) sits above a
+// real Mermaid opener, so Mermaid stops at line 1 with "No diagram type
+// detected". Mermaid accepts only blank lines, `%%` comments/directives and a
+// YAML front-matter block above the opener, so any other line there is an
+// error — this cannot fire on source that Mermaid would render.
+// `markdown_document`: prose plus two or more Mermaid openers — a Markdown
+// document holding several diagrams, which only the Markdown tab can render.
+export type MermaidForeignContent = "plantuml" | "leading_text" | "markdown_document";
+
+function openerLines(code: string): { lines: string[]; leadingTextEnd: number | null; openers: number[] } {
+  const lines = code.split(/\r\n|\r|\n/);
+  let i = 0;
+  if (lines[0]?.trim() === "---") {
+    let j = 1;
+    while (j < lines.length && lines[j].trim() !== "---") j++;
+    if (j < lines.length) i = j + 1;
+  }
+  const meaningful: number[] = [];
+  for (let k = i; k < lines.length; k++) {
+    if (!isBlank(lines[k]) && !isMermaidCommentOrDirective(lines[k])) meaningful.push(k);
+  }
+  const nextOf = (n: number) => (n + 1 < meaningful.length ? lines[meaningful[n + 1]] : null);
+  const openers = meaningful.filter((_, n) => isMermaidOpener(lines[meaningful[n]], nextOf(n)));
+  const leadingText = meaningful.length > 0 && openers.length > 0 && openers[0] !== meaningful[0];
+  return { lines, leadingTextEnd: leadingText ? openers[0] : null, openers };
+}
+
+function leadingTextEnd(code: string): number | null {
+  return openerLines(code).leadingTextEnd;
+}
+
+export function detectForeignContentInMermaid(code: string | null | undefined): MermaidForeignContent | null {
+  if (!code) return null;
+  if (PLANTUML_FENCE.test(code)) return "plantuml";
+  const { leadingTextEnd: end, openers } = openerLines(code);
+  if (end === null) return null;
+  return openers.length > 1 ? "markdown_document" : "leading_text";
+}
+
+// Keeps the author's text: each non-blank line above the Mermaid opener
+// becomes a `%%` comment, which Mermaid ignores. Returns `code` unchanged when
+// there is no leading text.
+export function commentOutLeadingText(code: string): string {
+  const end = leadingTextEnd(code);
+  if (end === null) return code;
+  const lines = code.split(/\r\n|\r|\n/);
+  return lines
+    .map((line, index) =>
+      index < end && !isBlank(line) && !isMermaidCommentOrDirective(line) ? `%% ${line}` : line,
+    )
+    .join("\n");
+}
+
+const MARKDOWN_HEADING = /^#{1,6}\s/;
+
+// Markdown source for the Markdown tab: prose stays as written and each
+// Mermaid diagram (from its opener to the next Markdown heading or the next
+// opener) is wrapped in a ```mermaid fence. Blank lines at the end of a
+// diagram stay outside its fence.
+export function toMarkdownDocument(code: string): string {
+  const { lines, openers } = openerLines(code);
+  const starts = new Set(openers);
+  const out: string[] = [];
+  let inside = false;
+  let pendingBlank: string[] = [];
+  const close = () => {
+    out.push("```", ...pendingBlank);
+    pendingBlank = [];
+    inside = false;
+  };
+  lines.forEach((line, index) => {
+    if (inside && (MARKDOWN_HEADING.test(line) || starts.has(index))) close();
+    if (!inside && starts.has(index)) {
+      out.push("```mermaid");
+      inside = true;
+    }
+    if (inside && isBlank(line)) {
+      pendingBlank.push(line);
+      return;
+    }
+    if (inside) {
+      out.push(...pendingBlank);
+      pendingBlank = [];
+    }
+    out.push(line);
+  });
+  if (inside) close();
+  return out.join("\n");
+}

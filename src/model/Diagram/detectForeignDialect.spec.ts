@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { detectForeignDialect, extractMermaidSource } from "@/model/Diagram/detectForeignDialect";
+import {
+  commentOutLeadingText,
+  detectForeignContentInMermaid,
+  toMarkdownDocument,
+  detectForeignDialect,
+  extractMermaidSource,
+} from "@/model/Diagram/detectForeignDialect";
 
 const BODY = `sequenceDiagram
   autonumber
@@ -196,5 +202,82 @@ describe("extractMermaidSource", () => {
     expect(extractMermaidSource(null)).toBeNull();
     expect(extractMermaidSource(undefined)).toBeNull();
     expect(extractMermaidSource("")).toBeNull();
+  });
+});
+
+// AI Repair failures, 2026-10-20..11-19: 3 of 12 were Mermaid macros holding
+// something Mermaid cannot read — PlantUML (`@startuml`, twice) or Markdown
+// prose above the diagram (`# 10.1 Overview` then `flowchart LR`). Mermaid
+// reports "No diagram type detected" and the repair keeps the language.
+describe("detectForeignContentInMermaid", () => {
+  it("detects PlantUML in a Mermaid macro", () => {
+    expect(detectForeignContentInMermaid("@startuml\nA -> B: hi\n@enduml")).toBe("plantuml");
+    expect(detectForeignContentInMermaid("@startuml create-order\ntitle T\nA -> B\n@enduml")).toBe("plantuml");
+  });
+
+  it("detects prose above a Mermaid opener", () => {
+    expect(detectForeignContentInMermaid("# 10.1 Overview\n\nflowchart LR\n  A[One] --> B[Two]")).toBe("leading_text");
+  });
+
+  it("does not fire on valid Mermaid", () => {
+    expect(detectForeignContentInMermaid("flowchart LR\n  A --> B")).toBeNull();
+    expect(detectForeignContentInMermaid("%% note\n%%{init: {}}%%\nsequenceDiagram\n  A->>B: hi")).toBeNull();
+    expect(detectForeignContentInMermaid("---\ntitle: Demo\n---\nflowchart TD\n  A --> B")).toBeNull();
+    expect(detectForeignContentInMermaid("")).toBeNull();
+    expect(detectForeignContentInMermaid(null)).toBeNull();
+  });
+
+  it("does not fire when no Mermaid opener follows the text", () => {
+    expect(detectForeignContentInMermaid("just some notes\nmore notes")).toBeNull();
+  });
+});
+
+describe("commentOutLeadingText", () => {
+  it("turns the lines above the opener into %% comments and keeps the rest", () => {
+    expect(commentOutLeadingText("# 10.1 Overview\n\nflowchart LR\n  A --> B")).toBe(
+      "%% # 10.1 Overview\n\nflowchart LR\n  A --> B",
+    );
+  });
+
+  it("leaves existing comments as they are", () => {
+    expect(commentOutLeadingText("Intro\n%% keep\nflowchart LR\n  A --> B")).toBe(
+      "%% Intro\n%% keep\nflowchart LR\n  A --> B",
+    );
+  });
+});
+
+const MD_DOC = [
+  "# 1 Overview",
+  "",
+  "flowchart LR",
+  "  A --> B",
+  "",
+  "# 2 Flow",
+  "Some words.",
+  "sequenceDiagram",
+  "  A->>B: hi",
+].join("\n");
+
+describe("Markdown document with several Mermaid diagrams", () => {
+  it("is detected as markdown_document", () => {
+    expect(detectForeignContentInMermaid(MD_DOC)).toBe("markdown_document");
+  });
+
+  it("wraps each diagram in a mermaid fence and keeps the prose", () => {
+    expect(toMarkdownDocument(MD_DOC)).toBe([
+      "# 1 Overview",
+      "",
+      "```mermaid",
+      "flowchart LR",
+      "  A --> B",
+      "```",
+      "",
+      "# 2 Flow",
+      "Some words.",
+      "```mermaid",
+      "sequenceDiagram",
+      "  A->>B: hi",
+      "```",
+    ].join("\n"));
   });
 });

@@ -68,9 +68,12 @@ export async function expectNotMagnified(frame: FrameLocator): Promise<void> {
 }
 
 /**
- * Zoom in grows the diagram. Each engine steps by its own factor (svg-pan-zoom
- * 1.2, mxGraph's zoomFactor, the CSS viewport 1.2), so this asserts the
- * direction rather than the size.
+ * Zoom in grows the diagram, up to natural size and no further.
+ *
+ * Each engine steps by its own factor (svg-pan-zoom 1.1, the Graph and CSS
+ * viewports 1.2), so this asserts the direction rather than the size. The
+ * ceiling is natural size: a diagram that already opens there has nothing to
+ * zoom into, and its Zoom in button is disabled instead of doing nothing.
  */
 export async function expectZoomInGrows(frame: FrameLocator, label: string): Promise<void> {
   const before = await settledScale(frame);
@@ -78,17 +81,32 @@ export async function expectZoomInGrows(frame: FrameLocator, label: string): Pro
   // getByRole matches the accessible name by SUBSTRING, which is how
   // viewer-preview-overflow-menu.spec.ts hit a strict-mode violation once a
   // second button shared a word.
-  await frame
+  const zoomIn = frame
     .getByRole('toolbar', { name: `${label} zoom controls` })
-    .getByRole('button', { name: 'Zoom in' })
-    .click();
+    .getByRole('button', { name: 'Zoom in' });
+  // The button decides the branch, not the measured scale: a diagram that fits
+  // at 0.99x still has 1% to go and keeps Zoom in, which a scale threshold here
+  // misread as "already natural size" (Mermaid, CI 2026-11-18).
+  if (await zoomIn.isDisabled()) {
+    expect(before, `Zoom in is disabled at ${before.toFixed(2)}x, below natural size`).toBeGreaterThanOrEqual(NATURAL_SIZE);
+    return;
+  }
+  await zoomIn.click();
   await expect
     .poll(() => readDrawnScale(frame), {
       timeout: TIMEOUTS.FRAME_LOAD,
       message: 'the diagram did not grow after Zoom in',
     })
     .toBeGreaterThan(before);
+  // Never past natural size, however many steps.
+  for (let i = 0; i < 30 && (await zoomIn.isEnabled()); i += 1) await zoomIn.click();
+  await expect(zoomIn, 'Zoom in still enabled after zooming to the ceiling').toBeDisabled();
+  const after = await readDrawnScale(frame);
+  expect(after, `zoomed past natural size: ${after?.toFixed(2)}x`).toBeLessThanOrEqual(1.01);
 }
+
+/** A drawn scale at or above this is natural size, allowing sub-pixel rounding. */
+const NATURAL_SIZE = 0.99;
 
 /**
  * The zoom chip is present and named for its renderer. Named, not positional:

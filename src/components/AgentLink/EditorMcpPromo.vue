@@ -38,6 +38,8 @@
       :prompt="promo.dialogPrompt.value"
       @close="promo.closeDialog"
       @copy="promo.onCopied"
+      @select-client="promo.onClientSelected"
+      @install="promo.onInstall"
     />
   </div>
 </template>

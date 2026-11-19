@@ -85,6 +85,8 @@
           :prompt="mcpDialogPrompt"
           @close="mcpCloseDialog"
           @copy="mcpOnCopied"
+          @select-client="mcpOnClientSelected"
+          @install="mcpOnInstall"
         />
         </div>
         <!-- The code panel's own toggle: one button, anchored to the corner
@@ -139,6 +141,7 @@
   import McpPromoCard from '@/components/AgentLink/McpPromoCard.vue'
   import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
   import { useEditorMcpPromo } from '@/composables/agentLink/useEditorMcpPromo'
+  import { createPreviewClickTracker, type PreviewClickTracker } from '@/utils/viewport/previewClickTracker'
 
   // split.js reports pane sizes as percentages of the workspace width.
   //
@@ -158,6 +161,9 @@
   // The diagram keeps a usable width wherever the gutter is dropped. Only the
   // code pane collapses; there is no symmetric "hide the diagram".
   const MIN_DIAGRAM_PANEL_PX = 200
+
+  // Kept off the reactive instance: the tracker holds DOM listeners only.
+  const previewClickTrackers = new WeakMap<object, PreviewClickTracker>()
 
   export default {
     name: 'Workspace',
@@ -188,6 +194,8 @@
         mcpDialogPrompt: promo.dialogPrompt,
         mcpCloseDialog: promo.closeDialog,
         mcpOnCopied: promo.onCopied,
+        mcpOnClientSelected: promo.onClientSelected,
+        mcpOnInstall: promo.onInstall,
       }
     },
     data() {
@@ -223,8 +231,29 @@
       diagramType(type) {
         if (type === DiagramType.Markdown && this.showAIChat) this.closeAIChat();
       },
+      currentCode() {
+        previewClickTrackers.get(this)?.notifySourceChanged()
+      },
     },
     methods: {
+      // P6 measurement (editor_preview_element_clicked): clicks on elements of
+      // the Mermaid/PlantUML preview and what the author does next. Rules in
+      // utils/viewport/previewClickTracker.ts.
+      startPreviewClickTracker() {
+        const preview = this.$el?.querySelector?.('#workspace-right') as HTMLElement | null
+        if (!preview) return
+        previewClickTrackers.set(this, createPreviewClickTracker({
+          preview,
+          source: this.$el.querySelector('#workspace-left') as HTMLElement | null,
+          macroType: () => this.diagramType || 'none',
+          codePanelHidden: () => !this.showCodeEditor,
+          track: (props) => trackAnalyticsEvent('editor_preview_element_clicked', {
+            feature_area: 'macro',
+            surface: 'editor',
+            ...props,
+          }),
+        }))
+      },
       toggleAIChat() {
         if (this.showAIChat) {
           this.closeAIChat()
@@ -360,8 +389,11 @@
     },
     async mounted () {
       this.initializeSplit()
+      this.startPreviewClickTracker()
     },
     beforeUnmount() {
+      previewClickTrackers.get(this)?.dispose()
+      previewClickTrackers.delete(this)
       this.destroySplit()
     },
     components: {

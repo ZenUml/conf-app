@@ -74,6 +74,12 @@ Before writing code for any new feature, define the analytics events first. For 
 
 **Why:** events retrofitted after the fact miss edge cases (e.g. "accepted vs modified" required understanding the full UX flow before implementation). Planning events up front forces clarity on what "success" looks like before the code is written.
 
+### Estimate Mixpanel cost and quota before adding events or session replay
+
+Before a change adds an event, raises a sampling rate, adds a forced session-replay source, or shows an existing forced-replay event to a wider audience, estimate its monthly volume against the two caps and state the estimate in the PR. The caps: 1,000,000 tracked events (billed above that) and 20,000 session replays (recording stops for the rest of the month above that). Count per occurrence, not per user: an event sent on mount fires once per macro iframe per page view. Measure the current rate with `.claude/skills/mixpanel/scripts/mp_quota.py`. Sampling sets are in `src/utils/analytics/eventSampling.ts`; forced replay sources are `FORCED_REPLAY_SOURCES` in `src/utils/analytics/trackAnalyticsEvent.ts`; caps and policy are in [docs/ops/mixpanel-quota-check.md](docs/ops/mixpanel-quota-check.md).
+
+**Why (2026-11-17):** the Lite site-policy license notice began to reuse `license_notice_shown`, a forced-replay event sized for a handful of Full sites. About 20,000 replays were then recorded in one day, as many as the monthly replay cap.
+
 ### Pure Forge — no Connect code
 
 All four variants (lite, full, diagramly, asyncapi) are **Forge-only** in production. The Connect runtime is fully removed.
@@ -82,14 +88,28 @@ All four variants (lite, full, diagramly, asyncapi) are **Forge-only** in produc
 
 For the full policy — banned APIs (`AP.*`, `xdm_e`, Connect hosts), `@forge/bridge` replacements, environment detection, DrawIO URL rules — see `docs/policies/forge-only.md` (create if absent when you need to capture a new decision).
 
-### Guest and anonymous viewers get no Forge user token
+### Anonymous viewers get no Forge user token (guests: changed 2026-11-10/11)
 
-Forge omits `x-forge-oauth-user` on `invokeRemote` for **unlicensed (guest)** and **anonymous** viewers: the token is "only sent for invocations that have a user in session", and Atlassian's [unlicensed-users guide](https://developer.atlassian.com/platform/forge/access-to-forge-apps-for-unlicensed-users/) says Confluence guests "can't make asUser calls" (open suggestion [ECO-1450](https://jira.atlassian.com/browse/ECO-1450)). The FIT carries no account-type claim, so the backend can only observe "user token absent". We have rendered macros for guests since ZEN-1170 (2026-05-22) and for anonymous visitors since `c7fb3658` (2026-10-06), so every backend endpoint that requires that header fails for them: `magic-writeback`, `forge-upload-attachment`, `forge-custom-content`, `metrics-cache/snapshot`, `api/diagram-impact`, `api/architecture-tokens/related`. Guests still save diagrams, because the frontend bridge (`requestConfluence`) runs as the guest.
+Forge omits `x-forge-oauth-user` on `invokeRemote` when no user is in session; the token is "only sent for invocations that have a user in session". Every backend endpoint that requires that header then fails: `magic-writeback`, `forge-upload-attachment`, `forge-custom-content`, `metrics-cache/snapshot`, `api/diagram-impact`, `api/architecture-tokens/related`. The FIT carries no account-type claim, so the backend can only observe "user token absent". Macros render for guests since ZEN-1170 (2026-05-22) and for anonymous visitors since `c7fb3658` (2026-10-06). Guests still save diagrams, because the frontend bridge (`requestConfluence`) runs as the guest.
 
-**Found 2026-10-08:** on one Lite customer site, guests (real accounts, each confined to one space) produced ~95% of all `magic_writeback_completed` `unavailable` outcomes — `magic-writeback.ts` answered their calls with 401 and the viewer recorded `client_exception`. Rules that follow:
+**Before 2026-11-10/11 (observed):** unlicensed (guest) viewers got no token either. Atlassian's [unlicensed-users guide](https://developer.atlassian.com/platform/forge/access-to-forge-apps-for-unlicensed-users/) said Confluence guests "can't make asUser calls" (open suggestion [ECO-1450](https://jira.atlassian.com/browse/ECO-1450)). On 2026-10-08, on one Lite customer site, guests (real accounts, each confined to one space) produced ~95% of all `magic_writeback_completed` `unavailable` outcomes; `magic-writeback.ts` answered them with 401.
 
-- **Frontend:** before any `callRemote` that needs the user token, gate on the viewer kind. Anonymous = no `accountId` in the Forge context. Guest = `isGuest: true` from `GET /wiki/rest/api/user/current` via the bridge (OpenAPI: "Whether the user is a guest user"; `isExternalCollaborator` is deprecated), cached per site+account in localStorage. `view.getContext()` documents no `accountType`, and the resolver-context `accountType` does not exist for a remote-only app.
-- **Backend:** a valid FIT without `x-forge-oauth-user` is a guest/anonymous invocation, not an auth failure — answer `403 { error: 'no_user_credential' }`, never 401, and never fall back to the app token to act for that viewer.
+**What changed (2026-11-17 diagnosis):**
+
+| Statement | Basis |
+|---|---|
+| On that site, guests' 403s on `/api/architecture-tokens/related` stopped between 2026-11-10 15:40Z and 2026-11-11 00:27Z, with no deploy or flag change on our side. Before that, Cloudflare 401/403 counts for the path matched Mixpanel `related_diagrams_lookup_failed` `error_kind: network` (19,276 vs 19,013, 10-19 to 11-10). | Observed |
+| A production tail on 2026-11-17: 0 of 1,593 requests answered 403. The 67 requests without `x-forge-oauth-user` were all `POST /forge-user-behavior` from `remote-page-behavior-trigger`, a product trigger with no user in session by design. | Observed |
+| Atlassian announced on 2026-11-02 that Forge is enabling user tokens for unlicensed users on function and Remote invocations, and that the change does not allow anonymous access ([changelog entry, CHANGE-3536](https://developer.atlassian.com/platform/forge/changelog/#CHANGE-3536); the page states no effective date). | Documented (re-read 2026-11-17; the entry is matched by title, the page does not print the ID) |
+| That this change is what stopped the 403s. | Inferred |
+| Anonymous viewers still get no token. | Documented only; not measured |
+
+**Telemetry trap:** `callRemote` throws on any non-200, and `RelatedDiagramsFooter.vue` recorded every such throw as `error_kind: network`. Those ~19,000 "network" failures were HTTP 403. A fix is in progress in another PR; it is not fixed here yet.
+
+Rules:
+
+- **Frontend:** before any `callRemote` that needs the user token, gate anonymous viewers (no `accountId` in the Forge context). The guest gate (`isGuest: true` from `GET /wiki/rest/api/user/current` via the bridge, cached per site+account in localStorage; `isExternalCollaborator` is deprecated) is possibly redundant now. Keep it until the platform change has proved stable, then re-evaluate. `view.getContext()` documents no `accountType`, and the resolver-context `accountType` does not exist for a remote-only app.
+- **Backend:** a valid FIT without `x-forge-oauth-user` is a no-user invocation, not an auth failure. Answer `403 { error: 'no_user_credential' }`, never 401, and never fall back to the app token to act for that viewer.
 - **Diagnosis:** `wrangler pages deployment tail <deployment-id> --project-name conf-lite --format json` shows each request's header set; a 401 with `x-forge-oauth-system` present and `x-forge-oauth-user` absent is this case. Do not read wall time as "which branch ran": the same D1-only path takes ~100 ms via SYD and ~480 ms via SIN/ICN/NRT (round trips to the MEL primary), which looks like a Confluence call and is not one.
 
 ### Client privacy — no client names in public files
@@ -97,6 +117,19 @@ Forge omits `x-forge-oauth-user` on `invokeRemote` for **unlicensed (guest)** an
 Real Confluence tenant names (subdomain prefixes, `<customer>.atlassian.net` hostnames, customer page titles, customer `cloudId`s) **MUST NOT** appear in any public-repo file. Use placeholders (`example-tenant`, `example.atlassian.net`). Real tenant data lives in the `private/` submodule (`ZenUml/conf-app-private`).
 
 Full rules, artifact routing table, pre-commit grep, and background: [docs/policies/client-privacy.md](docs/policies/client-privacy.md).
+
+### Customer email: Marketplace Partner Agreement §8.4(c)
+
+[§8.4(c)](https://www.atlassian.com/licensing/marketplace/partneragreement) allows direct contact from end-user data only "where required by Law or as consented to or requested by the end user". **The owner's ruling (2026-11-17):** this clause stops us from emailing ordinary users of the app. It does not stop a first-touch email at first install.
+
+| Case | Allowed? |
+|---|---|
+| One first-touch email to the Marketplace contact of a new install or evaluation | Yes |
+| Reply to a user who asked us (feedback dialog, support ticket, email) | Yes |
+| Email to an ordinary user we found in Confluence, Forge, Mixpanel or D1 data, who did not contact us | No |
+
+- The privacy policy is not a blocker for the first-touch email (owner, 2026-11-17).
+- The other contact rules still apply: owner's yes for each send, no repeat when there is no reply, no internal telemetry in the message, no contact with inactive payers. See `.claude/skills/customer-followup/references/contact-policy.md`.
 
 ### Never commit directly to `main`
 

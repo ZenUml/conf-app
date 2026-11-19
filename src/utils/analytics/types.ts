@@ -21,6 +21,8 @@ import type {
   RenderGateOutcome,
   CacheState,
   ContentState,
+  PasteFenceLanguage,
+  DiagramPasteAction,
   CacheSource,
   PlantUmlRenderer,
   McpViewPlantUmlRenderer,
@@ -60,6 +62,8 @@ import type {
   AgentLinkMcpButtonPlacement,
   AgentLinkMcpButtonReveal,
   AgentLinkMcpCopyTarget,
+  AgentLinkMcpClientChoice,
+  AgentLinkMcpCloseSource,
   AgentLinkMcpMode,
   AgentLinkMcpToolOutcome,
   AgentLinkRenderValidation,
@@ -77,6 +81,8 @@ import type {
   CreateNotFoundShape,
   SaveFailureProbeStatus,
   ArchitectureTokenLookupOutcome,
+  ArchitectureTokenStaleReason,
+  ArchitectureTokenIndexSource,
   AuthoringOutcome,
   MagicFailureReason,
   FeedbackCaptureMethod,
@@ -195,6 +201,10 @@ export type AnalyticsProperties = {
   // the same one event and the two are directly comparable.
   // `keyboard` only from the MCP Apps view (agent_link_app_view_zoomed).
   viewport_input?: "toolbar" | "wheel" | "keyboard";
+  // `viewport_input: wheel` only: whether the gesture held Ctrl/Cmd (a trackpad
+  // pinch arrives as Ctrl too) or was a plain wheel. A plain wheel zooms only in
+  // Fullscreen and the editor preview; on the page it scrolls and is not sent.
+  wheel_modifier?: "none" | "ctrl_meta";
   entry_point?: EntryPoint;
   // Create funnel only (macro_create_started / macro_create_succeeded /
   // macro_create_cancelled). `creation_origin` names the surface that started
@@ -334,6 +344,7 @@ export type AnalyticsProperties = {
   openapi_count?: number;
   mermaid_count?: number;
   plantuml_count?: number;
+  markdown_count?: number;
   unknown_count?: number;
   type_request_count?: number;
   chunk_count?: number;
@@ -351,6 +362,8 @@ export type AnalyticsProperties = {
   current_mermaid_count?: number;
   previous_plantuml_count?: number;
   current_plantuml_count?: number;
+  previous_markdown_count?: number;
+  current_markdown_count?: number;
   previous_unknown_count?: number;
   current_unknown_count?: number;
   failure_stage?: string;
@@ -420,6 +433,20 @@ export type AnalyticsProperties = {
   // often the panel is hidden vs. which control gets reached for — and only
   // 'gutter_drag' is one-way (there is no drag-open).
   code_panel_trigger?: CodePanelToggleTrigger;
+  // editor_preview_element_clicked only (P6 measurement). The first element
+  // clicked in the editor preview, what came before it, and what followed it
+  // inside the 10 s window.
+  preview_target_kind?: "node" | "cluster" | "edge" | "label";
+  preview_zoomed_in_before?: boolean;
+  preview_code_panel_hidden?: boolean;
+  preview_drag_count_before?: number;
+  preview_background_click_count_before?: number;
+  preview_click_count_in_window?: number;
+  preview_double_click_count_in_window?: number;
+  preview_source_focused_in_window?: boolean;
+  preview_source_changed_in_window?: boolean;
+  preview_window_completed?: boolean;
+  preview_ms_since_editor_open?: number;
   change_kind?: "request" | "syntax_repair" | "undo" | "rollback";
   version_id?: string;
   version_number?: number;
@@ -524,6 +551,17 @@ export type AnalyticsProperties = {
   same_space?: boolean;                // clicked page in the same space as the viewer's page
   same_page?: boolean;                 // the opened participant also appears in another diagram on this page
   error_kind?: string;                 // 'timeout' | 'network' | 'http_<status>' | body error_kind
+  // related_diagrams_lookup_failed with error_kind 'stale_index' only. That one kind covers
+  // three cases, told apart here: 'version_mismatch' (the live diagram is at another version
+  // than its index rows), 'not_in_live_read' (the viewer's live read did not return the
+  // diagram at all), 'no_page_container' (it was returned, but without a pageId).
+  // Absent on events from a backend deployed before 2026-11-18.
+  stale_reason?: ArchitectureTokenStaleReason;
+  indexed_version?: number;            // the version the index rows were written for
+  live_version?: number;               // the live version; only with 'version_mismatch'
+  // Which writer produced the stale index rows: 'save' | 'heal' | 'backfill' | 'unknown'.
+  // Absent on events from a backend that does not send it.
+  index_source?: ArchitectureTokenIndexSource;
   // Join key on every `attachment_upload_*` event (model/Attachment.ts
   // UploadContext), mirroring the backend joinKeyProps() in src/export.js so
   // analysts can left-join uploads -> exports on (cloud_id, custom_content_id,
@@ -767,11 +805,34 @@ export type AnalyticsProperties = {
   // `viewer_source_opened` / `viewer_source_copied` so read-only vs editor
   // audience for the View Source panel (#333) can be split.
   has_edit_permission?: boolean;
+  // `viewer_source_opened`: true when the panel was opened in the Fullscreen
+  // viewer, false in the inline page viewer. `surface` stays 'viewer' in both
+  // places so existing reports keep working. Added 2026-11-18; before that the
+  // split could only be inferred from session_replay_source.
+  is_fullscreen?: boolean;
   // Inline title rename from the viewer (viewer_rename_cancelled): why edit
   // mode was left without a write. 'escape' = Esc pressed; 'unchanged' =
   // committed the same title; 'empty' = committed a blank title (refused,
   // the previous title stands).
   rename_exit_reason?: 'escape' | 'unchanged' | 'empty';
+  // Inline title rename, on all four viewer_rename_* events: where the click
+  // that opened the rename landed, and whether the field changed before the
+  // exit. Together with the next action (Edit click, a new start) they split
+  // cancels into "clicked the title text / the pencil and typed nothing"
+  // (likely not a rename) and "typed, then left" (a rename that stopped).
+  // rename_trigger: 'title_text' = the title's text span; 'pencil' = the
+  // pencil icon; 'title_edge' = the button's padding outside both;
+  // 'keyboard' = Enter or Space on the focused button (click with
+  // event.detail 0); 'unknown' = started with no click event.
+  rename_trigger?: 'title_text' | 'pencil' | 'title_edge' | 'keyboard' | 'unknown';
+  // had_input (declared below with the editor's input summary, same meaning:
+  // at least one input event) is also sent on viewer_rename_*: true once the
+  // field changed after it opened. Deletion counts, so every 'empty' exit is
+  // had_input=true — true means "touched the field", not "typed a new name".
+  // viewer_rename_*: true once a `copy` event fired in the open rename field
+  // (Cmd/Ctrl+C or the context menu). Tests whether some title clicks are an
+  // attempt to copy the title. The copied text is never read.
+  had_copy?: boolean;
   // Copy outcome, shared by the "Copy diagram link" action (deeplink_copied —
   // catalog.ts), viewer_source_copied and the Connect MCP dialog copies:
   // 'copied' = clipboard write succeeded, 'clipboard_failed' = the write
@@ -919,10 +980,12 @@ export type AnalyticsProperties = {
   // render-time comparisons use a measured signal rather than inferring cache
   // state from duration magnitude. See utils/analytics/trackRenderTime.ts.
   cache_state?: CacheState;
-  // macro_viewed only: whether this browser already reported this macro on this
-  // surface today (UTC). `first` is always emitted; `repeat` is emitted at
-  // MACRO_VIEWED_REPEAT_SAMPLE_RATE and carries `sample_rate`. Absent when the
-  // browser cannot remember (no storage, no macro id): that event is emitted.
+  // macro_viewed, license_notice_shown, license_notice_evaluated (outcome
+  // `shown`): whether this browser already reported this macro on this surface
+  // today (UTC). `first` is always emitted; `repeat` is emitted at
+  // MACRO_VIEWED_REPEAT_SAMPLE_RATE / LICENSE_NOTICE_REPEAT_SAMPLE_RATE and
+  // carries `sample_rate`. Absent when the browser cannot remember (no storage,
+  // no macro id): that event is emitted.
   view_of_day?: "first" | "repeat";
   // #113: body classification at render time (default starter / authored / empty). Wipe detection.
   content_state?: ContentState;
@@ -1052,6 +1115,17 @@ export type AnalyticsProperties = {
   // analysis extrapolates true volume as `count / sample_rate`. Absent ⇒ 1.0
   // (every occurrence emitted).
   sample_rate?: number;
+  // --- fullscreen_zoom_summary (utils/viewport/fullscreenZoomSummary.ts) ---
+  zoom_session_id?: string;
+  summary_seq?: number;
+  summary_trigger?: 'idle' | 'unload';
+  zoom_in_clicks?: number;
+  zoom_out_clicks?: number;
+  fit_clicks?: number;
+  wheel_gestures?: number;
+  zoom_ratio_end?: number;
+  zoom_ratio_max?: number;
+  session_ms?: number;
   // Live Agent Link (see catalog.ts agent_link_* events). `time_to_connect_ms`
   // = waiting→connected latency (agent_link_agent_connected); `render_ok` /
   // `dsl_len_delta` characterize an applied edit (agent_link_edit_applied);
@@ -1162,6 +1236,10 @@ export type AnalyticsProperties = {
   // `outcome` field ('copied' | 'clipboard_failed'); dwell rides `dwell_ms`.
   mcp_mode?: AgentLinkMcpMode;
   mcp_copy_target?: AgentLinkMcpCopyTarget;
+  // The client tab showing in step 1 (opened / copied / closed /
+  // client_selected / install_clicked), and how the dialog closed (closed).
+  mcp_client_choice?: AgentLinkMcpClientChoice;
+  mcp_close_source?: AgentLinkMcpCloseSource;
   // agent_link_mcp_button_shown (and `mcp_button_reveal` on _dialog_opened):
   // where the button sat and whether it was visible at rest. Inline shown
   // events also carry `header_stage`.
@@ -1224,6 +1302,13 @@ export type AnalyticsProperties = {
   // reusing MacroTypeValue rather than inventing a parallel enum since the
   // detectable dialects are already macro types users can switch to.
   detected_dialect?: MacroTypeValue;
+  // Paste handling (diagram_paste_handled, diagram_paste_move_undone) and the
+  // foreign-dialect hint events. `has_markdown_fence`: the source or paste
+  // carried a Markdown code fence. No property here carries diagram text.
+  has_markdown_fence?: boolean;
+  fence_language?: PasteFenceLanguage;
+  paste_action?: DiagramPasteAction;
+  paste_chars?: number;
   // convert_to_png toPng_failed / toPng_timeout (#1061). Bounded: no diagram
   // text, data URL or query string. See CaptureFailureStage in catalog.ts.
   capture_failure_stage?: CaptureFailureStage;

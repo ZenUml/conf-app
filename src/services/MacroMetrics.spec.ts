@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MacroMetrics, IMacroMetrics } from './MacroMetrics';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import { callRemote } from '@/utils/requestUtil';
+import { assertCounts } from '../../functions/metrics-cache/snapshot/common';
 
 // Mock getClientDomain
 vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
@@ -65,6 +66,7 @@ describe('MacroMetrics', () => {
           mermaid: 1,
           plantuml: 0,
           asyncapi: 0,
+          markdown: 0,
           unknown: 0,
           isLite: false,
           lastUpdated: new Date().toISOString()
@@ -155,10 +157,41 @@ describe('MacroMetrics', () => {
           mermaid: 1,
           plantuml: 0,
           asyncapi: 1,
+          markdown: 0,
           unknown: 1,
           isLite: false,
           source: 'collect'
         });
+      });
+
+      // Error radar 2026-11-16: `HTTP 400: {"error":"Macro count invariant failed"}`
+      // on POST /metrics-cache/update, 9 tenants. The backend requires
+      // total === sum of buckets (assertCounts).
+      it('sends counts that pass the backend invariant when a space has a Markdown diagram', async () => {
+        (callRemote as any).mockResolvedValueOnce(null);
+
+        const mockResults = {
+          results: [
+            { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Sequence }) } } },
+            { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Markdown }) } } },
+          ]
+        };
+        mockApWrapper.requestAllPaginatedData.mockImplementation((url, consumer) => {
+          consumer(mockResults);
+          return Promise.resolve({});
+        });
+
+        await macroMetrics.getMacroMetrics();
+
+        const updateCall = (callRemote as any).mock.calls.find(
+          ([url]: [string]) => url.startsWith('/metrics-cache/update')
+        );
+        expect(updateCall).toBeDefined();
+        // The wire format: what the backend receives after JSON serialisation.
+        const sent = JSON.parse(JSON.stringify(updateCall[2])).metrics;
+
+        expect(sent.total).toBe(2);
+        expect(() => assertCounts(sent)).not.toThrow();
       });
 
       it('should handle empty results', async () => {
@@ -181,6 +214,7 @@ describe('MacroMetrics', () => {
           mermaid: 0,
           plantuml: 0,
           asyncapi: 0,
+          markdown: 0,
           unknown: 0,
           isLite: false,
           source: 'collect'
@@ -347,7 +381,7 @@ describe('MacroMetrics', () => {
     it('should log [metrics:kv:read] hit on cache hit', async () => {
       const cachedMetrics: IMacroMetrics = {
         space: mockSpace, total: 5, sequence: 2, graph: 1,
-        openapi: 1, mermaid: 1, plantuml: 0, asyncapi: 0, unknown: 0,
+        openapi: 1, mermaid: 1, plantuml: 0, asyncapi: 0, markdown: 0, unknown: 0,
         isLite: false, lastUpdated: new Date().toISOString()
       };
       (callRemote as any).mockResolvedValueOnce(cachedMetrics);

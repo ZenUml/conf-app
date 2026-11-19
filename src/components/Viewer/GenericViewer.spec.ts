@@ -1126,6 +1126,40 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
+  // viewer_source_opened must say where the panel was opened. The surface
+  // property stays 'viewer' in both places (existing reports filter on it),
+  // so the split lives in is_fullscreen.
+  describe('viewer_source_opened location', () => {
+    afterEach(() => {
+      if ((window as any).forgeGlobal?.forgeContext?.extension) {
+        delete (window as any).forgeGlobal.forgeContext.extension.modal
+      }
+    })
+
+    const openSource = async () => {
+      store.commit('updateDiagramType', DiagramType.Mermaid)
+      const wrapper = mountViewer()
+      await wrapper.vm.$nextTick()
+      vi.mocked(trackAnalyticsEvent).mockClear()
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      return vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'viewer_source_opened')?.[1]
+    }
+
+    it('sends is_fullscreen: false from the inline viewer', async () => {
+      const props = await openSource()
+      expect(props).toEqual(expect.objectContaining({ surface: 'viewer', macro_type: 'mermaid', is_fullscreen: false }))
+    })
+
+    it('sends is_fullscreen: true from the Fullscreen viewer', async () => {
+      ;(window as any).forgeGlobal ??= {}
+      ;(window as any).forgeGlobal.forgeContext ??= {}
+      ;(window as any).forgeGlobal.forgeContext.extension ??= {}
+      ;(window as any).forgeGlobal.forgeContext.extension.modal = { macroMode: 'fullscreen' }
+      const props = await openSource()
+      expect(props).toEqual(expect.objectContaining({ surface: 'viewer', macro_type: 'mermaid', is_fullscreen: true }))
+    })
+  })
+
   // Inline title rename: rename a diagram from the viewer's top edge without
   // opening the editor modal. Same gate as the Edit button; persistence is
   // renameDiagramTitle (mocked above).
@@ -1313,6 +1347,85 @@ describe('GenericViewer (chrome-less)', () => {
       expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewer_rename_cancelled', expect.objectContaining({
         rename_exit_reason: 'empty',
       }))
+    })
+
+    // Where the opening click landed and whether the field was touched ride on
+    // every rename event, so a cancel can be split into "clicked and typed
+    // nothing" vs "typed, then left". A mouse click has event.detail >= 1; a
+    // click synthesised by Enter/Space on the focused button has detail 0.
+    describe('rename_trigger and had_input', () => {
+      const lastCall = (name: string) => vi.mocked(trackAnalyticsEvent).mock.calls.filter(([n]) => n === name).at(-1)?.[1]
+      // VTU's trigger() cannot set the read-only UIEvent.detail; dispatch a real one.
+      const clickWithDetail = async (wrapper: ReturnType<typeof mountViewer>, selector: string, detail: number) => {
+        wrapper.find(selector).element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail }))
+        await flushPromises()
+      }
+      const openBy = async (selector: string, detail: number) => {
+        const wrapper = mountViewer()
+        await flushPromises()
+        await clickWithDetail(wrapper, selector, detail)
+        return wrapper
+      }
+
+      it.each([
+        ['title_text', '[data-testid="viewer-title-rename"] .viewer-title-text', 1],
+        ['pencil', '[data-testid="viewer-title-rename"] .viewer-title-pencil', 1],
+        ['title_edge', '[data-testid="viewer-title-rename"]', 1],
+        ['keyboard', '[data-testid="viewer-title-rename"]', 0],
+      ])('records rename_trigger=%s on started and on the cancel', async (trigger, selector, detail) => {
+        const wrapper = await openBy(selector, detail)
+        expect(lastCall('viewer_rename_started')).toEqual(expect.objectContaining({ rename_trigger: trigger, had_input: false }))
+        await titleInput(wrapper).trigger('keydown', { key: 'Escape' })
+        expect(lastCall('viewer_rename_cancelled')).toEqual(expect.objectContaining({
+          rename_trigger: trigger,
+          had_input: false,
+          rename_exit_reason: 'escape',
+        }))
+      })
+
+      it('records had_input=true once the field changed, and carries both on succeeded', async () => {
+        const wrapper = await openBy('[data-testid="viewer-title-rename"] .viewer-title-text', 1)
+        await titleInput(wrapper).setValue('Checkout flow')
+        await titleInput(wrapper).trigger('keydown', { key: 'Enter' })
+        await flushPromises()
+        expect(lastCall('viewer_rename_succeeded')).toEqual(expect.objectContaining({ rename_trigger: 'title_text', had_input: true }))
+      })
+
+      it('a blank blur is had_input=true (the text was deleted)', async () => {
+        const wrapper = await openBy('[data-testid="viewer-title-rename"] .viewer-title-pencil', 1)
+        await titleInput(wrapper).setValue('')
+        await titleInput(wrapper).trigger('blur')
+        expect(lastCall('viewer_rename_cancelled')).toEqual(expect.objectContaining({
+          rename_trigger: 'pencil',
+          had_input: true,
+          rename_exit_reason: 'empty',
+        }))
+      })
+
+      it('records had_copy=false by default and true after a copy in the field', async () => {
+        const wrapper = await openBy('[data-testid="viewer-title-rename"] .viewer-title-text', 1)
+        expect(lastCall('viewer_rename_started')).toEqual(expect.objectContaining({ had_copy: false }))
+        await titleInput(wrapper).trigger('copy')
+        await titleInput(wrapper).trigger('keydown', { key: 'Escape' })
+        expect(lastCall('viewer_rename_cancelled')).toEqual(expect.objectContaining({
+          rename_trigger: 'title_text',
+          had_input: false,
+          had_copy: true,
+        }))
+        await clickWithDetail(wrapper, '[data-testid="viewer-title-rename"] .viewer-title-text', 1)
+        expect(lastCall('viewer_rename_started')).toEqual(expect.objectContaining({ had_copy: false }))
+      })
+
+      it('carries both on failed, and a second start resets had_input', async () => {
+        renameMock.mockResolvedValueOnce({ ok: false, reason: 'save_error', durationMs: 7, error: new Error('403') } as any)
+        const wrapper = await openBy('[data-testid="viewer-title-rename"]', 0)
+        await titleInput(wrapper).setValue('Checkout flow')
+        await titleInput(wrapper).trigger('keydown', { key: 'Enter' })
+        await flushPromises()
+        expect(lastCall('viewer_rename_failed')).toEqual(expect.objectContaining({ rename_trigger: 'keyboard', had_input: true }))
+        await clickWithDetail(wrapper, '[data-testid="viewer-title-rename"] .viewer-title-text', 1)
+        expect(lastCall('viewer_rename_started')).toEqual(expect.objectContaining({ rename_trigger: 'title_text', had_input: false }))
+      })
     })
 
     it('disables the input AND the Edit button while the write is in flight, and ignores a blur during it', async () => {
@@ -1686,9 +1799,44 @@ describe('GenericViewer (chrome-less)', () => {
       },
     )
 
+    // P4: OpenAPI readers used the editor only to read the spec. The panel
+    // shows the stored text unchanged: YAML stays YAML, JSON stays JSON.
+    it.each([
+      ['YAML', 'openapi: 3.0.0\ninfo:\n  title: Pets\n  version: 1.0.0\npaths: {}'],
+      ['JSON', '{\n  "openapi": "3.0.0",\n  "info": { "title": "Pets", "version": "1.0.0" },\n  "paths": {}\n}'],
+    ] as const)('shows Source for OpenAPI with the stored %s text unchanged', async (_format, spec) => {
+      store.state.diagram.code = spec
+      store.commit('updateDiagramType', DiagramType.OpenApi)
+      const wrapper = mountViewer()
+      await flushPromises()
+
+      const btn = wrapper.find('[data-testid="view-source-btn"]')
+      expect(btn.exists()).toBe(true)
+      await btn.trigger('click')
+      await wrapper.vm.$nextTick()
+
+      const panel = wrapper.find('[data-testid="view-source-panel"]')
+      expect(panel.find('#view-source-panel-title').text()).toBe('Diagram source · OpenAPI')
+      expect(panel.find('[data-testid="view-source-code"]').text()).toBe(spec)
+    })
+
+    it('does not truncate a large OpenAPI spec', async () => {
+      const lines = Array.from({ length: 13000 }, (_, i) => `    x-line-${i}: value`)
+      const spec = ['openapi: 3.0.0', 'info:', '  title: Big', ...lines].join('\n')
+      store.state.diagram.code = spec
+      store.commit('updateDiagramType', DiagramType.OpenApi)
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.find('[data-testid="view-source-btn"]').trigger('click')
+      await wrapper.vm.$nextTick()
+
+      const panel = wrapper.find('[data-testid="view-source-panel"]')
+      expect(panel.find('[data-testid="view-source-code"]').text()).toBe(spec)
+      expect(panel.find('[data-testid="view-source-meta"]').text()).toContain('13003 lines')
+    })
+
     it.each([
       DiagramType.Graph,
-      DiagramType.OpenApi,
       DiagramType.AsyncApi,
       DiagramType.Embed,
     ])('hides Source for non-text-DSL type %s', async (type) => {
@@ -1724,6 +1872,7 @@ describe('GenericViewer (chrome-less)', () => {
         surface: 'viewer',
         macro_type: DiagramType.Mermaid,
         has_edit_permission: true,
+        is_fullscreen: false,
       })
     })
 
@@ -2750,7 +2899,26 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="connect-mcp-dialog"]').exists()).toBe(false)
       expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
         'agent_link_mcp_dialog_closed',
-        expect.objectContaining({ mcp_mode: 'headless', dwell_ms: expect.any(Number) })
+        expect.objectContaining({ mcp_mode: 'headless', dwell_ms: expect.any(Number), mcp_close_source: 'escape', mcp_client_choice: 'claude_code' })
+      )
+    })
+
+    it('reports the client tab on tab clicks, copies and the close', async () => {
+      localStorage.clear()
+      const wrapper = mountViewer()
+      await flushPromises()
+      await wrapper.find('[data-testid="connect-mcp-btn"]').trigger('click')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_dialog_opened', expect.objectContaining({ mcp_client_choice: 'claude_code' })
+      )
+
+      await wrapper.find('[data-testid="connect-mcp-tab-claude_app"]').trigger('click')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_client_selected', expect.objectContaining({ mcp_client_choice: 'claude_app', mcp_mode: 'headless' })
+      )
+      await wrapper.find('[data-testid="connect-mcp-done"]').trigger('click')
+      expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+        'agent_link_mcp_dialog_closed', expect.objectContaining({ mcp_close_source: 'done', mcp_client_choice: 'claude_app' })
       )
     })
 

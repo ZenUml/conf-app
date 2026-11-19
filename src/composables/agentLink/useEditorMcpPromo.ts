@@ -21,10 +21,10 @@ import { DiagramType } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
 import { getContext } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
-import type { AgentLinkMcpButtonPlacement, AgentLinkMcpCopyTarget } from '@/utils/analytics/catalog'
+import type { AgentLinkMcpButtonPlacement, AgentLinkMcpCloseSource, AgentLinkMcpCopyTarget } from '@/utils/analytics/catalog'
 import { createMcpPromoState, type McpPromoState } from './mcpPromo'
 import { createConnectMcpShownRecord } from './connectMcpShown'
-import { buildEditorDraftPrompt } from './connectInstructions'
+import { buildEditorDraftPrompt, rememberedMcpClient, type McpClientChoice } from './connectInstructions'
 
 export const TIP_TYPED_CHARS = 400
 export const TIP_MIN_EDITS = 10
@@ -144,6 +144,8 @@ export function useEditorMcpPromo(options: {
   const dialogVisible = ref(false)
   const dialogPlacement = ref<PromoPlacement>('editor_tip')
   let openedAt = 0
+  // The client tab showing in the dialog, for its analytics rows.
+  let dialogClient: McpClientChoice = 'claude_code'
 
   const dialogTarget = computed(() => ({
     cloudId: scope.cloudId,
@@ -165,8 +167,10 @@ export function useEditorMcpPromo(options: {
     dialogPlacement.value = placement
     dialogVisible.value = true
     openedAt = now()
+    dialogClient = rememberedMcpClient()
     trackAnalyticsEvent('agent_link_mcp_dialog_opened', analytics({
       mcp_button_placement: placement,
+      mcp_client_choice: dialogClient,
       mcp_button_reveal: 'always',
     }))
   }
@@ -177,20 +181,39 @@ export function useEditorMcpPromo(options: {
     trackAnalyticsEvent('agent_link_mcp_promo_dismissed', analytics({ mcp_button_placement: placement }))
   }
 
-  function closeDialog() {
+  function closeDialog(source: AgentLinkMcpCloseSource = 'close_button') {
     if (!dialogVisible.value) return
     dialogVisible.value = false
     trackAnalyticsEvent('agent_link_mcp_dialog_closed', analytics({
       mcp_button_placement: dialogPlacement.value,
       dwell_ms: now() - openedAt,
+      mcp_close_source: source,
+      mcp_client_choice: dialogClient,
     }))
   }
 
-  function onCopied(target: AgentLinkMcpCopyTarget, ok: boolean) {
+  function onClientSelected(client: McpClientChoice) {
+    dialogClient = client
+    trackAnalyticsEvent('agent_link_mcp_client_selected', analytics({
+      mcp_button_placement: dialogPlacement.value,
+      mcp_client_choice: client,
+    }))
+  }
+
+  function onInstall(client: McpClientChoice) {
+    promoState?.markEngaged()
+    trackAnalyticsEvent('agent_link_mcp_install_clicked', analytics({
+      mcp_button_placement: dialogPlacement.value,
+      mcp_client_choice: client,
+    }))
+  }
+
+  function onCopied(target: AgentLinkMcpCopyTarget, ok: boolean, client: McpClientChoice = dialogClient) {
     if (ok) promoState?.markEngaged()
     trackAnalyticsEvent('agent_link_mcp_dialog_copied', analytics({
       mcp_button_placement: dialogPlacement.value,
       mcp_copy_target: target,
+      mcp_client_choice: client,
       outcome: ok ? 'copied' : 'clipboard_failed',
     }))
   }
@@ -221,5 +244,7 @@ export function useEditorMcpPromo(options: {
     dialogPrompt,
     closeDialog,
     onCopied,
+    onClientSelected,
+    onInstall,
   }
 }

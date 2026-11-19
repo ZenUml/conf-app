@@ -181,6 +181,11 @@ describe("trackAnalyticsEvent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     _resetForTesting();
+    // The license-notice replay gate remembers its day in localStorage; clear
+    // only its keys (other cached state here is part of what tests assert).
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith("zenuml.licenseNoticeReplayDay"))
+      .forEach((k) => localStorage.removeItem(k));
     // Existing policy assertions below describe the behavior before the
     // October 2026 replay and event budgets, independent of the run date.
     vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-15T00:00:00Z"));
@@ -533,6 +538,23 @@ describe("trackAnalyticsEvent", () => {
       });
       expect(mixpanel.track).toHaveBeenCalledWith(
         "space_admin_active",
+        expect.objectContaining({ sample_rate: 0.1 }),
+      );
+      rnd.mockRestore();
+    });
+
+    it("keeps a caller-stamped sample_rate on a full-rate event (per-view sampling)", async () => {
+      // fullscreen_zoom_summary samples per Fullscreen view in its own module
+      // and stamps the rate itself; the table keeps it at 1 so all rows of a
+      // kept view arrive. Enrichment must not drop or overwrite the stamp.
+      const rnd = vi.spyOn(Math, "random").mockReturnValue(0.99);
+      await _awaitableTrackAnalyticsEvent("fullscreen_zoom_summary", {
+        feature_area: "macro",
+        surface: "fullscreen",
+        sample_rate: 0.1,
+      });
+      expect(mixpanel.track).toHaveBeenCalledWith(
+        "fullscreen_zoom_summary",
         expect.objectContaining({ sample_rate: 0.1 }),
       );
       rnd.mockRestore();
@@ -1401,6 +1423,70 @@ describe("trackAnalyticsEvent", () => {
     );
   });
 
+  // 2026-11-16: one enforced Lite site showed the notice 15,440 times to 285
+  // users, and each macro iframe started its own forced recording: 20,888
+  // replays in one day against a 20,000/month quota. One forced replay per
+  // browser per site per UTC day keeps the evidence and bounds the cost.
+  it("forces license-notice replay once per browser per site per UTC day", async () => {
+    const notice = {
+      feature_area: "license_notice",
+      surface: "viewer",
+      macro_type: "sequence",
+    } as const;
+    vi.mocked(Date.now).mockReturnValue(Date.parse("2026-11-16T02:00:00Z"));
+
+    // Three macro iframes on the same day: each has its own Mixpanel instance.
+    for (let i = 0; i < 3; i++) {
+      _resetForTesting();
+      await _awaitableTrackAnalyticsEvent("license_notice_shown", notice);
+    }
+
+    expect(mixpanel.start_session_recording).toHaveBeenCalledOnce();
+    const outcomes = vi
+      .mocked(mixpanel.track)
+      .mock.calls.filter(([name]) => name === "license_notice_shown")
+      .map(([, props]) => (props as any).session_replay_start_call_outcome);
+    expect(outcomes).toEqual(["returned", "skipped_daily_cap", "skipped_daily_cap"]);
+    const [, skipped] = vi.mocked(mixpanel.track).mock.calls[1];
+    expect(skipped).not.toHaveProperty("session_replay_source", "license_notice");
+
+    // Another site in the same browser has its own allowance.
+    _resetForTesting();
+    vi.mocked(getClientDomain).mockReturnValue("other.atlassian.net");
+    await _awaitableTrackAnalyticsEvent("license_notice_shown", notice);
+    expect(mixpanel.start_session_recording).toHaveBeenCalledTimes(2);
+
+    // The next UTC day starts a new allowance.
+    _resetForTesting();
+    vi.mocked(getClientDomain).mockReturnValue("example.atlassian.net");
+    vi.mocked(Date.now).mockReturnValue(Date.parse("2026-11-17T00:00:01Z"));
+    await _awaitableTrackAnalyticsEvent("license_notice_shown", notice);
+    expect(mixpanel.start_session_recording).toHaveBeenCalledTimes(3);
+  });
+
+  it("skips the forced license-notice replay when the browser cannot remember the day", async () => {
+    const getItem = vi
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new Error("storage blocked");
+      });
+    try {
+      await _awaitableTrackAnalyticsEvent("license_notice_shown", {
+        feature_area: "license_notice",
+        surface: "viewer",
+        macro_type: "sequence",
+      });
+    } finally {
+      getItem.mockRestore();
+    }
+
+    expect(mixpanel.start_session_recording).not.toHaveBeenCalled();
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "license_notice_shown",
+      expect.objectContaining({ session_replay_start_call_outcome: "skipped_daily_cap" })
+    );
+  });
+
   it("still tracks a shown license notice when replay startup throws", async () => {
     vi.mocked(getSessionReplayConfig).mockResolvedValue({
       percent: 0,
@@ -1440,6 +1526,110 @@ describe("trackAnalyticsEvent", () => {
 
     expect(mixpanel.start_session_recording).not.toHaveBeenCalled();
   });
+
+  it("records the first authoring session when the gallery auto-opens on a new macro", async () => {
+    // Sampling would leave a brand-new user's first editor session unrecorded
+    // 19 times in 20: pin the authoring draw outside the rate to prove this is
+    // not the sampled path.
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({ percent: 0, source: "off" });
+
+    await _awaitableTrackAnalyticsEvent("editor_template_gallery_opened", {
+      feature_area: "macro",
+      surface: "editor",
+      template_gallery_trigger: "auto_first_open",
+    });
+
+    expect(mixpanel.start_session_recording).toHaveBeenCalledOnce();
+    expect(
+      vi.mocked(mixpanel.start_session_recording).mock.invocationCallOrder[0]
+    ).toBeLessThan(vi.mocked(mixpanel.track).mock.invocationCallOrder[0]);
+    expect(mixpanel.register).toHaveBeenCalledWith({
+      session_replay_percent: 100,
+      session_replay_source: "first_authoring",
+    });
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "editor_template_gallery_opened",
+      expect.objectContaining({
+        session_replay_source: "first_authoring",
+        session_replay_percent: 100,
+        session_replay_start_call_outcome: "returned",
+      })
+    );
+  });
+
+  it("does not force a replay when the gallery is opened manually", async () => {
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({ percent: 0, source: "off" });
+
+    await _awaitableTrackAnalyticsEvent("editor_template_gallery_opened", {
+      feature_area: "macro",
+      surface: "editor",
+      template_gallery_trigger: "manual",
+    });
+
+    expect(mixpanel.start_session_recording).not.toHaveBeenCalled();
+    const [, properties] = vi.mocked(mixpanel.track).mock.calls[0];
+    expect(properties).not.toHaveProperty("session_replay_source", "first_authoring");
+  });
+
+  it("still tracks the auto-opened gallery when first-authoring replay startup throws", async () => {
+    vi.mocked(getSessionReplayConfig).mockResolvedValue({ percent: 0, source: "off" });
+    vi.mocked(mixpanel.start_session_recording).mockImplementationOnce(() => {
+      throw new Error("recorder unavailable");
+    });
+
+    await _awaitableTrackAnalyticsEvent("editor_template_gallery_opened", {
+      feature_area: "macro",
+      surface: "editor",
+      template_gallery_trigger: "auto_first_open",
+    });
+
+    expect(mixpanel.track).toHaveBeenCalledWith(
+      "editor_template_gallery_opened",
+      expect.objectContaining({ session_replay_start_call_outcome: "threw" })
+    );
+    const [, properties] = vi.mocked(mixpanel.track).mock.calls[0];
+    expect(properties).not.toHaveProperty("session_replay_source", "first_authoring");
+  });
+
+  it.each([
+    { draw: 0.99, label: "outside" },
+    { draw: 0, label: "inside" },
+  ])(
+    "keeps first_authoring on later authoring events when the draw is $label the rate",
+    async ({ draw }) => {
+      vi.spyOn(Math, "random").mockReturnValue(draw);
+      vi.mocked(getSessionReplayConfig).mockResolvedValue({ percent: 0, source: "off" });
+
+      await _awaitableTrackAnalyticsEvent("editor_template_gallery_opened", {
+        feature_area: "macro",
+        surface: "editor",
+        template_gallery_trigger: "auto_first_open",
+      });
+      vi.mocked(mixpanel.register).mockClear();
+      await _awaitableTrackAnalyticsEvent("macro_create_started", {
+        feature_area: "macro",
+        surface: "editor",
+      });
+      await _awaitableTrackAnalyticsEvent("macro_edit_started", {
+        feature_area: "macro",
+        surface: "editor",
+      });
+
+      expect(mixpanel.start_session_recording).toHaveBeenCalledOnce();
+      expect(mixpanel.register).not.toHaveBeenCalled();
+      for (const name of ["macro_create_started", "macro_edit_started"]) {
+        expect(mixpanel.track).toHaveBeenCalledWith(
+          name,
+          expect.objectContaining({
+            session_replay_source: "first_authoring",
+            session_replay_percent: 100,
+            session_replay_start_call_outcome: "returned",
+          })
+        );
+      }
+    }
+  );
 
   it("forces replay when macro creation starts", async () => {
     // Authoring replay is sampled; pin the draw inside the rate so this test

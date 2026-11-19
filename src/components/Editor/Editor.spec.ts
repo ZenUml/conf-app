@@ -4,6 +4,11 @@ import store from "@/model/store2";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import Example from "@/utils/sequence/Example";
 import {vi} from "vitest";
+import {nextTick} from "vue";
+
+vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
+  trackAnalyticsEvent: vi.fn(),
+}));
 
 const validationMocks = vi.hoisted(() => ({
   mermaid: vi.fn(),
@@ -51,6 +56,7 @@ describe('Editor', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    document.body.querySelectorAll('[data-testid="toast"]').forEach((el) => el.remove());
   });
 
   it('should render correctly', () => {
@@ -95,5 +101,69 @@ describe('Editor', () => {
 
     expect(store.state.error).toBeNull();
     wrapper.unmount();
+  });
+
+  describe('pasting Mermaid', () => {
+    const BODY = `sequenceDiagram
+  autonumber
+  participant R as Robot
+  participant GW as Gateway<br/>(edge)
+  R->>GW: request credential
+  alt ok
+    GW-->>R: credential
+  end`;
+    const FENCED = '```mermaid\n' + BODY + '\n```';
+
+    const mountEditor = () => {
+      const wrapper = shallowMount(Editor, { global: { plugins: [store] } });
+      return { wrapper, view: (wrapper.vm as any).cmView };
+    };
+    const settle = async () => {
+      await nextTick();
+      await nextTick();
+    };
+
+    it('moves a fenced paste from the starter Sequence tab to the Mermaid tab', async () => {
+      store.commit('updateCode2', Example.Sequence);
+      store.commit('updateMermaidCode', Example.Mermaid);
+      const { view } = mountEditor();
+
+      view.dispatch({
+        changes: { from: view.state.doc.length, insert: '\n' + FENCED },
+        userEvent: 'input.paste',
+      });
+      await settle();
+
+      expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+      expect(store.state.diagram.mermaidCode).toBe(BODY);
+      expect(store.state.diagram.code).toBe(Example.Sequence);
+      expect(view.state.doc.toString()).toBe(BODY);
+    });
+
+    it('removes the fence in the Mermaid tab', async () => {
+      store.commit('updateDiagramType', DiagramType.Mermaid);
+      store.commit('updateMermaidCode', '');
+      const { view } = mountEditor();
+
+      view.dispatch({ changes: { from: 0, insert: FENCED }, userEvent: 'input.paste' });
+      await settle();
+
+      expect(store.state.diagram.mermaidCode).toBe(BODY);
+      expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    });
+
+    it('keeps authored Sequence code and only removes the fence', async () => {
+      store.commit('updateCode2', 'A->B: hi');
+      const { view } = mountEditor();
+
+      view.dispatch({
+        changes: { from: view.state.doc.length, insert: '\n' + FENCED },
+        userEvent: 'input.paste',
+      });
+      await settle();
+
+      expect(store.state.diagram.diagramType).toBe(DiagramType.Sequence);
+      expect(store.state.diagram.code).toBe('A->B: hi\n' + BODY);
+    });
   });
 })

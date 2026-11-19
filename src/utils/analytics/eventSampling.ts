@@ -73,6 +73,28 @@ export const MACRO_VIEWED_REPEAT_SAMPLE_RATE = 0.1;
 // `no_diagram`, 2% `ready`.
 export const TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE = 0.1;
 
+// license_notice_shown and license_notice_evaluated (outcome `shown`) are also
+// sampled per occurrence (features/licenseNotice/noticeOccurrence.ts): the
+// first per browser x macro x UTC day is always sent, repeats at this rate with
+// `sample_rate`. On 2026-11-16 one enforced Lite site sent 15,440 + 15,710 of
+// them over 4,905 user x macro keys (~31k billable events in one day).
+export const LICENSE_NOTICE_REPEAT_SAMPLE_RATE = 0.1;
+
+// Rates that change on a fixed date. Before `until` (exclusive, UTC) the
+// event is sent at `before`; from then on at `after`.
+//
+// editor_preview_element_clicked (P6, 2026-11-18): the owner chose 100% for
+// the first four weeks, so every type gets enough sessions for the read-out
+// (PlantUML has ~600 editor opens a month), then 10%. Worst case one event per
+// Mermaid/PlantUML editor session, ~13k a month (1.3% of the 1M cap); the
+// expected 10-30% of sessions that click an element is ~1.3k-4k a month.
+export const DATED_SAMPLE_RATES: Record<
+  string,
+  { until: string; before: number; after: number }
+> = {
+  editor_preview_element_clicked: { until: "2026-12-23", before: 1, after: 0.1 },
+};
+
 // Prefix rules apply when no exact match is found. `create_attachment` is
 // emitted as `create_attachment<diagramType>` (e.g. create_attachmentmermaid)
 // at forgeIndex.ts, so an exact key cannot cover every variant.
@@ -88,13 +110,16 @@ export const OCTOBER_STOP_EVENTS = new Set<string>([
   "editor_global_replace_observed",
   "report_macro_metrics",
   "snapshot_backfill_skipped",
-  "viewport_control_used",
   "whats_new_banner_evaluated",
 ]);
 
 // The reviewed core/error list is explicit so an expanded success/info
 // allowlist cannot silently reduce a protected event during this budget.
 export const OCTOBER_RETAINED_EVENTS = new Set<string>([
+  // Rate 1 on purpose: fullscreenZoomSummary.ts keeps 10% of Fullscreen views
+  // and stamps sample_rate itself, so a kept view sends every row. About 500 a
+  // month. Must not sit in OCTOBER_REDUCED_EVENTS (a second, per-row cut).
+  "fullscreen_zoom_summary",
   "title_draft_requested",
   "title_draft_flag_shown",
   "title_draft_not_now",
@@ -210,16 +235,52 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   "plan_usage_viewed",
   "plan_usage_purchase_clicked",
   "request_full_reason_copied",
+  // Macro creation entry and process events. A new customer's first events are
+  // these entry points, so sampling them made "what did this site do first"
+  // unanswerable (the true first event was dropped nine times in ten). They are
+  // an acquisition funnel, not volume telemetry.
+  "new_diagram_link_seeded",
+  "macro_type_changed",
+  "editor_starter_shown",
+  "editor_template_gallery_opened",
+  "editor_template_applied",
+  "get_started_route_accessed",
+  "get_started_create_embed",
+  "get_started_create_first_diagram",
+  "get_started_create_graph",
+  "get_started_create_mermaid",
+  "get_started_create_openapi",
+  "get_started_create_sequence",
+  "byline_create_clicked",
+  "byline_diagram_created",
+  "byline_create_cancelled",
+  "byline_editor_deeplinked",
+  // Unplaced-diagram funnel. A diagram created from the page byline is saved
+  // but not placed on the page; these are the only record of whether its author
+  // was told and whether the banner had a chance to show, so at 10% one site's
+  // journey could not be read. Measured cost, all sites, 2026-11-03..11-16
+  // (estimated true volume minus events already sent): byline_opened +675,
+  // unplaced_property_write +621, unplaced_banner_evaluated +819,
+  // unplaced_banner_shown +288, unplaced_banner_dismissed ~0: about 2.4k per
+  // 14 days, ~5k billable events a month, ~0.4% of the ~1.23M monthly volume.
+  "byline_opened",
+  "unplaced_property_write",
+  "unplaced_banner_evaluated",
+  "unplaced_banner_shown",
+  "unplaced_banner_dismissed",
 ]);
 
 // Explicit conf-app browser success/info allowlist. Core lifecycle, paywall,
 // error/failure, feedback, survey, and CSAT names stay at current rates.
 // Unknown names remain unchanged. The full reviewed list follows below.
 export const OCTOBER_REDUCED_EVENTS = new Set<string>([
+  // Restored from the stop list 2026-11-18 at 10% when a plain wheel started to
+  // zoom in Fullscreen and the editor preview: the zoom rule changed, and this
+  // event is the only read on whether readers use it. One event per gesture.
+  "viewport_control_used",
   "markdown_render_requested",
   "markdown_render_succeeded",
   "markdown_seeded_from_mermaid",
-  "macro_type_changed",
   "plantuml_paste_normalized",
   "embed_autoconvert_detected",
   "embed_autoconvert_target_resolved",
@@ -261,7 +322,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "editor_load_empty_active_field",
   "swagger_editor_config_empty_with_modal",
   "fullscreen_opened",
-  "viewport_zoom_hint_shown",
   "viewer_source_opened",
   "viewer_source_copied",
   "mermaid_highlight_used",
@@ -276,22 +336,13 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "staleness_hint_shown",
   "staleness_hint_clicked",
   "staleness_hint_dismissed",
-  "byline_opened",
   "byline_list_retried",
   "byline_diagram_opened",
   "byline_diagram_source_copied",
-  "byline_create_clicked",
-  "byline_editor_deeplinked",
   "byline_dismissed",
   "byline_thumbnails_loaded",
   "byline_unplaced_scanned",
-  "byline_diagram_created",
-  "byline_create_cancelled",
   "byline_view_close_requested",
-  "unplaced_banner_evaluated",
-  "unplaced_banner_shown",
-  "unplaced_banner_dismissed",
-  "unplaced_property_write",
   "whats_new_banner_shown",
   "whats_new_banner_expanded",
   "whats_new_banner_dismissed",
@@ -349,9 +400,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "activation_diagram_edited",
   "activation_completed",
   "activation_nudge_dismissed",
-  "editor_template_gallery_opened",
-  "editor_template_applied",
-  "editor_starter_shown",
   "editor_code_panel_toggled",
   "macro_second_diagram_prompt_shown",
   "macro_second_diagram_prompt_clicked",
@@ -381,20 +429,12 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "duplication_detect",
   "document_list",
   "get_feature_flags",
-  "get_started_create_embed",
-  "get_started_create_first_diagram",
-  "get_started_create_graph",
-  "get_started_create_mermaid",
-  "get_started_create_openapi",
-  "get_started_create_sequence",
   "get_started_page_view",
-  "get_started_route_accessed",
   "get_started_view_docs",
   "legacy_content_property_macro_repaired",
   "legacy_content_property_restored",
   "legacy_custom_content_by_uuid_restored",
   "load",
-  "new_diagram_link_seeded",
   "sync_custom_content",
   "update_custom_content",
   "update_recreate_fallback",
@@ -405,7 +445,12 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
 /** Keep-probability for an event name/action. Defaults to 1 (always emit). */
 export function sampleRateFor(name: string, now = Date.now()): number {
   let currentRate = 1;
-  if (Object.prototype.hasOwnProperty.call(EVENT_SAMPLE_RATES, name)) {
+  const dated = Object.prototype.hasOwnProperty.call(DATED_SAMPLE_RATES, name)
+    ? DATED_SAMPLE_RATES[name]
+    : undefined;
+  if (dated) {
+    currentRate = now < Date.parse(`${dated.until}T00:00:00Z`) ? dated.before : dated.after;
+  } else if (Object.prototype.hasOwnProperty.call(EVENT_SAMPLE_RATES, name)) {
     currentRate = EVENT_SAMPLE_RATES[name];
   } else {
     for (const [prefix, rate] of PREFIX_RULES) {

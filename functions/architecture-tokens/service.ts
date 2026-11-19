@@ -27,6 +27,34 @@ export interface RelatedResponse {
   contentVersion: number | null;
   participants: RelatedParticipant[];
   error_kind?: string;
+  /**
+   * Set with `error_kind: 'stale_index'`, which covers three cases. `version_mismatch`: the live
+   * diagram is at another version than its index rows. `not_in_live_read`: the viewer's live
+   * read did not return the diagram at all. `no_page_container`: it was returned, but without
+   * a pageId (for example on a blog post). `contentVersion` is the indexed version in all three.
+   */
+  stale_reason?: StaleReason;
+  /** The live version, when `stale_reason` is `version_mismatch`. */
+  live_version?: number;
+  /** Set with `error_kind: 'stale_index'`: which writer produced this diagram's index rows. */
+  index_source?: IndexSource;
+}
+
+export type StaleReason = 'version_mismatch' | 'not_in_live_read' | 'no_page_container';
+
+export type IndexSource = 'save' | 'heal' | 'backfill' | 'unknown';
+
+/**
+ * Reads the writer from a row's run id: `save:N` (indexOnSave), `heal:N` (a repair by this
+ * lookup), a `YYYY-MM-DD` date (tools/architecture-tokens/upload-index.mjs). The run id itself
+ * stays in the backend; only this closed set leaves it.
+ */
+function indexSourceOf(runId: unknown): IndexSource {
+  if (typeof runId !== 'string') return 'unknown';
+  if (/^save:\d+$/.test(runId)) return 'save';
+  if (/^heal:\d+$/.test(runId)) return 'heal';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(runId)) return 'backfill';
+  return 'unknown';
 }
 
 export interface ConfluencePageInfo {
@@ -44,7 +72,13 @@ export interface LiveContent {
   spaceId?: string;
 }
 
-export type ContentResolver = (contentIds: string[]) => Promise<Map<string, LiveContent>>;
+/**
+ * `withoutPage` lists ids the read returned with no pageId. They are left out of the map, as
+ * before, but a diagram missing for that reason is reported apart from one not returned.
+ */
+export type LiveContentMap = Map<string, LiveContent> & { withoutPage?: Set<string> };
+
+export type ContentResolver = (contentIds: string[]) => Promise<LiveContentMap>;
 
 const CQL_BATCH = 100;
 const CONTENT_BATCH = 100;
@@ -281,7 +315,8 @@ export function confluenceContentResolver(
   fetchImpl: typeof fetch = fetch,
 ): ContentResolver {
   return async (contentIds) => {
-    const out = new Map<string, LiveContent>();
+    const out: LiveContentMap = new Map<string, LiveContent>();
+    out.withoutPage = new Set();
     for (let i = 0; i < contentIds.length; i += CONTENT_BATCH) {
       const ids = contentIds
         .slice(i, i + CONTENT_BATCH)
@@ -312,6 +347,7 @@ export function confluenceContentResolver(
         const version = Number(result?.version?.number);
         const pageId = String(result?.pageId ?? '');
         const spaceId = String(result?.spaceId ?? '');
+        if (id && Number.isFinite(version) && !pageId) out.withoutPage.add(id);
         if (!id || !Number.isFinite(version) || !pageId) continue;
         out.set(id, { version, pageId, ...(spaceId && { spaceId }) });
       }
@@ -355,7 +391,7 @@ export async function relatedDiagrams(
   // display slice is taken only after version and permission filtering so invalid nearer
   // candidates can be backfilled.
   const nearest = budgetedCandidates(candidates);
-  let live: Map<string, LiveContent>;
+  let live: LiveContentMap;
   try {
     live = await resolveContent([contentId, ...new Set(nearest.map((c) => c.contentId))]);
   } catch {
@@ -367,9 +403,32 @@ export async function relatedDiagrams(
   const totals = pageTotalsByKey(candidates);
 
   const self = live.get(contentId);
-  if (!self || self.version !== contentVersion) {
+  if (!self) {
+    // Not a version problem. Kept under `stale_index` so the footer's analytics series stays
+    // continuous; `stale_reason` tells the cases apart.
+    const stale_reason: StaleReason = live.withoutPage?.has(contentId)
+      ? 'no_page_container'
+      : 'not_in_live_read';
+    return {
+      indexedAt,
+      contentVersion,
+      participants: [],
+      error_kind: 'stale_index',
+      stale_reason,
+      index_source: indexSourceOf(own[0].runId),
+    };
+  }
+  if (self.version !== contentVersion) {
     // The index predates this diagram's current text; every row about it is unreliable.
-    return { indexedAt, contentVersion, participants: [], error_kind: 'stale_index' };
+    return {
+      indexedAt,
+      contentVersion,
+      participants: [],
+      error_kind: 'stale_index',
+      stale_reason: 'version_mismatch',
+      live_version: self.version,
+      index_source: indexSourceOf(own[0].runId),
+    };
   }
 
   const current = usableCandidates(

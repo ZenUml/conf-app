@@ -12,3 +12,12 @@ BEFORE: origin/main c23337f8. AFTER: 849b6cab (branch feat/bundle-checkout-hando
 | impl-invalid.png | Bad ref: 400 page |
 
 Storybook: local dev server, Chrome, 800 px wide, fixture data. Handoff renders: handler HTML rendered in headless Chrome. Fictional tenant only.
+
+## Forge tunnel (lite-dev, internal dev site, development env)
+
+Branch 849b6cab served by Vite through `forge tunnel`, browser signed in as the Forge account.
+
+| File | What |
+|---|---|
+| tunnel-before-click.jpg | Plan and usage on lite-dev: new help copy (proves tunnel serves branch code) |
+| tunnel-after-click.jpg | After Unlock on SD: no Atlassian "Opening external page" dialog; row shows "Checkout opened in a new tab"; new tab opened at `https://conf-stg-lite.zenuml.com/bundle-checkout?ref=lite-dev__SD&space=SD&surface=plan_usage&click=<uuid>` |

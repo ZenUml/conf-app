@@ -2281,22 +2281,10 @@ export default {
         this.siteNotice = { count: notice.count, limit: notice.limit, stage: notice.stage };
         this.licenseNoticeBasis = notice.basis;
         this.licenseNoticeActive = true;
-        const surface = this.isFullscreenMode ? 'fullscreen' : 'viewer';
-        // Repeats are sampled per browser x macro x UTC day: one enforced site
-        // sent 15,710 of these on 2026-11-16 over 4,994 user x macro keys.
-        const occurrence = currentLicenseNoticeOccurrence('evaluated', surface);
-        if (occurrence) {
-          trackAnalyticsEvent('license_notice_evaluated', {
-            feature_area: 'license_notice',
-            surface,
-            macro_type: this.diagramType ?? 'none',
-            license_notice_outcome: 'shown',
-            license_notice_basis: notice.basis,
-            enforcement_stage: notice.stage,
-            macro_count: notice.count,
-            ...occurrence,
-          });
-        }
+        // No `license_notice_evaluated` here: the only outcome is `shown`, and
+        // the watermark and strip render under one condition, so the strip's
+        // `license_notice_shown` (with enforcement_stage and macro_count) is the
+        // exposure event. The duplicate was ~5,000 events a day (2026-11-18).
       } catch {
         if (requestId !== this.licenseNoticeRequestId) return;
         this.siteNotice = null;

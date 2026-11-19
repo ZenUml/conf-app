@@ -399,7 +399,7 @@ measurable without a Stripe export.
 |---|---|---|
 | `paywall_enforcement_notice_shown` | dated banner rendered | `enforcement_stage`, `effective_at`, `days_to_effective`, `banner_audience`, `surface` |
 | `paywall_gate_evaluated` (existing) | editor mount | add `enforcement_stage`, `enforcement_active`, `paywall_policy_source = site_policy` |
-| `license_notice_evaluated` (existing) | viewer decides the watermark | on Lite: `license_notice_basis = site_policy_limit_reached`, `license_notice_outcome`, `enforcement_stage`, `macro_count`, `surface` |
+| `license_notice_shown` (existing) | the watermark and strip render | on Lite: `license_notice_basis = site_policy_limit_reached`, `enforcement_stage`, `macro_count`, `surface`. Lite sent `license_notice_evaluated` here too until 2026-11-19; it was a duplicate and was removed |
 | Strip button click (reuse the existing license-notice click event; confirm its name in `catalog.ts`) | strip button clicked | `license_notice_basis`, action = plan and usage, `surface` |
 | `paywall_blocked_create` (existing, re-enabled) | create blocked | add `enforcement_stage`, `macro_type`, `action_type` |
 | `paywall_blocked_edit` (existing, re-enabled) | edit gated | add `enforcement_stage`, `remaining_attempts_before` |
@@ -414,7 +414,7 @@ Add the names to `src/utils/analytics/catalog.ts` and `types.ts` in the first co
 |---|---|---|
 | T−21 | Write `stage = notice` with `effectiveAt = T` | `paywall_enforcement_notice_shown` fires for space admins and editors of over-limit spaces |
 | T−21 → T | Answer every request as a quote; no free extension | Each reply recorded in the private handbook |
-| T | Write `stage = watermark` | `license_notice_evaluated` with `outcome = shown` on over-limit spaces only; views and edits unchanged week on week; export carries no watermark |
+| T | Write `stage = watermark` | `license_notice_shown` on over-limit spaces only; views and edits unchanged week on week; export carries no watermark |
 | T+30 | Review: purchase, open commercial thread, or neither | Owner decides: hold, set a date for `block_create`, or delete the key |
 | later, dated | Write `stage = block_create`, only after the purchase path changes ship | `paywall_blocked_create` > 0; edits of existing diagrams unchanged week on week |
 

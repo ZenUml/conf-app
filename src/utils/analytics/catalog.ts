@@ -1972,6 +1972,11 @@ export type AnalyticsEventName =
   // macro_type.
   // Full viewer decision settles or expires; flag-off views emit nothing.
   // license_notice_basis distinguishes Forge inactivity from explicit Legacy Free evidence.
+  // The Lite site-policy notice (basis 'site_policy_limit_reached') sends no
+  // `evaluated`: its only outcome is `shown`, and the watermark and strip render
+  // under one condition, so `license_notice_shown` (which carries
+  // enforcement_stage and macro_count) is its exposure event. On 2026-11-18 the
+  // duplicate was ~5,000 events a day.
   | "license_notice_evaluated"
   | "license_notice_shown"
   | "license_notice_upgrade_clicked"

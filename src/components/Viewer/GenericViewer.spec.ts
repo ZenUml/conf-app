@@ -3746,11 +3746,12 @@ describe('GenericViewer license notice (Lite, per-site enforcement)', () => {
     expect(wrapper.find('.screen-capture-content').element.contains(watermark)).toBe(false)
     expect(wrapper.find('.license-notice-title').text()).toBe('Lite diagram limit reached')
     expect(wrapper.find('[data-testid="license-notice-upgrade"]').exists()).toBe(false)
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_evaluated', expect.objectContaining({
-      license_notice_basis: 'site_policy_limit_reached', enforcement_stage: 'watermark', macro_count: 2282, license_notice_outcome: 'shown',
-    }))
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_shown', expect.objectContaining({
-      license_notice_basis: 'site_policy_limit_reached', enforcement_stage: 'watermark',
+    // One exposure event: the strip's `shown`. No duplicate `evaluated`.
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('license_notice_evaluated', expect.anything())
+    const shown = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'license_notice_shown')
+    expect(shown).toHaveLength(1)
+    expect(shown[0][1]).toEqual(expect.objectContaining({
+      license_notice_basis: 'site_policy_limit_reached', enforcement_stage: 'watermark', macro_count: 2282,
     }))
     wrapper.unmount()
   })

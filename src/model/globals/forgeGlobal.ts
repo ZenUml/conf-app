@@ -269,9 +269,35 @@ export async function isConfiguring() {
 export async function openUrl(url: string) {
   if (global.isForge) {
     const { router } = await import("@forge/bridge");
-    router.open(url);
+    // router.open rejects with "cancelled" when the user cancels Atlassian's
+    // external-page dialog. Callers here do not need the outcome; keep the
+    // rejection from surfacing as unhandled. Use openUrlForOutcome to read it.
+    router.open(url).catch(() => undefined);
   } else {
     window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}
+
+export type OpenUrlOutcome = 'opened' | 'declined' | 'error';
+
+/**
+ * Open a URL in a new tab and report what happened. Never throws.
+ * `declined`: the user cancelled Atlassian's "Opening external page" dialog
+ * (router.open rejects with "cancelled"; observed 2026-11-20). Hosts in the
+ * manifest's external.fetch.client (zenuml.com, *.zenuml.com) open without
+ * that dialog.
+ */
+export async function openUrlForOutcome(url: string): Promise<OpenUrlOutcome> {
+  try {
+    if (global.isForge) {
+      const { router } = await import("@forge/bridge");
+      await router.open(url);
+      return 'opened';
+    }
+    return window.open(url, '_blank', 'noopener,noreferrer') ? 'opened' : 'error';
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return /cancel/i.test(message) ? 'declined' : 'error';
   }
 }
 

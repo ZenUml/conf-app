@@ -46,6 +46,26 @@ export interface CaptureBlobOptions {
   fontEmbedCSS?: string;
   /** Defaults to `window.devicePixelRatio`, matching html-to-image. */
   pixelRatio?: number;
+  /**
+   * Draw an image that cannot be fetched as a transparent blank instead of
+   * rejecting. For the Export PNG dialog only: the person sees the result and
+   * can still get the rest of the diagram. The backup PNG keeps the strict
+   * default, because a saved PNG with a missing image is never captured again.
+   */
+  skipUnloadableImages?: boolean;
+  /** With `skipUnloadableImages`: how many distinct image URLs were blanked. */
+  onSkippedImages?: (count: number) => void;
+}
+
+/** A 1x1 transparent PNG, drawn in place of an image that could not be fetched. */
+export const TRANSPARENT_PIXEL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
+export interface InlineCaptureImagesOptions {
+  /** Use TRANSPARENT_PIXEL for an image that cannot be fetched instead of rejecting. */
+  skipUnloadable?: boolean;
+  /** Called with the number of distinct URLs blanked, when there were any. */
+  onSkipped?: (count: number) => void;
 }
 
 /**
@@ -105,7 +125,7 @@ async function fetchAsDataUrl(url: string): Promise<string> {
  * Rejects when an icon cannot be fetched: no PNG is better than a saved PNG with
  * a broken icon, which would never be captured again for the same content.
  */
-export async function inlineCaptureSvgImages(svg: string): Promise<string> {
+export async function inlineCaptureSvgImages(svg: string, options: InlineCaptureImagesOptions = {}): Promise<string> {
   const comma = svg.indexOf(',');
   const markup = decodeURIComponent(svg.slice(comma + 1));
   if (!markup.includes('<image')) return svg;
@@ -118,9 +138,21 @@ export async function inlineCaptureSvgImages(svg: string): Promise<string> {
   });
   if (images.length === 0) return svg;
 
+  let skipped = 0;
+  const fetchOrBlank = async (url: string) => {
+    if (!options.skipUnloadable) return fetchAsDataUrl(url);
+    try {
+      return await fetchAsDataUrl(url);
+    } catch (e) {
+      skipped += 1;
+      console.warn('captureBlob: image left blank, could not be fetched:', e instanceof Error ? e.message : e);
+      return TRANSPARENT_PIXEL;
+    }
+  };
   const dataUrls = new Map(await Promise.all(
-    [...new Set(images.map(hrefOf))].map(async (url) => [url, await fetchAsDataUrl(url)] as const),
+    [...new Set(images.map(hrefOf))].map(async (url) => [url, await fetchOrBlank(url)] as const),
   ));
+  if (skipped > 0) options.onSkipped?.(skipped);
   images.forEach((image) => {
     const dataUrl = dataUrls.get(hrefOf(image))!;
     image.removeAttribute('href');
@@ -209,13 +241,26 @@ export async function captureBlob(
   // Every export path funnels through here. `fontEmbedCSS` takes priority over
   // `skipFonts` in html-to-image, so other web fonts stay un-embedded as before
   // while the hosted diagram font (the one layout was measured with) is kept.
-  const fontEmbedCSS = options.fontEmbedCSS ?? (await getDiagramFontEmbedCss());
+  const { skipUnloadableImages, onSkippedImages, ...libraryOptions } = options;
+  const fontEmbedCSS = libraryOptions.fontEmbedCSS ?? (await getDiagramFontEmbedCss());
+  // html-to-image swallows a failed image fetch and sets the image to '' (or to
+  // `imagePlaceholder`); an empty source then fires `error`, and the library
+  // rejects the whole capture with that DOM Event ("image error event").
+  // The placeholder alone is not enough: the library caches the failed fetch
+  // per URL as '' for the life of the page, so after one strict capture (the
+  // backup PNG) every later capture gets '' again. `onImageErrorHandler`
+  // turns that error into "carry on"; the image is blanked in inlining below.
+  const toSvgOptions = {
+    ...libraryOptions,
+    ...(fontEmbedCSS ? { fontEmbedCSS } : {}),
+    ...(skipUnloadableImages ? { imagePlaceholder: TRANSPARENT_PIXEL, onImageErrorHandler: () => undefined } : {}),
+  };
   const svg = await withCaptureStage('dom_to_svg', async () =>
-    prepareSequenceCaptureSvg(
-      await htmlToImage.toSvg(node, fontEmbedCSS ? { ...options, fontEmbedCSS } : options),
-      node,
-    ));
-  const svgDataUrl = await withCaptureStage('inline_images', () => inlineCaptureSvgImages(svg));
+    prepareSequenceCaptureSvg(await htmlToImage.toSvg(node, toSvgOptions), node));
+  const svgDataUrl = await withCaptureStage('inline_images', () => inlineCaptureSvgImages(svg, {
+    skipUnloadable: skipUnloadableImages,
+    onSkipped: onSkippedImages,
+  }));
   const img = await withCaptureStage('svg_load', () => loadImage(svgDataUrl));
 
   const canvas = await withCaptureStage('canvas', () => {

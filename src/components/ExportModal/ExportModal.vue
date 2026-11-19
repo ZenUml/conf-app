@@ -205,7 +205,7 @@ export default defineComponent({
       };
     }
 
-    function trackSucceeded(method: 'download' | 'clipboard') {
+    function trackSucceeded(method: 'download' | 'clipboard', skippedImageCount?: number) {
       trackAnalyticsEvent('export_png_succeeded', {
         feature_area: 'macro',
         surface: props.surface,
@@ -218,6 +218,7 @@ export default defineComponent({
         has_rectangle: state.annotations.items.value.some(item => item.type === 'rectangle'),
         annotation_count: state.annotations.items.value.length + Number(state.hasWatermark.value),
         has_watermark: state.hasWatermark.value,
+        ...(skippedImageCount ? { skipped_image_count: skippedImageCount } : {}),
       });
     }
 
@@ -316,6 +317,9 @@ export default defineComponent({
         const previewBlob = await captureBlob(node, {
           skipFonts: true,
           pixelRatio: 2,
+          // Same as the export path: an image the iframe cannot fetch shows
+          // blank instead of failing the preview (useExportEngine.ts).
+          skipUnloadableImages: true,
           // Keep the cached base transparent. ExportWorkspace paints the
           // selected background behind it, so changing background never
           // leaves the preview baked to the color from initial capture.
@@ -400,7 +404,7 @@ export default defineComponent({
         );
         if (result.ok) {
           exportSucceeded = true;
-          trackSucceeded('download');
+          trackSucceeded('download', result.skippedImageCount);
           emit('close');
         } else {
           trackFailed(result.reason);
@@ -430,7 +434,7 @@ export default defineComponent({
           // A successful clipboard copy is a successful export for this open
           // session — mark it so closing afterwards doesn't fire dismissed.
           exportSucceeded = true;
-          trackSucceeded('clipboard');
+          trackSucceeded('clipboard', result.skippedImageCount);
           copied.trigger();
         } else {
           trackFailed(result.reason);

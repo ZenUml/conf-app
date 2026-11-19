@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as htmlToImage from 'html-to-image';
-import { captureBlob, inlineCaptureSvgImages, prepareSequenceCaptureSvg } from './captureBlob';
+import { captureBlob, inlineCaptureSvgImages, prepareSequenceCaptureSvg, TRANSPARENT_PIXEL } from './captureBlob';
 import { getDiagramFontFaceCss } from '@zenuml/core';
 import { CaptureStageError } from './captureFailure';
 import { setExternalIconState, clearExternalIconState } from '../utils/graph/externalIconState';
@@ -301,6 +301,23 @@ describe('inlineCaptureSvgImages', () => {
 
     await expect(inlineCaptureSvgImages(iconSvg(['https://cdn.example/missing.svg']))).rejects.toThrow('missing.svg');
   });
+
+  it('with skipUnloadable, blanks an icon that cannot be fetched and reports how many it blanked', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => (url.includes('missing')
+      ? Promise.reject(new TypeError('Failed to fetch'))
+      : { ok: true, blob: async () => new Blob(['<svg/>'], { type: 'image/svg+xml' }) })));
+    const onSkipped = vi.fn();
+
+    const result = fromDataUrl(await inlineCaptureSvgImages(
+      iconSvg(['https://blocked.example/missing.png', 'https://cdn.example/ok.svg']),
+      { skipUnloadable: true, onSkipped },
+    ));
+
+    expect(result).not.toContain('https://blocked.example/missing.png');
+    expect(result).toContain(TRANSPARENT_PIXEL);
+    expect(result).not.toContain('https://cdn.example/ok.svg');
+    expect(onSkipped).toHaveBeenCalledWith(1);
+  });
 });
 
 describe('captureBlob and graph icons that the proxy could not load', () => {
@@ -317,5 +334,52 @@ describe('captureBlob and graph icons that the proxy could not load', () => {
     const toSvg = vi.spyOn(htmlToImage, 'toSvg');
     await expect(captureBlob(node)).rejects.toThrow(/icon proxy/i);
     expect(toSvg).not.toHaveBeenCalled();
+  });
+});
+
+describe('captureBlob skipUnloadableImages (Export PNG dialog)', () => {
+  beforeEach(() => {
+    stubImage('ok');
+    stubCanvas();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('gives html-to-image a transparent placeholder, so an image it cannot fetch does not reject the capture', async () => {
+    const toSvg = vi.spyOn(htmlToImage, 'toSvg').mockResolvedValue(SVG_URL);
+
+    await captureBlob(makeNode(), { skipFonts: true, skipUnloadableImages: true });
+
+    expect(toSvg).toHaveBeenCalledWith(expect.any(HTMLElement), {
+      skipFonts: true,
+      imagePlaceholder: TRANSPARENT_PIXEL,
+      // Needed as well: the library caches a failed fetch as '' per URL, so a
+      // strict capture earlier on the page defeats the placeholder.
+      onImageErrorHandler: expect.any(Function),
+    });
+  });
+
+  it('reports the images it blanked in the inlining step', async () => {
+    const svg = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="https://blocked.example/a.png"/></svg>',
+    )}`;
+    vi.spyOn(htmlToImage, 'toSvg').mockResolvedValue(svg);
+    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('Failed to fetch'))));
+    const onSkippedImages = vi.fn();
+
+    const blob = await captureBlob(makeNode(), { skipUnloadableImages: true, onSkippedImages });
+
+    expect(blob).toBeInstanceOf(Blob);
+    expect(onSkippedImages).toHaveBeenCalledWith(1);
+  });
+
+  it('keeps the strict default for the backup PNG: no placeholder', async () => {
+    const toSvg = vi.spyOn(htmlToImage, 'toSvg').mockResolvedValue(SVG_URL);
+
+    await captureBlob(makeNode(), { skipFonts: true });
+
+    expect(toSvg).toHaveBeenCalledWith(expect.any(HTMLElement), { skipFonts: true });
   });
 });

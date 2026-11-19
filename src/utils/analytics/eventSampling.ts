@@ -174,6 +174,7 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   "paywall_banner_dismissed",
   "paywall_banner_shown",
   "paywall_bundle_cta_clicked",
+  "bundle_checkout_open_result",
   "paywall_gate_evaluated",
   "paywall_triggered",
   "plan_usage_request_full_clicked",

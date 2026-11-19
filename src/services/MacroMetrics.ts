@@ -1,7 +1,7 @@
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { getDiagramConfig } from "@/model/Diagram/DiagramTypeConfig";
 import globals from "@/model/globals";
-import { trackEvent, addonKey } from "@/utils/window";
+import { trackEvent, addonKey, serializeError } from "@/utils/window";
 import ApWrapper2 from "@/model/ApWrapper2";
 import { getClientDomain } from "@/utils/ContextParameters/ContextParameters";
 import { callRemote } from "@/utils/requestUtil";
@@ -17,6 +17,7 @@ export interface IMacroMetrics {
   // Lite ships the AsyncAPI macro (ADR-0005 Option A). Its own bucket keeps
   // these out of `unknown`, which is the corrupt-content signal.
   asyncapi: number;
+  markdown: number;
   unknown: number;
   isLite: boolean;
   lastUpdated?: string;
@@ -191,6 +192,7 @@ export class MacroMetrics {
       mermaid: 0,
       plantuml: 0,
       asyncapi: 0,
+      markdown: 0,
       unknown: 0
     };
   }
@@ -219,7 +221,9 @@ export class MacroMetrics {
   private updateDiagramStats(stats: Partial<IMacroMetrics>, diagramType: DiagramType): void {
     const field = (getDiagramConfig(diagramType)?.metricField as keyof IMacroMetrics | undefined)
       ?? EXTRA_METRIC_FIELDS[diagramType];
-    if (field) {
+    // A type without a bucket must land in `unknown`, never NaN: the backend
+    // rejects payloads whose buckets do not sum to total.
+    if (field && Object.prototype.hasOwnProperty.call(stats, field) && typeof stats[field] === 'number') {
       (stats[field] as number)++;
     } else {
       stats.unknown!++;
@@ -270,7 +274,9 @@ export class MacroMetrics {
   }
 
   private trackError(e: unknown): void {
-    this.eventTracker(JSON.stringify(e), 'report_macro_metrics', 'error');
+    // JSON.stringify(new Error('x')) is '{}': message and stack are not enumerable, so the cause was lost.
+    const label = e instanceof Error ? `${e.name}: ${e.message}` : serializeError(e);
+    this.eventTracker(label, 'report_macro_metrics', 'error');
   }
 }
 

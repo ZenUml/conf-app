@@ -23,6 +23,10 @@ Six of the seven (`Sequence`, `Mermaid`, `PlantUml`, `Graph`, `OpenApi`, `Embed`
 
 Stack, build system, and deployment targets are stated in `package.json`, `wrangler.toml`, and `manifest.yml`. The one platform fact those files do not make obvious is under **Pure Forge — no Connect code** below.
 
+### Figma design destination
+
+All Conf App Figma design work uses the existing [Conf App Figma file](https://www.figma.com/design/xyLOTL0IvXNszqFCKCdAp0/Conf-App); organize features within that file. Use a separate Figma file only when explicitly requested.
+
 ### Product variants
 
 The add-on comes in four variants:
@@ -35,6 +39,10 @@ The add-on comes in four variants:
 ### The Handbook (internal team site)
 
 The **Handbook** is our internal, team-only knowledge site — *not* customer-facing. It collects what the team needs day to day: developer reference, operations runbooks, pricing/growth strategy, and customer intelligence (profiles, investigations). Because it can contain client-sensitive data, it lives in the **`private/` submodule** (`ZenUml/conf-app-private`), never the public repo. (This replaces the older, narrower "dev site" framing.)
+
+### Figma file layout
+
+Before finding or placing a design in the [Conf App Figma file](https://www.figma.com/design/xyLOTL0IvXNszqFCKCdAp0/Conf-App), read the index frame on page `00 · Start here`; it defines which page holds what and the naming rule. New brainstorm work goes on the Explore page. The index is the source of truth: when the structure changes, update it there, not here.
 
 ## Hard rules
 
@@ -66,6 +74,12 @@ Before writing code for any new feature, define the analytics events first. For 
 
 **Why:** events retrofitted after the fact miss edge cases (e.g. "accepted vs modified" required understanding the full UX flow before implementation). Planning events up front forces clarity on what "success" looks like before the code is written.
 
+### Estimate Mixpanel cost and quota before adding events or session replay
+
+Before a change adds an event, raises a sampling rate, adds a forced session-replay source, or shows an existing forced-replay event to a wider audience, estimate its monthly volume against the two caps and state the estimate in the PR. The caps: 1,000,000 tracked events (billed above that) and 20,000 session replays (recording stops for the rest of the month above that). Count per occurrence, not per user: an event sent on mount fires once per macro iframe per page view. Measure the current rate with `.claude/skills/mixpanel/scripts/mp_quota.py`. Sampling sets are in `src/utils/analytics/eventSampling.ts`; forced replay sources are `FORCED_REPLAY_SOURCES` in `src/utils/analytics/trackAnalyticsEvent.ts`; caps and policy are in [docs/ops/mixpanel-quota-check.md](docs/ops/mixpanel-quota-check.md).
+
+**Why (2026-11-17):** the Lite site-policy license notice began to reuse `license_notice_shown`, a forced-replay event sized for a handful of Full sites. About 20,000 replays were then recorded in one day, as many as the monthly replay cap.
+
 ### Pure Forge — no Connect code
 
 All four variants (lite, full, diagramly, asyncapi) are **Forge-only** in production. The Connect runtime is fully removed.
@@ -74,14 +88,28 @@ All four variants (lite, full, diagramly, asyncapi) are **Forge-only** in produc
 
 For the full policy — banned APIs (`AP.*`, `xdm_e`, Connect hosts), `@forge/bridge` replacements, environment detection, DrawIO URL rules — see `docs/policies/forge-only.md` (create if absent when you need to capture a new decision).
 
-### Guest and anonymous viewers get no Forge user token
+### Anonymous viewers get no Forge user token (guests: changed 2026-11-10/11)
 
-Forge omits `x-forge-oauth-user` on `invokeRemote` for **unlicensed (guest)** and **anonymous** viewers: the token is "only sent for invocations that have a user in session", and Atlassian's [unlicensed-users guide](https://developer.atlassian.com/platform/forge/access-to-forge-apps-for-unlicensed-users/) says Confluence guests "can't make asUser calls" (open suggestion [ECO-1450](https://jira.atlassian.com/browse/ECO-1450)). The FIT carries no account-type claim, so the backend can only observe "user token absent". We have rendered macros for guests since ZEN-1170 (2026-05-22) and for anonymous visitors since `c7fb3658` (2026-10-06), so every backend endpoint that requires that header fails for them: `magic-writeback`, `forge-upload-attachment`, `forge-custom-content`, `metrics-cache/snapshot`, `api/diagram-impact`, `api/architecture-tokens/related`. Guests still save diagrams, because the frontend bridge (`requestConfluence`) runs as the guest.
+Forge omits `x-forge-oauth-user` on `invokeRemote` when no user is in session; the token is "only sent for invocations that have a user in session". Every backend endpoint that requires that header then fails: `magic-writeback`, `forge-upload-attachment`, `forge-custom-content`, `metrics-cache/snapshot`, `api/diagram-impact`, `api/architecture-tokens/related`. The FIT carries no account-type claim, so the backend can only observe "user token absent". Macros render for guests since ZEN-1170 (2026-05-22) and for anonymous visitors since `c7fb3658` (2026-10-06). Guests still save diagrams, because the frontend bridge (`requestConfluence`) runs as the guest.
 
-**Found 2026-10-08:** on one Lite customer site, guests (real accounts, each confined to one space) produced ~95% of all `magic_writeback_completed` `unavailable` outcomes — `magic-writeback.ts` answered their calls with 401 and the viewer recorded `client_exception`. Rules that follow:
+**Before 2026-11-10/11 (observed):** unlicensed (guest) viewers got no token either. Atlassian's [unlicensed-users guide](https://developer.atlassian.com/platform/forge/access-to-forge-apps-for-unlicensed-users/) said Confluence guests "can't make asUser calls" (open suggestion [ECO-1450](https://jira.atlassian.com/browse/ECO-1450)). On 2026-10-08, on one Lite customer site, guests (real accounts, each confined to one space) produced ~95% of all `magic_writeback_completed` `unavailable` outcomes; `magic-writeback.ts` answered them with 401.
 
-- **Frontend:** before any `callRemote` that needs the user token, gate on the viewer kind. Anonymous = no `accountId` in the Forge context. Guest = `isGuest: true` from `GET /wiki/rest/api/user/current` via the bridge (OpenAPI: "Whether the user is a guest user"; `isExternalCollaborator` is deprecated), cached per site+account in localStorage. `view.getContext()` documents no `accountType`, and the resolver-context `accountType` does not exist for a remote-only app.
-- **Backend:** a valid FIT without `x-forge-oauth-user` is a guest/anonymous invocation, not an auth failure — answer `403 { error: 'no_user_credential' }`, never 401, and never fall back to the app token to act for that viewer.
+**What changed (2026-11-17 diagnosis):**
+
+| Statement | Basis |
+|---|---|
+| On that site, guests' 403s on `/api/architecture-tokens/related` stopped between 2026-11-10 15:40Z and 2026-11-11 00:27Z, with no deploy or flag change on our side. Before that, Cloudflare 401/403 counts for the path matched Mixpanel `related_diagrams_lookup_failed` `error_kind: network` (19,276 vs 19,013, 10-19 to 11-10). | Observed |
+| A production tail on 2026-11-17: 0 of 1,593 requests answered 403. The 67 requests without `x-forge-oauth-user` were all `POST /forge-user-behavior` from `remote-page-behavior-trigger`, a product trigger with no user in session by design. | Observed |
+| Atlassian announced on 2026-11-02 that Forge is enabling user tokens for unlicensed users on function and Remote invocations, and that the change does not allow anonymous access ([changelog entry, CHANGE-3536](https://developer.atlassian.com/platform/forge/changelog/#CHANGE-3536); the page states no effective date). | Documented (re-read 2026-11-17; the entry is matched by title, the page does not print the ID) |
+| That this change is what stopped the 403s. | Inferred |
+| Anonymous viewers still get no token. | Documented only; not measured |
+
+**Telemetry trap:** `callRemote` throws on any non-200, and `RelatedDiagramsFooter.vue` recorded every such throw as `error_kind: network`. Those ~19,000 "network" failures were HTTP 403. A fix is in progress in another PR; it is not fixed here yet.
+
+Rules:
+
+- **Frontend:** before any `callRemote` that needs the user token, gate anonymous viewers (no `accountId` in the Forge context). The guest gate (`isGuest: true` from `GET /wiki/rest/api/user/current` via the bridge, cached per site+account in localStorage; `isExternalCollaborator` is deprecated) is possibly redundant now. Keep it until the platform change has proved stable, then re-evaluate. `view.getContext()` documents no `accountType`, and the resolver-context `accountType` does not exist for a remote-only app.
+- **Backend:** a valid FIT without `x-forge-oauth-user` is a no-user invocation, not an auth failure. Answer `403 { error: 'no_user_credential' }`, never 401, and never fall back to the app token to act for that viewer.
 - **Diagnosis:** `wrangler pages deployment tail <deployment-id> --project-name conf-lite --format json` shows each request's header set; a 401 with `x-forge-oauth-system` present and `x-forge-oauth-user` absent is this case. Do not read wall time as "which branch ran": the same D1-only path takes ~100 ms via SYD and ~480 ms via SIN/ICN/NRT (round trips to the MEL primary), which looks like a Confluence call and is not one.
 
 ### Client privacy — no client names in public files
@@ -90,11 +118,30 @@ Real Confluence tenant names (subdomain prefixes, `<customer>.atlassian.net` hos
 
 Full rules, artifact routing table, pre-commit grep, and background: [docs/policies/client-privacy.md](docs/policies/client-privacy.md).
 
+### Customer email: Marketplace Partner Agreement §8.4(c)
+
+[§8.4(c)](https://www.atlassian.com/licensing/marketplace/partneragreement) allows direct contact from end-user data only "where required by Law or as consented to or requested by the end user". **The owner's ruling (2026-11-17):** this clause stops us from emailing ordinary users of the app. It does not stop a first-touch email at first install.
+
+| Case | Allowed? |
+|---|---|
+| One first-touch email to the Marketplace contact of a new install or evaluation | Yes |
+| Reply to a user who asked us (feedback dialog, support ticket, email) | Yes |
+| Email to an ordinary user we found in Confluence, Forge, Mixpanel or D1 data, who did not contact us | No |
+
+- The privacy policy is not a blocker for the first-touch email (owner, 2026-11-17).
+- The other contact rules still apply: owner's yes for each send, no repeat when there is no reply, no internal telemetry in the message, no contact with inactive payers. See `.claude/skills/customer-followup/references/contact-policy.md`.
+
 ### Never commit directly to `main`
 
-Always use a feature branch. Exceptions, both requiring the change be **confined** to those paths: `.md`-only changes, and agent-skill changes under `.claude/skills/**` (any file type — `SKILL.md` *and* its `.py`/`.mjs`/`.sh` helpers; skills are agent tooling, and CI `paths-ignore`s `.claude/**` so a PR adds no signal).
+Always use a feature branch. Exceptions, both requiring the change be **confined** to those paths: `.md`-only changes, and agent-skill changes under `.claude/skills/**` (any file type — `SKILL.md` *and* its `.py`/`.mjs`/`.sh` helpers; skills are agent tooling, and ordinary unit/build checks exclude `.claude/**`).
 
 **The primary checkout (`workspaces/zenuml/conf-app`) stays on `main`** — feature work goes in a worktree beside it (`../conf-app-<feature>`), because a branch can only be checked out in one worktree and a stale worktree holding `main` blocks `git switch main` in the primary directory. Still don't create a worktree reflexively: `.md`-only edits go straight to `main`, and changes to git-ignored files need no branch or worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full protocol — the overlap scan, per-worktree setup cost, start-of-issue steps, cleanup.
+
+**Keep the primary checkout in sync with `origin/main` — proactively, without asking.** At the start of any session in the primary checkout, and before committing there, run `git fetch origin main` and `git merge --ff-only origin/main`. A fast-forward changes no commit and discards nothing, so it needs no confirmation. If it refuses, do **not** stash, reset, rebase or discard to force it — that would displace another session's work (see the rule below). Instead report which case applies: local-only commits on `main` (list them with `git log origin/main..HEAD`), or uncommitted changes that overlap files the fast-forward would touch. When `main` is behind and a `.md`-only commit must go out now, build the commit on `origin/main` with a temporary index and push that, leaving the working tree untouched.
+
+### Merge low-risk PRs without asking, then report
+
+An agent session merges a non-destructive, low-technical-risk PR to `main` itself once every check is green and its validation is done; it does not wait for approval and does not offer the merge as an option. After the merge it reports: PR link, merge commit, risk reading, what is not yet verified. A destructive PR (deploys or releases directly, deletes or rewrites stored data, cannot be undone by a revert) still waits for the owner, and a production release still needs its own trigger. Rule, table and preconditions: [docs/policies/auto-lane.md](docs/policies/auto-lane.md#agent-sessions); commands: the **auto-lane** skill.
 
 ### Scan for overlapping work before starting a branch
 
@@ -232,7 +279,9 @@ Every push to a PR branch fires the `Build, Test and Draft Release` workflow (`.
 So when checking a PR before merge:
 - `gh pr view <pr> --json mergeStateStatus` showing **`UNSTABLE`** with some `CANCELLED` contexts is **expected and mergeable** — it is not a real failure.
 - The authoritative signal is the surviving **`pull_request`** run for the head SHA. Verify with: `gh run list --json event,headSha,conclusion` — the `pull_request` run's `conclusion: success` is what matters. The `CANCELLED` `push` run is noise; `gh run view <id> --log-failed` on it is empty because it was cancelled, not failed. **Do not spend rounds diagnosing it.**
-- `.md` / `docs/**` / `.claude/**` / `.cursor/**` / `packages/pr-agent-panel/**`-only changes are `paths-ignore`d by both triggers, so those PRs show `CLEAN` with nearly all checks `skipping` — also normal, and they do not run E2E or trigger a staging deploy.
+- Documentation, skill, PR-panel and isolated Render MCP changes retain their previous unit/build exclusions through the independent basic-scope gate. Complete file discovery includes both rename paths; uncertainty runs basic checks. PR metadata and E2E authorization still observe every PR. Missing decisions enter Draft/triage; documentation-only PRs can request the mandatory smoke floor after a current decision is published.
+
+**PR jobs are in two workflows.** `PR checks` (four `Unit tests` shards, `AsyncAPI build and CI script tests`, the `Build and Unit Test` result job, `E2E: Viewer preview`) takes no staging lock, and a newer push cancels its older run, so a `CANCELLED` run there is also normal. `PR validation` holds `conf-app-staging`; a run that a newer push overtook skips its staging jobs and ends green. Only jobs that need staging belong in `PR validation`, because the lock holds back the whole run. See [docs/ops/pipeline-graphs.md](docs/ops/pipeline-graphs.md).
 
 ### Release order — diagramly → lite → full
 
@@ -240,7 +289,15 @@ Production releases go **Diagramly first** (canary), then **Lite** for the same 
 
 ### Release pipeline time budget
 
-Where the minutes of a release go, what was cut and why: [docs/ops/release-pipeline-time-budget.md](docs/ops/release-pipeline-time-budget.md) and [ADR-0006](docs/adr/0006-release-pipeline-optimised-for-wall-clock.md) / [ADR-0007](docs/adr/0007-release-order-aware-pipeline.md). Two consequences that look like mistakes: the staging E2E jobs do **not** wait for the unit tests (the drafts do), and the production release smoke runs only the `@smoke` tier (the nightly smoke keeps the full suite) and is the PVT. All four staging E2E lanes on `main`, and all four daily regression transactions, run independently after one shared D1 migration gate; each main validator requires its own successful deploy and authentication. `main` runs are serialised on one concurrency group: a run queued behind another starts late (measure from its first job's `created_at`), a burst of merges collapses to the newest pending run, and a tip run cancelled by a re-run of an older one is resurrected by `e2e-rerun.yml`. PR runs execute only the E2E specs whose tags the changed files map to (`tests/e2e-tests/config/impact-map.mjs`, job names gain "(selected)"); an unmapped or shared PR file runs everything. Main selects smoke, directly changed E2E specs and known helper dependencies, plus Jev-selected categories from each complete variant inventory. Public CI and selector paths also go to Jev on main; sensitive or incomplete diffs and missing or invalid decisions retain full coverage. Re-measure before changing shard counts — layouts are in the job comments, not derivable by hand.
+Where the minutes of a release go, what was cut and why: [docs/ops/release-pipeline-time-budget.md](docs/ops/release-pipeline-time-budget.md) and [ADR-0006](docs/adr/0006-release-pipeline-optimised-for-wall-clock.md) / [ADR-0007](docs/adr/0007-release-order-aware-pipeline.md). Two consequences that look like mistakes: the staging E2E jobs do **not** wait for the unit tests (the drafts do), and the production release smoke runs only the `@smoke` tier (the nightly smoke keeps the full suite) and is the PVT. All four staging E2E lanes on `main`, and all four daily regression transactions, run independently after one shared D1 migration gate; each main validator requires its own successful deploy and authentication. `main`, PR staging validation, and daily regression share the `conf-app-staging` concurrency group with `queue: max`: one run owns staging at a time, and up to 100 runs can wait. A run can start long after it was created; inspect the concurrency group and measure from its first job's `created_at`. `e2e-rerun.yml` can re-run a cancelled pending main push if it is still the tip and no other run covers that SHA. PR E2E requires a collaborator decision tied to the current head/base and complete diff (`docs/policies/pr-test-decisions.md`). Use `pr-labeling` at creation/update: select exact Feature × Interface pairs from `IMPACT-MAP.md`, retaining smoke, directly changed specs and known dependencies. Missing, stale or unresolved decisions enter `test:triage` and block PR E2E; full coverage requires explicit manual `pr-triage`. Labels display the decision and do not authorize execution. Unit/build checks remain independent; preview/export and staging E2E recheck trusted authorization. Main selects smoke, directly changed E2E specs and known helper dependencies, plus Jev-selected categories from each complete variant inventory. Public CI and selector paths also go to Jev on main; sensitive or incomplete diffs and missing or invalid decisions retain full coverage. Re-measure before changing shard counts — layouts are in the job comments, not derivable by hand.
+
+### Feature rollout and customer operations
+
+Use Forge feature flags for feature testing, staged release, and emergency disable. Retire obsolete rollout flags when behavior is stable.
+
+Use the existing `KV_FEATURE_FLAGS` binding for persistent per-tenant operational state such as enrollment, exemption, notice, and effective-date policies. Reuse feature-specific key prefixes in that namespace; do not create a new namespace unless isolation is a separate requirement. Keep requests, grants, extensions, and audit records in D1. Every backend decision must use a trusted server identity and backend authorization. `SPACE_LICENSE_KV` remains the source for existing license data; this policy does not migrate it.
+
+Use two controls only when they serve two independent needs: rollout control and persistent customer operations. Do not duplicate one control in the other.
 
 ### Feature rollout and customer operations
 
@@ -337,6 +394,6 @@ Reach for Playwright MCP only when a skill needs something agent-browser lacks, 
 - **spot-check** — ad hoc verification of a specific behavior (not a checked-in E2E test). Triggers: "spot check on staging", "verify this fix". Forge iframe rules in [Browser automation and Forge iframes](#browser-automation-and-forge-iframes).
 - **Issue tracker** — issues live as GitHub issues on `ZenUml/conf-app`; use the `gh` CLI for all operations.
 - **Triage labels** — five canonical roles, names verbatim: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
-- **Domain docs** — single-context layout: `CONTEXT.md` + `docs/adr/` at the repo root (created lazily by `/grill-with-docs` as terms and decisions crystallise).
+- **Domain docs** — single-context layout: `GLOSSARY.md` + `docs/adr/` at the repo root (created lazily by `/grill-with-docs` as terms and decisions crystallise).
 - **Vendored skill set** — the 25 skills from [mattpocock/skills](https://github.com/mattpocock/skills) (`grill-me`, `grill-with-docs`, `tdd`, `code-review`, `implement`, `triage`, `to-spec`, `to-tickets`, `wayfinder`, …) are copied into `.claude/skills/` as editable files we own, not installed as the `mattpocock-skills` plugin — a plugin install is per-machine and would not reach the team or the remote agent containers. Vendored from upstream `6654f6b` (plugin v1.2.3); to refresh, re-copy from that repo rather than editing in place, or keep local edits deliberate. Do **not** also run `claude plugins install mattpocock-skills`: that would give every skill twice.
 - **`code-review` shadows the built-in** — `.claude/skills/code-review/` (Matt Pocock's two-axis Standards + Spec review) takes precedence over Claude Code's built-in `/code-review` in this repo. Rename the directory if you want the built-in back.

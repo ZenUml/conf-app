@@ -26,7 +26,7 @@ export const RUN_EVERYTHING = [
   'src/utils/featureConstants.ts', 'src/utils/forgeFlagEnvironment.ts',
   'src/stubs/**', 'src/types/**', 'src/assets/**', 'src/*.d.ts', 'global.d.ts',
   // build graph, manifest, dependencies
-  'manifest.yml', 'manifest.spec.ts', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml',
+  'manifest.yml', 'manifest.spec.ts', 'pnpm-lock.yaml', 'pnpm-workspace.yaml',
   'vite.config.*', 'tsconfig*.json', 'tailwind.config.js', 'index.html',
   'editor-preview.html', 'viewer-preview.html', 'scripts/forge-wizard.mjs', 'scripts/build-studio.sh',
   // the CI harness and the selection itself
@@ -141,7 +141,6 @@ export const IMPACT = [
   { glob: 'src/components/AIChat/**', tags: ['@ai'] },
   { glob: 'src/components/AIRepair.vue', tags: ['@ai', '@editor'] },
   { glob: 'src/components/aiRepairArming.ts', tags: ['@ai', '@editor'] },
-  { glob: 'src/utils/copyForAi/**', tags: ['@ai', '@viewer'] },
   { glob: 'src/routes/aiAide.ts', tags: ['@ai', '@route'] },
   { glob: 'src/services/{AIChatSessionService,GenerateService}.ts', tags: ['@ai'] },
   { glob: 'src/apis/aiGenerateTitle.ts', tags: ['@ai', '@editor'] },

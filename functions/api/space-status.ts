@@ -3,6 +3,7 @@ import { validateContextToken } from '../utils/authenticate';
 import { captureError } from '../utils/sentry';
 import type { SpaceLicenseRecord } from './space-license';
 import { json } from '../OkResponse';
+import { resolveEnforcement, type SpaceEnforcement } from '../service/paywallEnforcement';
 
 interface Env {
   SPACE_LICENSE_KV: KVNamespace;
@@ -12,12 +13,15 @@ interface Env {
   // the paid-rail check below must degrade to the existing not-paid path
   // rather than fail the request when it's absent.
   DB?: D1Database;
+  KV_FEATURE_FLAGS?: KVNamespace;
+  confluence_plugin_features?: KVNamespace;
 }
 
 export interface SpaceStatusResponse {
   isPaid: boolean;
   decisionKnown: boolean;
   source?: 'user_license' | 'space_license' | 'paid_rail';
+  enforcement?: SpaceEnforcement;
 }
 
 // Full and Diagramly Forge app identifiers (our own app IDs, not tenant
@@ -87,13 +91,16 @@ const PRIVATE_CACHE_5MIN = { 'Cache-Control': 'private, max-age=300' };
  * check the D1 paid-rail fallback before finally reporting not-paid — the
  * user- and space-license checks above this still win when they hit.
  */
-async function notPaidOrPaidRail(env: Env, cloudId: string): Promise<Response> {
+async function notPaidOrPaidRail(
+  env: Env, cloudId: string, forgeAppId: string | undefined, spaceKey: string,
+): Promise<Response> {
   const paidRail = await checkPaidRail(env.DB, cloudId);
   if (paidRail) {
     return json(paidRail, { status: 200, headers: PRIVATE_CACHE_5MIN });
   }
   const decisionKnown = paidRail === null;
-  return json({ isPaid: false, decisionKnown }, {
+  const enforcement = decisionKnown ? await resolveEnforcement(env, { cloudId, forgeAppId, spaceKey }) : null;
+  return json({ isPaid: false, decisionKnown, ...(enforcement ? { enforcement } : {}) }, {
     status: 200, headers: decisionKnown ? PRIVATE_CACHE_5MIN : NO_STORE,
   });
 }
@@ -144,7 +151,22 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const cloudId = typeof rawCloudId === 'string' ? rawCloudId : undefined;
     // Derived from the Forge-validated token, never a client query param — a
     // query param would let any user claim another user's accountId.
-    const accountId = payload?.payload?.principal;
+    const rawAccountId = payload?.payload?.principal;
+    const accountId = typeof rawAccountId === 'string' && rawAccountId ? rawAccountId : undefined;
+    const batchKeys = url.searchParams.getAll('spaceKey');
+    if (batchKeys.length > 1) {
+      if (batchKeys.length > 200 || batchKeys.some(key => !/^[~A-Za-z0-9_-]{1,255}$/.test(key))) {
+        return json({ error: 'invalid_space_keys' }, { status: 400, headers: NO_STORE });
+      }
+      if (!cloudId) return json({ error: 'missing_cloud_id' }, { status: 400, headers: NO_STORE });
+      const paidRail = await checkPaidRail(env.DB, cloudId);
+      const statuses = await Promise.all([...new Set(batchKeys)].map(async spaceKey => {
+        // Authentication was validated above. Reuse its result for the batch.
+        const response = await resolveSpaceStatus(env, cloudId, accountId, payload.forgeAppId, spaceKey, { value: paidRail });
+        return [spaceKey, await response.json()];
+      }));
+      return json({ statuses: Object.fromEntries(statuses) }, { headers: NO_STORE });
+    }
     const spaceKey = url.searchParams.get('spaceKey') || undefined;
 
     if (!cloudId || !spaceKey) {
@@ -152,6 +174,21 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return json({ isPaid: false, decisionKnown: false }, { status: 200, headers: NO_STORE });
     }
 
+    return await resolveSpaceStatus(env, cloudId, accountId, payload.forgeAppId, spaceKey);
+  } catch (error) {
+    console.error('Error checking space status:', error);
+    captureError(error);
+    return json({
+      isPaid: false,
+      decisionKnown: false,
+      error: 'internal_error',
+      message: 'Internal Server Error',
+    }, { status: 500, headers: NO_STORE });
+  }
+};
+
+async function resolveSpaceStatus(env: Env, cloudId: string, accountId: string | undefined, forgeAppId: string | undefined, spaceKey: string, paidRail?: { value: SpaceStatusResponse | null | undefined }): Promise<Response> {
+  try {
     if (!env.SPACE_LICENSE_KV) {
       console.error('SPACE_LICENSE_KV binding not configured');
       return json({ isPaid: false, decisionKnown: false }, { status: 200, headers: NO_STORE });
@@ -166,7 +203,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const userIsActive = userRecord.status === 'active';
         const userIsExpired = new Date(userRecord.expiresAt) < new Date();
         if (userIsActive && !userIsExpired) {
-          const decisionKnown = (await checkPaidRail(env.DB, cloudId)) !== undefined;
+          const decisionKnown = (paidRail ? paidRail.value : await checkPaidRail(env.DB, cloudId)) !== undefined;
           return json({ isPaid: true, decisionKnown, source: 'user_license' }, {
             status: 200, headers: decisionKnown ? PRIVATE_CACHE_5MIN : NO_STORE,
           });
@@ -178,7 +215,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     if (!licenseRaw) {
       console.log('space-status: no license found for', `license:${cloudId}:${spaceKey}`);
-      return await notPaidOrPaidRail(env, cloudId);
+      if (paidRail) {
+        return json(paidRail.value || { isPaid: false, decisionKnown: paidRail.value === null }, { headers: NO_STORE });
+      }
+      return await notPaidOrPaidRail(env, cloudId, forgeAppId, spaceKey);
     }
 
     const record = JSON.parse(licenseRaw) as SpaceLicenseRecord;
@@ -197,21 +237,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     });
 
     if (isPaid) {
-      const decisionKnown = (await checkPaidRail(env.DB, cloudId)) !== undefined;
+      const decisionKnown = (paidRail ? paidRail.value : await checkPaidRail(env.DB, cloudId)) !== undefined;
       return json({ isPaid: true, decisionKnown, source: 'space_license' }, {
         status: 200, headers: decisionKnown ? PRIVATE_CACHE_5MIN : NO_STORE,
       });
     }
 
-    return await notPaidOrPaidRail(env, cloudId);
+    if (paidRail) {
+      return json(paidRail.value || { isPaid: false, decisionKnown: paidRail.value === null }, { headers: NO_STORE });
+    }
+    return await notPaidOrPaidRail(env, cloudId, forgeAppId, spaceKey);
   } catch (error) {
-    console.error('Error checking space status:', error);
     captureError(error);
-    return json({
-      isPaid: false,
-      decisionKnown: false,
-      error: 'internal_error',
-      message: 'Internal Server Error',
-    }, { status: 500, headers: NO_STORE });
+    return json({ isPaid: false, decisionKnown: false, error: 'internal_error', message: 'Internal Server Error' }, { status: 500, headers: NO_STORE });
   }
-};
+}

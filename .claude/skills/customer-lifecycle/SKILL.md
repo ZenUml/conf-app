@@ -7,6 +7,8 @@ description: Read-only screening of customer installs, uninstalls, new license c
 
 Use [shared evidence rules and source matrix](../customer-data/evidence.md) and [product registry](../customer-data/products.json). Return facts in the shared signal shape; do not send, grant access, change a tracker or schedule monitoring merely because a signal exists.
 
+For “查 Confluence app 过去 N 天的新客户”, use [new-customers](../new-customers/SKILL.md)'s `--live --days N --app all` entrypoint, defaulting N to **1**. Its seven-product scope is Lite, Full, Diagramly, AsyncAPI, AWS Widgets, Whiteboard and Mini Sites. Use fresh **licenses-only GETs**, not transaction-reading `--sync`; report the approximate inclusive date window and use `maintenanceStartDate` for all products' basic new-customer candidates. FREE licenses do not require trial dates or trial-coverage warnings; available evaluation dates for paid products are optional separate context. `lastUpdated` does not indicate a new customer. Investigate old-customer/renewal/migration history only when maintenance-start candidates exist. Candidates do not prove strict first installation. This specific request overrides the generic seven-complete-day default below and does not create an automated schedule.
+
 1. Resolve products, time window and timezone from the request. Default a recent scan to seven complete days and name the range. A 30-day expansion must be labelled. "All customers" includes the registered products, with unsupported sources listed explicitly.
 2. Query only the relevant existing primitives:
    - `forge-installs`: current install snapshot and prior-snapshot difference. Missing baseline means change unknown. A disappearance gives a time interval, not an exact uninstall timestamp or reason.

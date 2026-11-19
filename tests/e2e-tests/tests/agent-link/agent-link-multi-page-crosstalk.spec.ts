@@ -109,7 +109,7 @@ async function renderedText(page: Page): Promise<string> {
 
 // lite only: see agent-link-e2e.spec.ts — the affordance under test renders on
 // lite-stg alone.
-test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@test:agent-link-multi-page-crosstalk', '@variant:lite', '@viewer', '@fullscreen', '@ai'] }, () => {
+test.describe('Live Agent Link — multi-page cross-talk isolation', { tag: ['@test:agent-link-multi-page-crosstalk', '@variant:lite', '@viewer', '@fullscreen', '@ai', '@status:retired'] }, () => {
   // The relay session UI is not offered in the headless-only first release
   // (RELAY_SESSIONS_ENABLED=false in src/composables/agentLink/connectInstructions.ts),
   // so there is no button to start a session. Flip that constant and run

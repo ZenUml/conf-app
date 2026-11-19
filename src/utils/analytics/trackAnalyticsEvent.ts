@@ -6,14 +6,17 @@ import {
   getSpaceKey,
 } from "@/utils/ContextParameters/ContextParameters";
 import forgeGlobal from "@/model/globals/forgeGlobal";
-import type { AnalyticsEventName } from "./catalog";
+import type { AnalyticsEventName, SessionReplayEventSource } from "./catalog";
 import type { AnalyticsProperties } from "./types";
 import type { SpaceAdmin } from "@/model/SpaceAdmin";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
 import { getSessionReplayConfig } from "./sessionReplayFlags";
 import { decideSample } from "./eventSampling";
 import { normalizeProductType } from "./productType";
-import { isOctoberReplayBudgetActive } from "./octoberReplayBudget";
+import {
+  isNovemberReplayBudgetActive,
+  isOctoberReplayBudgetActive,
+} from "./octoberReplayBudget";
 import { resolveEffectiveCustomContentId } from "@/utils/effectiveCustomContentId";
 
 // Singleton init promise: the first tracked event per iframe resolves the
@@ -104,29 +107,126 @@ async function _resolveSessionReplayConfig(): Promise<{
 const AUTHORING_REPLAY_RATE = 0.5;
 const OCTOBER_AUTHORING_REPLAY_RATE = 0.01;
 
+// November 2026 replay budget (2026-11-01 up to but not including 2026-12-01
+// UTC). The 20,000/month quota stood at 13,198 on 2026-11-12, with ~1,400-1,900
+// replays per weekday; month-to-date attribution was authoring 3,604 and
+// fullscreen 1,734 distinct replays. Both rates drop until the month ends, then
+// the normal rates (0.5 and 100%) return on their own.
+const NOVEMBER_AUTHORING_REPLAY_RATE = 0.05;
+const NOVEMBER_FULLSCREEN_REPLAY_RATE = 0.1;
+
 // Draw once per iframe, not per event. Eligibility is stable while the same
 // rate applies. At the UTC budget boundary, compare the saved draw with the
 // new rate; this can change whether a later authoring event requests a start.
 // We never stop an already-running recording at that boundary.
 let _authoringReplayDraw: number | null = null;
 
+// Set once a first_authoring recording has started in this iframe. Later
+// authoring events must then neither report skipped_sampled (95% of first
+// sessions would read as "no replay") nor re-register `authoring` (5% would be
+// relabelled), or the first_authoring source could not be measured.
+let _firstAuthoringReplayStarted = false;
+
 function _shouldRecordAuthoring(): boolean {
   if (_authoringReplayDraw === null) {
     _authoringReplayDraw = Math.random();
   }
-  return _authoringReplayDraw < (isOctoberReplayBudgetActive()
+  const rate = isOctoberReplayBudgetActive()
     ? OCTOBER_AUTHORING_REPLAY_RATE
-    : AUTHORING_REPLAY_RATE);
+    : isNovemberReplayBudgetActive()
+    ? NOVEMBER_AUTHORING_REPLAY_RATE
+    : AUTHORING_REPLAY_RATE;
+  return _authoringReplayDraw < rate;
+}
+
+// Fullscreen records every iframe, except during the November 2026 budget
+// window, when one random draw at init keeps NOVEMBER_FULLSCREEN_REPLAY_RATE.
+// A separate draw from the authoring one: the two decisions are independent.
+function _fullscreenReplayConfig() {
+  if (
+    isNovemberReplayBudgetActive() &&
+    Math.random() >= NOVEMBER_FULLSCREEN_REPLAY_RATE
+  ) {
+    return { percent: 0, source: "off" as const };
+  }
+  return { percent: 100, source: "fullscreen" as const };
+}
+
+// Events that always start a recording, whatever the baseline cohort decided.
+//
+// `license_notice_shown`: the Full "No active license" notice (gated by the
+// `no-license-notice-enabled` Forge flag) and the Lite site-policy notice (per
+// site enforcement policy) are worth watching while we learn how users react.
+// Since 2026-11-17 this records once per browser per site per UTC day, not per
+// notice (_claimLicenseNoticeReplayOfDay below). Hardcoded rather than a new
+// Forge flag: the notice gates already scope who sees it.
+const FORCED_REPLAY_SOURCES: Partial<
+  Record<AnalyticsEventName, SessionReplayEventSource>
+> = {
+  feedback_report_opened: "feedback",
+  license_notice_shown: "license_notice",
+  title_draft_preview_mounted: "title_draft_preview",
+};
+
+// The license notice forces at most one replay per browser per site per UTC
+// day. The notice is mounted in every macro iframe, and each iframe has its own
+// Mixpanel instance, so a per-event force meant one recording per diagram view:
+// on 2026-11-16 one enforced Lite site produced 20,888 replays from 285 users
+// (15,440 notices), more than the whole 20,000/month quota in a day. The first
+// notice of the day still records, which is the evidence the force exists for.
+//
+// The day lives in localStorage, shared by every macro iframe of the app. Two
+// iframes claiming at the same instant can both win; that errs toward one
+// extra recording. A browser that cannot remember the day does not record:
+// without the record every iframe would record again.
+const LICENSE_NOTICE_REPLAY_DAY_KEY = "zenuml.licenseNoticeReplayDay";
+
+function _claimLicenseNoticeReplayOfDay(): boolean {
+  try {
+    const key = `${LICENSE_NOTICE_REPLAY_DAY_KEY}:${getClientDomain() || "-"}`;
+    const today = new Date(Date.now()).toISOString().slice(0, 10);
+    if (window.localStorage.getItem(key) === today) return false;
+    window.localStorage.setItem(key, today);
+    return window.localStorage.getItem(key) === today;
+  } catch {
+    return false;
+  }
+}
+
+// Forced by the event's properties rather than its name alone: the editor opens
+// the template gallery by itself once per browser per site per diagram type, on
+// the first empty new macro (autoOpenMarker.ts). A brand-new user's first
+// editor session would otherwise have no replay 19 times in 20 (5% authoring
+// sampling in November 2026). A manual gallery open must not force one.
+// Bound: an estimated 663 auto-first-open events per 14 days fleet-wide (from
+// 78 raw events sampled at 10%, so a rough figure), about 1.4k replays a month
+// against the 20,000 a month replay quota.
+function _forcedReplaySource(
+  eventName: AnalyticsEventName,
+  callerProps: Partial<AnalyticsProperties>
+): SessionReplayEventSource | undefined {
+  if (
+    eventName === "editor_template_gallery_opened" &&
+    callerProps.template_gallery_trigger === "auto_first_open"
+  ) {
+    return "first_authoring";
+  }
+  return FORCED_REPLAY_SOURCES[eventName];
 }
 
 function _startExplicitReplay(
-  eventName: AnalyticsEventName
+  eventName: AnalyticsEventName,
+  callerProps: Partial<AnalyticsProperties> = {}
 ): Partial<ExplicitReplayProperties> {
-  if (eventName === "feedback_report_opened") {
+  const forcedSource = _forcedReplaySource(eventName, callerProps);
+  if (forcedSource) {
+    if (forcedSource === "license_notice" && !_claimLicenseNoticeReplayOfDay()) {
+      return { session_replay_start_call_outcome: "skipped_daily_cap" };
+    }
     try {
       mixpanel.start_session_recording();
       const replayProperties: ExplicitReplayProperties = {
-        session_replay_source: "feedback",
+        session_replay_source: forcedSource,
         session_replay_percent: 100,
         session_replay_start_call_outcome: "returned",
       };
@@ -134,10 +234,13 @@ function _startExplicitReplay(
         session_replay_percent: replayProperties.session_replay_percent,
         session_replay_source: replayProperties.session_replay_source,
       });
+      if (forcedSource === "first_authoring") {
+        _firstAuthoringReplayStarted = true;
+      }
       return replayProperties;
     } catch (error) {
       console.error(
-        "[session-replay] feedback start call threw",
+        `[session-replay] ${forcedSource} start call threw`,
         error instanceof Error ? error.name : "unknown"
       );
       return { session_replay_start_call_outcome: "threw" };
@@ -149,6 +252,14 @@ function _startExplicitReplay(
     eventName !== "macro_edit_started"
   ) {
     return {};
+  }
+
+  if (_firstAuthoringReplayStarted) {
+    return {
+      session_replay_source: "first_authoring",
+      session_replay_percent: 100,
+      session_replay_start_call_outcome: "returned",
+    };
   }
 
   // Outside the sample: leave the Forge-flag cohort's decision untouched. Not
@@ -216,25 +327,40 @@ function _initMixpanel(): Promise<void> {
       // Cost, measured 2026-09-07: ~4.1k fullscreen opens/month across all
       // variants (3.4k of them Lite), against ~17.7k distinct replays in the
       // trailing 30 days — roughly a 23% increase in recorded sessions.
-      // Revisit if the replay quota becomes the binding constraint.
+      // Revisit if the replay quota becomes the binding constraint. It did:
+      // during the November 2026 budget window fullscreen records 10% of
+      // iframes (one draw at init), and 100% again from 2026-12-01 UTC.
       const forgeContext = forgeGlobal.forgeContext as any;
       const moduleKey = forgeContext?.moduleKey;
       const isPageBanner = moduleKey === "zenuml-page-banner";
       const isPlanUsagePage = moduleKey === "zenuml-plan-usage-page";
       const isFullscreen =
         forgeContext?.extension?.modal?.macroMode === "fullscreen";
+      const isTitleDraftPreview =
+        forgeContext?.extension?.modal?.macroMode === "title-draft";
+      const isFeedbackDialog =
+        forgeContext?.extension?.modal?.macroMode === "feedback";
       let replayConfigTimedOut = false;
       // NOTE (#707): this short-circuit runs before _resolveSessionReplayConfig,
       // so the bounded flag wait below is inactive while the October budget
-      // branch is taken and becomes live on 2026-11-01 UTC.
-      const { percent, source } = isOctoberReplayBudgetActive()
+      // branch is taken. It has been live since 2026-11-01 UTC for ordinary
+      // viewer iframes; fullscreen and the other overrides never wait on it.
+      // A title draft is a deliberate preview in its own iframe. Initialize
+      // there immediately at 100%, without delaying for the baseline flag.
+      // The feedback dialog is likewise a deliberate, short-lived modal iframe;
+      // record it at 100% without waiting on the flag (same placement).
+      const { percent, source } = isTitleDraftPreview
+        ? { percent: 100, source: "title_draft_preview" as const }
+        : isFeedbackDialog
+        ? { percent: 100, source: "feedback_dialog" as const }
+        : isOctoberReplayBudgetActive()
         ? { percent: 0, source: "off" as const }
         : isPageBanner
         ? { percent: 0, source: "off" as const }
         : isPlanUsagePage
         ? { percent: 100, source: "plan_usage_page" as const }
         : isFullscreen
-        ? { percent: 100, source: "fullscreen" as const }
+        ? _fullscreenReplayConfig()
         : await _resolveSessionReplayConfig().then((resolved) => {
             replayConfigTimedOut = resolved.timedOut;
             return resolved.config;
@@ -454,11 +580,11 @@ async function _getDemoPageTelemetry(
 }
 
 /**
- * Extra options handed straight to mixpanel.track. Only the transport override
- * is used today — see trackAnalyticsEventBeforeUnload.
+ * Extra options handed straight to mixpanel.track for unload-safe delivery.
  */
 interface TrackTransportOptions {
   transport: "sendBeacon";
+  send_immediately: true;
 }
 
 export async function _awaitableTrackAnalyticsEvent(
@@ -475,7 +601,10 @@ export async function _awaitableTrackAnalyticsEvent(
 
     await _initMixpanel();
     _identify();
-    const explicitReplayProperties = _startExplicitReplay(eventName);
+    const explicitReplayProperties = _startExplicitReplay(
+      eventName,
+      callerProps
+    );
 
     const contentIds = _getContentIdentifiers();
 
@@ -531,7 +660,8 @@ export function trackAnalyticsEvent(
  * transport is aborted by that navigation, so the event never arrives:
  * production recorded 1 `load_failed_retry_resolved` and 0
  * `load_failed_retry_clicked` on 2026-08-23. sendBeacon is queued by the
- * browser and survives unload.
+ * browser and survives unload. Mixpanel still batches beacon events unless
+ * send_immediately bypasses its queue, so both options are required here.
  *
  * Await it: the enrichment itself is async (Mixpanel init, macro uuid, space
  * telemetry), so firing and navigating would lose the event before it ever
@@ -543,11 +673,62 @@ export async function trackAnalyticsEventBeforeUnload(
 ): Promise<void> {
   await _awaitableTrackAnalyticsEvent(eventName, properties, {
     transport: "sendBeacon",
+    send_immediately: true,
   });
+}
+
+/**
+ * Replay id of this iframe's current recording, or undefined when it is not
+ * recording. The recorder starts inside the first tracked event (after init),
+ * so this waits for init and then polls briefly for the id to appear. Never
+ * rejects; bounded so callers (e.g. opening a modal) are not held hostage.
+ */
+export async function getSessionReplayId(
+  timeoutMs = 500,
+  intervalMs = 50
+): Promise<string | undefined> {
+  const read = (): string | undefined => {
+    try {
+      const props = mixpanel.get_session_recording_properties?.() as
+        | { $mp_replay_id?: string }
+        | undefined;
+      const id = props?.$mp_replay_id;
+      return typeof id === "string" && id ? id : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  try {
+    if (_initPromise) await _initPromise;
+    let id = read();
+    for (let waited = 0; !id && waited < timeoutMs; waited += intervalMs) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      id = read();
+    }
+    return id;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Register super-properties (stamped on every later event of this iframe).
+ * Awaits init so the registration is not lost before mixpanel.init runs.
+ */
+export async function registerAnalyticsSuperProperties(
+  properties: Pick<AnalyticsProperties, "feedback_token" | "viewer_replay_id">
+): Promise<void> {
+  try {
+    await _initMixpanel();
+    mixpanel.register(properties);
+  } catch (e) {
+    console.error("[analytics] registerAnalyticsSuperProperties failed", e);
+  }
 }
 
 export function _resetForTesting(): void {
   _initPromise = null;
   _identified = false;
   _authoringReplayDraw = null;
+  _firstAuthoringReplayStarted = false;
 }

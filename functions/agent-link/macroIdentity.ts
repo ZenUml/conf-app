@@ -166,7 +166,7 @@ export function parseExtensionKey(
  *
  * Composed, never lifted — see the file header. Mirrors
  * MACRO_KEY_BY_DIAGRAM_TYPE in src/utils/byline/addToPage.ts, including the
- * rule that the text-DSL family (sequence/mermaid/plantuml) shares one macro
+ * rule that the text-DSL family (sequence/mermaid/plantuml/markdown) shares one macro
  * exactly as it shares one custom-content type.
  */
 export function macroKeyFor(identity: MacroIdentity, diagramType: string): string | null {
@@ -175,8 +175,11 @@ export function macroKeyFor(identity: MacroIdentity, diagramType: string): strin
 
   const folded = String(diagramType).toLowerCase();
   let base: string | null = null;
-  if (folded === 'sequence' || folded === 'mermaid' || folded === 'plantuml') {
-    base = profile.sequenceMacroKey;
+  if (folded === 'sequence' || folded === 'mermaid' || folded === 'plantuml' || folded === 'markdown') {
+    // Markdown is a tab of the same editor (getEditorDiagramOptions). The
+    // asyncapi variant's "sequence" macro is the AsyncAPI editor and the
+    // variant ships no text-DSL macro, so nothing there can host these.
+    base = identity.variant === 'asyncapi' ? null : profile.sequenceMacroKey;
   } else if (folded === 'graph') {
     // Diagramly and AsyncAPI ship no graph macro; their manifests register a
     // single diagram macro each.
@@ -186,7 +189,9 @@ export function macroKeyFor(identity: MacroIdentity, diagramType: string): strin
     // zenuml-openapi-macro (CLAUDE.md, Product variants).
     base = identity.variant === 'diagramly' ? null : 'zenuml-openapi-macro';
   } else if (folded === 'asyncapi') {
-    base = identity.variant === 'asyncapi' ? profile.sequenceMacroKey : null;
+    // The AsyncAPI app, and Lite since ADR-0005 (manifest.yml keeps
+    // zenuml-asyncapi-macro${LITE_KEY_SUFFIX} there); full and diagramly strip it.
+    base = identity.variant === 'asyncapi' || identity.variant === 'lite' ? 'zenuml-asyncapi-macro' : null;
   }
 
   return base === null ? null : base + profile.macroKeySuffix;

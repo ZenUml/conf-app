@@ -20,6 +20,9 @@ export interface FeedbackContext {
   macroUuid: string
   contentId: string
   customContentId: string
+  // Confluence custom-content version the reporter saw. Integer only; absent
+  // when no diagram version was loaded (new diagram, dashboard, ...).
+  customContentVersion?: number
 }
 
 export interface FeedbackScreenshot {
@@ -130,6 +133,9 @@ export function createFeedbackSession({ context, submit, handoff, track }: {
       const props = {
         ...analyticsProps(),
         feedback_has_screenshot: !!screenshot,
+        ...(context.customContentVersion !== undefined
+          ? { custom_content_version: context.customContentVersion }
+          : {}),
       }
       track('feedback_report_submit_requested', props)
       try {

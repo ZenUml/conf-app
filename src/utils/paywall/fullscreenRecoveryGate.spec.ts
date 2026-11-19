@@ -25,4 +25,14 @@ describe('recovery policy at the viewer boundary', () => {
     expect(await mountFullscreenRecovery({ content: {}, spaceKey: 'SPACE' })).toBe('unavailable');
     expect(mountRoot).not.toHaveBeenCalled();
   });
+  it('edit: an active grant leaves the ordinary editor in control; a pending one mounts the gate for edit', async () => {
+    const edit = { ...snapshot, policyVersion: 'edit-contact-v1' as const };
+    vi.mocked(getFullscreenRecovery).mockResolvedValue({ ...edit, state: 'active' });
+    expect(await mountFullscreenRecovery({ feature: 'edit', content: {}, spaceKey: 'SPACE' })).toBe('disabled');
+    expect(mountRoot).not.toHaveBeenCalled();
+    vi.mocked(getFullscreenRecovery).mockResolvedValue({ ...edit, state: 'pending_activation' });
+    expect(await mountFullscreenRecovery({ feature: 'edit', content: {}, spaceKey: 'SPACE' })).toBe('handled');
+    expect(getFullscreenRecovery).toHaveBeenLastCalledWith('SPACE', 'edit');
+    expect(vi.mocked(mountRoot).mock.calls[0][2]).toMatchObject({ feature: 'edit' });
+  });
 });

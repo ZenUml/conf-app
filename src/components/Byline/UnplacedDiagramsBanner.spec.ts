@@ -37,6 +37,25 @@ const placeDiagram = vi.hoisted(() =>
 );
 vi.mock('@/utils/byline/placeDiagram', () => ({ placeDiagram }));
 
+// The modal's own behaviour is covered in PlacementPicker.spec. Here it answers
+// at once with the default spot.
+const CHOICE = vi.hoisted(() => ({
+  placement: { index: 2, version: 7, after: 'a', before: null },
+  position: 'end',
+  blockCount: 2,
+  defaultKept: true,
+}));
+const choosePlacement = vi.hoisted(() => vi.fn());
+vi.mock('@/utils/byline/placementPicker', () => ({
+  choosePlacement,
+  PICKER_OPEN_FAILED_MESSAGE: "Couldn't open the page preview.",
+  placementEventProps: (c: any) => ({
+    placement_position: c.position,
+    placement_block_count: c.blockCount,
+    placement_default_kept: c.defaultKept,
+  }),
+}));
+
 /** Make placeDiagram answer with one of its non-happy outcomes. */
 const placeReturns = (result: string, over: Record<string, unknown> = {}) =>
   placeDiagram.mockImplementation(async (_p: string, _d: any, onPlaced?: () => any) => {
@@ -108,6 +127,7 @@ describe('UnplacedDiagramsBanner', () => {
   beforeEach(() => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-31T00:00:00.000Z'));
     vi.clearAllMocks();
+    choosePlacement.mockResolvedValue({ status: 'chosen', choice: CHOICE });
     window.localStorage.clear();
     forgeGlobalMock.forgeContext = { cloudId: 'cloud-1', extension: { content: { id: 'page-1' } } };
     apWrapper.referencedCustomContentIds.mockResolvedValue([]);
@@ -580,6 +600,32 @@ describe('UnplacedDiagramsBanner', () => {
   });
 
   describe('one-click place', () => {
+    it('stays as it was when the user cancels the picker', async () => {
+      choosePlacement.mockResolvedValue({ status: 'cancelled' });
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      const wrapper = await mountBanner({ source: 'property' });
+
+      await wrapper.find('[data-testid="unplaced-banner-add"]').trigger('click');
+      await flushPromises();
+
+      expect(placeDiagram).not.toHaveBeenCalled();
+      expect(clearUnplacedProperty).not.toHaveBeenCalled();
+      expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(true);
+    });
+
+    it('says so when the picker cannot open, and writes nothing', async () => {
+      choosePlacement.mockResolvedValue({ status: 'open_failed' });
+      readUnplacedProperty.mockResolvedValue(propertyHolding([STRAY]));
+      const wrapper = await mountBanner({ source: 'property' });
+
+      await wrapper.find('[data-testid="unplaced-banner-add"]').trigger('click');
+      await flushPromises();
+
+      expect(placeDiagram).not.toHaveBeenCalled();
+      expect(wrapper.find('[data-testid="unplaced-banner-add-failed"]').exists()).toBe(true);
+      expect(events('placement_picker_opened')[0][1]).toMatchObject({ result: 'open_failed', surface: 'page_banner' });
+    });
+
     it('places the diagram and closes, retiring the record immediately', async () => {
       // The page just changed. A banner that keeps naming a diagram the user
       // watched appear is the exact wrong answer, so the record goes now rather
@@ -590,7 +636,7 @@ describe('UnplacedDiagramsBanner', () => {
       await wrapper.find('[data-testid="unplaced-banner-add"]').trigger('click');
       await flushPromises();
 
-      expect(placeDiagram).toHaveBeenCalledWith('page-1', expect.objectContaining({ id: 'cc-2' }), expect.any(Function));
+      expect(placeDiagram).toHaveBeenCalledWith('page-1', expect.objectContaining({ id: 'cc-2' }), expect.any(Function), CHOICE.placement);
       expect(clearUnplacedProperty).toHaveBeenCalledWith('page-1');
       expect(wrapper.find('[data-testid="unplaced-banner"]').exists()).toBe(false);
       expect(viewClose).toHaveBeenCalled();
@@ -621,7 +667,7 @@ describe('UnplacedDiagramsBanner', () => {
       expect(clearUnplacedProperty).not.toHaveBeenCalled();
       // Still placed through the shared step, which reloads on every success —
       // the reloaded page's banner then offers what is left.
-      expect(placeDiagram).toHaveBeenCalledWith('page-1', expect.objectContaining({ id: 'cc-2' }), expect.any(Function));
+      expect(placeDiagram).toHaveBeenCalledWith('page-1', expect.objectContaining({ id: 'cc-2' }), expect.any(Function), CHOICE.placement);
     });
 
     it('retires the record for a diagram the page already carried', async () => {

@@ -22,9 +22,9 @@ const APP_PRODUCTS: Record<string, ProductType> = {
 };
 
 export type ProductType = 'lite' | 'full' | 'diagramly' | 'asyncapi';
-export type CountField = 'sequence' | 'graph' | 'openapi' | 'mermaid' | 'plantuml' | 'asyncapi' | 'unknown';
+export type CountField = 'sequence' | 'graph' | 'openapi' | 'mermaid' | 'plantuml' | 'asyncapi' | 'markdown' | 'unknown';
 export const COUNT_FIELDS: readonly CountField[] = [
-  'sequence', 'graph', 'openapi', 'mermaid', 'plantuml', 'asyncapi', 'unknown',
+  'sequence', 'graph', 'openapi', 'mermaid', 'plantuml', 'asyncapi', 'markdown', 'unknown',
 ];
 
 export interface MacroCounts {
@@ -38,6 +38,8 @@ export interface MacroCounts {
   // shared zenuml-content-sequence type, so these rows arrive here like any
   // other. Clients older than that bucket omit the field — see assertCounts.
   asyncapi: number;
+  // Clients older than the Markdown bucket omit it; countBucket reads absent as 0.
+  markdown: number;
   unknown: number;
 }
 

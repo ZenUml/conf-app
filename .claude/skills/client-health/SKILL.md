@@ -80,8 +80,11 @@ before treating it as a genuine upsell candidate.
 - `tenant` — single-tenant lookup ("is X paying", "how big is X").
 - `paywall` — CSS enrollment and paywall friction mechanics (the
   `paywall_friction` signal here is a coarse count, not the full
-  A/B analysis that skill does).
+  A/B analysis that skill does). It counts `paywall_gate_evaluated`
+  events where the gate fired, or the space is over its limit, enforced
+  and unpaid. The older `paywall_triggered` / `paywall_blocked_*` events
+  stopped on 2026-09-11 when the editor block was switched off.
 
 ## Customer follow-up boundary
 
-This score ranks active Lite sites within its cohort. It does not verify whether the same site already has Full or whether a person can buy. Before an upgrade decision, use `tenant` for cross-product licenses/payments and verify the contact role. Return unknown if that check was not made. Known placeholder accounts are excluded from creator counts; activity window, anonymity and prior-window-zero caveats still apply. Use `customer-followup` for the final decision and authorised action.
+This score ranks active Lite sites within its cohort. It does not verify whether the same site already has Full or whether a person can buy. Before an upgrade decision, use `tenant` for cross-product licenses/payments and verify the contact role. Return unknown if that check was not made. For the cross-product check over the whole ranking, pass `--json` output to `customer-followup/scripts/behaviour_targets.py`: it marks sites that pay for another app as `skip` and adds contact and partner fields. Known placeholder accounts are excluded from creator counts; activity window, anonymity and prior-window-zero caveats still apply. Use `customer-followup` for the final decision and authorised action.

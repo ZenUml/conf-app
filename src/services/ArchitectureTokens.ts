@@ -1,3 +1,7 @@
+import type {
+  ArchitectureTokenIndexSource,
+  ArchitectureTokenStaleReason,
+} from '@/utils/analytics/catalog'
 import { callRemote } from '@/utils/requestUtil'
 
 export interface RelatedPage {
@@ -24,6 +28,15 @@ export interface RelatedResponse {
   contentVersion: number | null
   participants: RelatedParticipant[]
   error_kind?: string
+  /**
+   * Only with `error_kind: 'stale_index'`: which of its three cases this was. Absent from a
+   * backend deployed before the field existed. `contentVersion` is then the indexed version.
+   */
+  stale_reason?: ArchitectureTokenStaleReason
+  /** The live version, when `stale_reason` is `version_mismatch`. */
+  live_version?: number
+  /** Only with `error_kind: 'stale_index'`: which writer produced the stale index rows. */
+  index_source?: ArchitectureTokenIndexSource
 }
 
 export class RelatedLookupError extends Error {

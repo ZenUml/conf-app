@@ -20,7 +20,7 @@ Reliable, scriptable primitive for inserting a Confluence macro through the real
 .claude/skills/insert-macro/scripts/insert-macro.sh --url "<edit-url>" --macro zenuml [options]
 ```
 
-Runs the whole slash-menu → Browse-dialog → search → mark-then-click sequence as **one `agent-browser batch --bail` call** (one process, one daemon round-trip) instead of ~10 separate tool calls. See `--help` for the full option list; the two entry points:
+Runs the whole slash-menu → Browse-dialog → search → mark-then-click sequence as **two `agent-browser batch --bail` calls** (open the page and find the paragraph to click; then insert) instead of ~10 separate tool calls. See `--help` for the full option list; the two entry points:
 
 ```bash
 # Insert into an existing page already open in edit mode
@@ -61,6 +61,8 @@ Every one of these was learned the hard way in this session and in `smoke-test`'
 
 - **`fill`/`type` on a selector never opens the slash menu** — ProseMirror needs a real keydown, so the script uses `keyboard type` throughout.
 - **The inline slash-menu list does not reliably filter** on fast synthetic keystrokes, even with real `keyboard type` — the script always routes through "View more" → the Browse dialog's own search input, which does filter correctly.
+- **Click an empty paragraph of the page body, not the content area.** A click on `[data-testid="ak-editor-fp-content-area"]` lands at its centre. On a new unpublished page that point can miss the body: no editor takes focus, "/" goes nowhere, and `wait --text "View more"` times out (reproduced 2026-11-18 on lite-stg). Such a page also has two `.ProseMirror` elements: the "Describe or select what you want to create" compose box first, the page body second. The script picks the body by its `aria-label` (fallback: the last `.ProseMirror`) and clicks its last empty top-level paragraph; with no empty paragraph it clicks the content area as before. The first output line, `focus target: …`, says which one it used.
+- **A `data-*` marker set on a ProseMirror-managed node does not stay.** ProseMirror removes it (gone within 1 s on a paragraph), so `click "[data-ab-…]"` then fails with "Element not found". Mark the editor root, which keeps the attribute, and address the child by index (`[data-ab-body] > :nth-child(N)`). This is why the script runs two batches: the first returns the index, the second uses it.
 - **Click the Insert/option button by ref or by attribute, never by exact text** — `find text "Insert" click` / `click "text=Insert"` both fail-not-found on this app's button markup. The script uses the mark-then-click pattern (tag the matched element with `data-ab-pick` in `eval`, then `click "[data-ab-pick]"`).
 - **A blank-looking screenshot taken immediately after the modal opens is not proof of failure.** The iframe can be fully mounted (title, tabs, code editor, live diagram all present in `eval "document.body.innerText"`) while a screenshot taken mid-paint still reads as blank white. If a screenshot looks broken, re-check with `eval` before concluding the app is broken — see `reference_slash_macro_insert_agent_browser` in project memory for the exact false-alarm this caused.
 

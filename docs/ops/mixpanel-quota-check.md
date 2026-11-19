@@ -77,6 +77,18 @@ eligible to ineligible or vice versa without drawing again. The code does not
 stop a recording that already began. `skipped_sampled` means no authoring start
 call was made **for that event**; it does not prove the recorder is inactive.
 
+**Temporary November 2026 replay budget:** From `2026-11-01T00:00:00Z` up to but
+not including `2026-12-01T00:00:00Z`, two rates drop (quota was 13,198/20,000
+on 2026-11-12): authoring replay from `AUTHORING_REPLAY_RATE` (0.5) to 0.05,
+and the fullscreen modal from 100% to 10%. Fullscreen uses one random draw at
+init: recording iframes get `fullscreen`/100, the rest `off`/0. From
+2026-12-01 UTC the normal rates return with no deploy. Unchanged: forced
+sources (feedback, license notice, title-draft preview), the title-draft 100%
+init branch, Plan & usage 100%, page banner 0%, and the Forge-flag baseline
+for ordinary viewer iframes. Live rate checks: the `skipped_sampled` share of
+`session_replay_start_call_outcome` on authoring events, and the `fullscreen`
+vs `off` share of `session_replay_source` on `surface='fullscreen'` events.
+
 Read `AUTHORING_REPLAY_RATE` on the branch being measured. If it differs from
 what the numbers below assume, say so before interpreting anything — a rate
 change is the single biggest lever on replay volume.
@@ -96,6 +108,11 @@ Then attribute, using distinct `$mp_replay_id` broken down by
   the authoring policy's own consumption.
 - `macro_viewed` where source is `sampled` or `targeted` — the Forge-flag
   baseline that survives any authoring rate change.
+- `editor_template_gallery_opened` where source is `first_authoring` — always
+  recorded, once per browser per site per diagram type, on the first empty new
+  macro (`template_gallery_trigger = auto_first_open`). Estimated ~663 events
+  per 14 days fleet-wide, so ~1.4k replays a month. Not rate-limited by the
+  authoring sampling; a manual gallery open never starts one.
 
 These two plus a residual should reconcile to the total. The residual is real
 and belongs to authoring: events emitted before `start_session_recording()`

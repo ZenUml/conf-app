@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractGraphText } from './extractGraphText'
+import { extractGraphText, singleShortLabel } from './extractGraphText'
 
 const EMPTY_GRAPH = `<mxfile>
   <diagram name="Page-1">
@@ -139,5 +139,19 @@ describe('extractGraphText', () => {
       </root></mxGraphModel>`
       expect(extractGraphText(xml)).toBe('Login')
     })
+  })
+})
+
+describe('singleShortLabel', () => {
+  it.each([
+    ['Control', 'Control'],
+    ['  Order Service  ', 'Order Service'],
+    ['x'.repeat(80), 'x'.repeat(80)],
+    ['Control\nStorage', ''],
+    ['x'.repeat(81), ''],
+    ['Diagram shapes: ec2.', ''],
+    ['', ''],
+  ])('%j gives %j', (input, expected) => {
+    expect(singleShortLabel(input)).toBe(expected)
   })
 })

@@ -41,6 +41,19 @@ function publish(bundle: StdlibBundle): void {
   (g.PLANTUML_STDLIB_INFO ??= {})[bundle.lib] = bundle.info;
 }
 
+/**
+ * A library we host, whose chunk would not load (offline, or a deploy replaced
+ * it). The engine only hears `err` and draws the same "cannot include" as for a
+ * library we do not host, so engine.ts asks here to tell the two apart.
+ */
+let hostedLoadFailed = false;
+
+export function takeHostedLoadFailure(): boolean {
+  const failed = hostedLoadFailed;
+  hostedLoadFailed = false;
+  return failed;
+}
+
 export const plantumlStdlibLoader: Loader = (url, ok, err) => {
   const lib = /([\w-]+)\.min\.js$/.exec(url)?.[1];
   const load = lib ? HOSTED_LIBRARIES[lib] : undefined;
@@ -50,7 +63,10 @@ export const plantumlStdlibLoader: Loader = (url, ok, err) => {
   }
   load().then(
     (module) => { publish(module.default); ok(); },
-    (error) => err(`PlantUML library ${lib} failed to load: ${error?.message ?? error}`),
+    (error) => {
+      hostedLoadFailed = true;
+      err(`PlantUML library ${lib} failed to load: ${error?.message ?? error}`);
+    },
   );
 };
 

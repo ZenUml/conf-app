@@ -8,6 +8,7 @@ import {
 } from './addToPage'
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { DiagramType } from '@/model/Diagram/Diagram'
+import { placementAt } from './pagePlacement'
 
 const requestConfluence = vi.hoisted(() => vi.fn())
 const routerReload = vi.hoisted(() => vi.fn())
@@ -192,6 +193,58 @@ describe('addToPage — placing a diagram without the four-step detour', () => {
 
       expect(await addDiagramToPage('page-1', DIAGRAM)).toMatchObject({ result: 'added' })
       expect(JSON.parse(put()![1].body).version.number).toBe(4)
+    })
+
+    describe('at a chosen spot', () => {
+      const para = (text: string) => ({ type: 'paragraph', content: [{ type: 'text', text }] })
+      const blocks = [para('one'), para('two'), para('three')]
+      const written = () => JSON.parse(JSON.parse(put()![1].body).body.value).content
+
+      it('inserts between the blocks the user chose', async () => {
+        requestConfluence.mockResolvedValueOnce(pageWith(blocks)).mockResolvedValueOnce(res(200, {}))
+
+        const outcome = await addDiagramToPage('page-1', DIAGRAM, placementAt(blocks, 1, 3))
+
+        expect(outcome.result).toBe('added')
+        expect(written().map((n: any) => n.type)).toEqual(['paragraph', 'extension', 'paragraph', 'paragraph'])
+        expect(written()[0]).toEqual(blocks[0])
+      })
+
+      it('follows the neighbours when an edit moved them', async () => {
+        const moved = [para('new first'), ...blocks]
+        requestConfluence.mockResolvedValueOnce(pageWith(moved, 4)).mockResolvedValueOnce(res(200, {}))
+
+        await addDiagramToPage('page-1', DIAGRAM, placementAt(blocks, 1, 3))
+
+        expect(written()[2].type).toBe('extension')
+        expect(written()[1]).toEqual(blocks[0])
+      })
+
+      it('writes nothing when the spot no longer exists', async () => {
+        const edited = [blocks[0], para('rewritten'), blocks[2]]
+        requestConfluence.mockResolvedValueOnce(pageWith(edited, 4))
+
+        const outcome = await addDiagramToPage('page-1', DIAGRAM, placementAt(blocks, 1, 3))
+
+        expect(outcome.result).toBe('page_changed')
+        expect(put()).toBeUndefined()
+      })
+
+      it('re-resolves the spot on a 409 retry rather than trusting the index', async () => {
+        const moved = [para('new first'), ...blocks]
+        requestConfluence
+          .mockResolvedValueOnce(pageWith(blocks))
+          .mockResolvedValueOnce(res(409, {}))
+          .mockResolvedValueOnce(pageWith(moved, 4))
+          .mockResolvedValueOnce(res(200, {}))
+
+        const outcome = await addDiagramToPage('page-1', DIAGRAM, placementAt(blocks, 1, 3))
+
+        expect(outcome.result).toBe('added')
+        const last = requestConfluence.mock.calls.at(-1)!
+        const content = JSON.parse(JSON.parse(last[1].body).body.value).content
+        expect(content[2].type).toBe('extension')
+      })
     })
 
     it('refuses to write at all when it cannot trust the identity', async () => {

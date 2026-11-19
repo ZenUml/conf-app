@@ -4,7 +4,7 @@
     class="connect-mcp-overlay"
     data-testid="connect-mcp-dialog"
     data-mcp-mode="headless"
-    @click.self="emit('close')"
+    @click.self="emit('close', 'backdrop')"
   >
     <div
       class="connect-mcp-dialog"
@@ -19,7 +19,7 @@
           class="connect-mcp-close"
           aria-label="Close"
           data-testid="connect-mcp-close"
-          @click="emit('close')"
+          @click="emit('close', 'close_button')"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="connect-mcp-icon" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -28,26 +28,100 @@
       </header>
 
       <div class="connect-mcp-body">
+        <p class="connect-mcp-lede" data-testid="connect-mcp-lede">
+          Let your AI agent read this diagram and update it from your codebase.
+          It signs in with your Atlassian account, so it sees only what you can see.
+        </p>
         <ol class="connect-mcp-steps">
           <li class="connect-mcp-step">
             <p class="connect-mcp-step-title">
               <span class="connect-mcp-step-num" aria-hidden="true">1</span>
-              Add the ZenUML MCP server <span class="connect-mcp-muted">(once)</span>
+              Add the {{ productName }} MCP server <span class="connect-mcp-muted">(once)</span>
             </p>
-            <div class="connect-mcp-code-row">
-              <pre class="connect-mcp-code" data-testid="connect-mcp-setup-command">{{ setupCommand }}</pre>
+            <div class="connect-mcp-tabs" role="tablist" aria-label="Your MCP client">
               <button
+                v-for="c in MCP_CLIENTS"
+                :id="`connect-mcp-tab-${c.id}`"
+                :key="c.id"
                 type="button"
-                class="connect-mcp-copy"
-                data-testid="connect-mcp-copy-setup"
-                @click="copy('setup_command', setupCommand)"
-              >{{ copyLabel('setup_command') }}</button>
+                role="tab"
+                class="connect-mcp-tab"
+                :class="{ 'connect-mcp-tab--active': c.id === client }"
+                :aria-selected="c.id === client ? 'true' : 'false'"
+                :aria-controls="'connect-mcp-panel'"
+                :tabindex="c.id === client ? 0 : -1"
+                :data-testid="`connect-mcp-tab-${c.id}`"
+                @click="selectClient(c.id)"
+                @keydown.right.prevent="moveTab(1)"
+                @keydown.left.prevent="moveTab(-1)"
+              >{{ c.label }}</button>
             </div>
-            <p class="connect-mcp-hint">
-              Other MCP clients (Codex, Cursor, VS Code…): add a remote HTTP server named
-              <code>{{ serverName }}</code> with the above URL.
-              Your client asks you to sign in with Atlassian the first time; the agent then acts as you.
-            </p>
+            <div
+              id="connect-mcp-panel"
+              class="connect-mcp-panel"
+              role="tabpanel"
+              :aria-labelledby="`connect-mcp-tab-${client}`"
+              :data-client="client"
+              data-testid="connect-mcp-client-panel"
+            >
+              <template v-if="cliCommand">
+                <p class="connect-mcp-hint connect-mcp-hint--lead">Run this in your terminal:</p>
+                <div class="connect-mcp-code-row">
+                  <pre class="connect-mcp-code" data-testid="connect-mcp-setup-command">{{ cliCommand }}</pre>
+                  <button
+                    type="button"
+                    class="connect-mcp-copy"
+                    data-testid="connect-mcp-copy-setup"
+                    @click="copy('setup_command', cliCommand)"
+                  >{{ copyLabel('setup_command') }}</button>
+                </div>
+                <p v-if="client === 'codex'" class="connect-mcp-hint" data-testid="connect-mcp-codex-login">
+                  It then opens your browser to sign in with Atlassian. If it doesn't, run <code>codex mcp login {{ serverName }}</code>.
+                </p>
+              </template>
+              <template v-else>
+                <div
+                  v-if="installLink"
+                  class="connect-mcp-install"
+                >
+                  <button
+                    type="button"
+                    class="connect-mcp-btn connect-mcp-btn--primary"
+                    data-testid="connect-mcp-install"
+                    @click="install"
+                  >{{ installLink.label }}</button>
+                  <span class="connect-mcp-muted">or add it by URL:</span>
+                </div>
+                <template v-else-if="client === 'other'">
+                  <p class="connect-mcp-hint connect-mcp-hint--lead" data-testid="connect-mcp-client-steps">
+                    If your agent can run commands or edit files, paste this and it adds the server itself:
+                  </p>
+                  <div class="connect-mcp-code-row connect-mcp-code-row--spaced">
+                    <pre class="connect-mcp-code" data-testid="connect-mcp-install-prompt">{{ installPrompt }}</pre>
+                    <button
+                      type="button"
+                      class="connect-mcp-copy"
+                      data-testid="connect-mcp-copy-install-prompt"
+                      @click="copy('install_prompt', installPrompt)"
+                    >{{ copyLabel('install_prompt') }}</button>
+                  </div>
+                  <p class="connect-mcp-hint connect-mcp-hint--lead">Or add a remote HTTP server named <code>{{ serverName }}</code> with this URL:</p>
+                </template>
+                <p v-else class="connect-mcp-hint connect-mcp-hint--lead" data-testid="connect-mcp-client-steps">{{ urlSteps }}</p>
+                <div class="connect-mcp-code-row">
+                  <pre class="connect-mcp-code" data-testid="connect-mcp-server-url">{{ serverUrl }}</pre>
+                  <button
+                    type="button"
+                    class="connect-mcp-copy"
+                    data-testid="connect-mcp-copy-url"
+                    @click="copy('server_url', serverUrl)"
+                  >{{ copyLabel('server_url') }}</button>
+                </div>
+              </template>
+              <p v-if="client !== 'codex'" class="connect-mcp-hint">
+                The first time, your client asks you to sign in with Atlassian.
+              </p>
+            </div>
           </li>
           <li class="connect-mcp-step">
             <p class="connect-mcp-step-title">
@@ -70,7 +144,7 @@
             type="button"
             class="connect-mcp-btn connect-mcp-btn--primary"
             data-testid="connect-mcp-done"
-            @click="emit('close')"
+            @click="emit('close', 'done')"
           >Done</button>
         </div>
       </div>
@@ -80,18 +154,30 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import type { AgentLinkMcpCopyTarget } from '@/utils/analytics/catalog'
+import type { AgentLinkMcpCloseSource, AgentLinkMcpCopyTarget } from '@/utils/analytics/catalog'
 import {
+  MCP_CLIENTS,
+  type McpClientChoice,
   mcpServerName,
+  mcpServerUrl,
+  productLabel,
   buildHeadlessPrompt,
+  buildInstallPrompt,
   mcpAddCommand,
+  cursorInstallUrl,
+  codexAddCommand,
+  vscodeInstallUrl,
+  rememberedMcpClient,
+  rememberMcpClient,
 } from '@/composables/agentLink/connectInstructions'
 import { writeClipboard } from '@/composables/agentLink/clipboard'
+import { openUrl } from '@/model/globals/forgeGlobal'
 
 // The viewer's "Connect MCP" button opens this over the inline macro. First
 // release: headless MCP only (connectInstructions.ts RELAY_SESSIONS_ENABLED),
-// so there is no session to mint or track — the dialog shows the setup
-// command and a prompt naming this diagram. The host fires the analytics.
+// so there is no session to mint or track — the dialog shows how to add the
+// server in the viewer's own MCP client (one tab per client, the last choice
+// remembered) and a prompt naming this diagram. The host fires the analytics.
 const props = withDefaults(
   defineProps<{
     visible: boolean
@@ -99,21 +185,75 @@ const props = withDefaults(
     cloudId?: string
     pageId?: string
     contentId?: string
+    /** Replaces the default "review this diagram" prompt (editor, new diagram). */
+    prompt?: string
   }>(),
-  { diagramTitle: '', cloudId: '', pageId: '', contentId: '' }
+  { diagramTitle: '', cloudId: '', pageId: '', contentId: '', prompt: '' }
 )
 
 const emit = defineEmits<{
-  (e: 'close'): void
-  (e: 'copy', target: AgentLinkMcpCopyTarget, ok: boolean): void
+  (e: 'close', source: AgentLinkMcpCloseSource): void
+  (e: 'copy', target: AgentLinkMcpCopyTarget, ok: boolean, client: McpClientChoice): void
+  (e: 'select-client', client: McpClientChoice): void
+  (e: 'install', client: McpClientChoice): void
 }>()
 
 // Read at setup: forgeGlobal's backend URL is resolved during app boot,
 // before any component mounts.
 const setupCommand = mcpAddCommand()
+const serverUrl = mcpServerUrl()
 const serverName = mcpServerName()
+const productName = productLabel()
 
-const promptText = computed(() => buildHeadlessPrompt({
+const installPrompt = buildInstallPrompt(serverUrl, serverName)
+const client = ref<McpClientChoice>(rememberedMcpClient())
+
+function selectClient(id: McpClientChoice) {
+  if (id === client.value) return
+  client.value = id
+  rememberMcpClient(id)
+  emit('select-client', id)
+}
+
+function moveTab(step: number) {
+  const i = MCP_CLIENTS.findIndex((c) => c.id === client.value)
+  const next = MCP_CLIENTS[(i + step + MCP_CLIENTS.length) % MCP_CLIENTS.length]
+  selectClient(next.id)
+  document.getElementById(`connect-mcp-tab-${next.id}`)?.focus()
+}
+
+const installLink = computed(() => {
+  if (client.value === 'cursor') return { label: 'Add to Cursor', url: cursorInstallUrl(serverUrl, serverName) }
+  if (client.value === 'vscode') return { label: 'Add to VS Code', url: vscodeInstallUrl(serverUrl, serverName) }
+  return null
+})
+
+// Claude on the web or desktop: a custom connector by URL
+// (claude.com/docs/connectors/custom/add-unlisted; on Team and Enterprise an
+// owner adds it under Organization settings first). ChatGPT on the web: a
+// custom MCP server under chatgpt.com/plugins
+// (developers.openai.com/api/docs/guides/custom-mcp-server); it registers
+// itself with our server (DCR) and signs in by OAuth. In both, a workspace
+// owner or admin can restrict adding them.
+const urlSteps = computed(() => (client.value === 'chatgpt'
+  ? `In ChatGPT on the web, open chatgpt.com/plugins, choose + › Add custom MCP server, name it ${productName}, set authentication to OAuth and paste this URL:`
+  : `In Claude, open Customize › Connectors, choose Add › Add custom connector, name it ${productName} and paste this URL:`))
+
+// The tabs whose setup is one terminal command.
+const cliCommand = computed(() => {
+  if (client.value === 'claude_code') return setupCommand
+  if (client.value === 'codex') return codexAddCommand(serverUrl, serverName)
+  return ''
+})
+
+async function install() {
+  const link = installLink.value
+  if (!link) return
+  emit('install', client.value)
+  await openUrl(link.url)
+}
+
+const promptText = computed(() => props.prompt || buildHeadlessPrompt({
   title: props.diagramTitle,
   cloudId: props.cloudId,
   pageId: props.pageId,
@@ -121,7 +261,8 @@ const promptText = computed(() => buildHeadlessPrompt({
 }))
 
 type CopyState = 'idle' | 'copied' | 'failed'
-const copyStates = ref<Record<AgentLinkMcpCopyTarget, CopyState>>({ setup_command: 'idle', prompt: 'idle' })
+const idleStates = (): Record<AgentLinkMcpCopyTarget, CopyState> => ({ setup_command: 'idle', server_url: 'idle', install_prompt: 'idle', prompt: 'idle' })
+const copyStates = ref<Record<AgentLinkMcpCopyTarget, CopyState>>(idleStates())
 const revertTimers: Partial<Record<AgentLinkMcpCopyTarget, ReturnType<typeof setTimeout>>> = {}
 
 function copyLabel(target: AgentLinkMcpCopyTarget): string {
@@ -139,24 +280,38 @@ async function copy(target: AgentLinkMcpCopyTarget, text: string) {
   revertTimers[target] = setTimeout(() => {
     copyStates.value = { ...copyStates.value, [target]: 'idle' }
   }, 2000)
-  emit('copy', target, ok)
+  emit('copy', target, ok, client.value)
 }
 
 function clearTimers() {
   for (const t of Object.values(revertTimers)) if (t) clearTimeout(t)
 }
 
+// Leaving the page with the dialog open used to leave no closed row; report
+// it as its own close source. pagehide, not visibilitychange: switching to a
+// terminal to paste the command hides the tab without leaving the dialog.
+function onPageHide() {
+  emit('close', 'page_hidden')
+}
+
 watch(
   () => props.visible,
   (open) => {
-    if (!open) {
+    if (open) {
+      window.addEventListener('pagehide', onPageHide)
+    } else {
+      window.removeEventListener('pagehide', onPageHide)
       clearTimers()
-      copyStates.value = { setup_command: 'idle', prompt: 'idle' }
+      copyStates.value = idleStates()
     }
-  }
+  },
+  { immediate: true }
 )
 
-onBeforeUnmount(clearTimers)
+onBeforeUnmount(() => {
+  window.removeEventListener('pagehide', onPageHide)
+  clearTimers()
+})
 </script>
 
 <style scoped>
@@ -351,6 +506,45 @@ onBeforeUnmount(clearTimers)
 }
 @media (prefers-reduced-motion: reduce) {
   .connect-mcp-dot--pulse { animation: none; }
+}
+
+.connect-mcp-lede {
+  margin: 0 0 12px;
+  color: #374151;
+  line-height: 1.45;
+}
+
+.connect-mcp-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+  border-bottom: 1px solid #E5E7EB;
+}
+.connect-mcp-tab {
+  padding: 5px 7px;
+  margin-bottom: -1px;
+  background: transparent;
+  color: #4B5563;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.connect-mcp-tab:hover { color: #111827; }
+.connect-mcp-tab--active { color: #1D4ED8; border-bottom-color: #2563EB; }
+.connect-mcp-tab:focus-visible { outline: 2px solid #2563EB; outline-offset: -2px; border-radius: 4px; }
+
+.connect-mcp-hint--lead { margin: 0 0 6px; color: #374151; }
+.connect-mcp-code-row--spaced { margin-bottom: 10px; }
+
+.connect-mcp-install {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 12px;
 }
 
 .connect-mcp-actions {

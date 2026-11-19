@@ -4,10 +4,10 @@ import forgeGlobal, { getContext } from '@/model/globals/forgeGlobal'
 const AI_CHAT_FLAG_ID = 'ai-chat-enabled'
 const AI_CHAT_REPAIR_FLAG_ID = 'ai-chat-repair-enabled'
 const AI_REPAIR_FLAG_ID = 'ai-repair-enabled'
-const AGENT_LINK_FLAG_ID = 'agent-link-enabled'
 const ARCHITECTURE_TOKENS_FLAG_ID = 'architecture-tokens-enabled'
 const CREATE_GUIDE_FLAG_ID = 'create-guide-enabled'
-const PLANTUML_LOCAL_RENDERER_FLAG_ID = 'plantuml-local-renderer-enabled'
+const TITLE_DRAFT_FLAG_ID = 'title-draft-enabled'
+const NO_LICENSE_NOTICE_FLAG_ID = 'no-license-notice-enabled'
 
 let featureFlags: FeatureFlags | undefined
 let initializePromise: Promise<FeatureFlags> | undefined
@@ -36,14 +36,11 @@ function standaloneAiChatRepairEnabled(): boolean {
   }
 }
 
-// Unlike ai-title/ai-repair (which default ON in standalone dev for
-// convenience), Live Agent Link defaults OFF everywhere — the Forge Console
-// flag defaults false via checkFlag's second arg, and standalone dev only
-// opts IN via an explicit localStorage override. This mirrors the "defaults
-// OFF, cannot affect existing users" requirement for the flag's prod rollout.
-function standaloneAgentLinkEnabled(): boolean {
+// Defaults OFF everywhere: standalone dev opts in only through an explicit
+// localStorage override.
+function standaloneNoLicenseNoticeEnabled(): boolean {
   try {
-    return localStorage.getItem('mockAgentLinkEnabled') === 'true'
+    return localStorage.getItem('mockNoLicenseNoticeEnabled') === 'true'
   } catch {
     return false
   }
@@ -126,17 +123,6 @@ export async function isAiChatRepairEnabled(): Promise<boolean> {
   }
 }
 
-// Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md)
-// master switch for mounting the Connect UI into the macro host — the flag
-// gates everything, so when it resolves false the macro renders exactly as
-// it does today.
-export async function isAgentLinkEnabled(): Promise<boolean> {
-  if (!forgeGlobal.isForge) return standaloneAgentLinkEnabled()
-
-  const client = await getFeatureFlagsClient()
-  return client.checkFlag(AGENT_LINK_FLAG_ID, false)
-}
-
 /** Viewer "also appears in other diagrams" context. Pilot-tenant rule in prod; default false. */
 export async function isArchitectureTokensEnabled(): Promise<boolean> {
   if (!forgeGlobal.isForge) return false
@@ -162,17 +148,33 @@ export async function isCreateGuideEnabled(): Promise<boolean> {
 }
 
 /**
- * ADR-0010: draw PlantUML with the in-browser engine instead of plantuml.com.
- * Fail-closed: a missing flag or a lookup error keeps today's server renderer.
+ * The title-first diagram offer on the page banner. Fail-closed: a missing flag
+ * or a lookup error means no offer, and no draft lookup, on this page load.
  */
-export async function isPlantUmlLocalRendererEnabled(): Promise<boolean> {
+export async function isTitleDraftEnabled(): Promise<boolean> {
   if (!forgeGlobal.isForge) return false
 
   try {
     const client = await getFeatureFlagsClient()
-    return await client.checkFlag(PLANTUML_LOCAL_RENDERER_FLAG_ID, false)
+    return await client.checkFlag(TITLE_DRAFT_FLAG_ID, false)
   } catch (error) {
-    console.error('Failed to load PlantUML local renderer feature flag:', error)
+    console.error('Failed to load title draft feature flag:', error)
+    return false
+  }
+}
+
+/**
+ * Full variant "no active license" watermark + upgrade strip in the viewer.
+ * Fail-closed: a missing flag or a lookup error means no notice.
+ */
+export async function isNoLicenseNoticeEnabled(): Promise<boolean> {
+  if (!forgeGlobal.isForge) return standaloneNoLicenseNoticeEnabled()
+
+  try {
+    const client = await getFeatureFlagsClient()
+    return await client.checkFlag(NO_LICENSE_NOTICE_FLAG_ID, false)
+  } catch (error) {
+    console.error('Failed to load no-license notice feature flag:', error)
     return false
   }
 }

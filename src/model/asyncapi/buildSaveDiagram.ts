@@ -39,7 +39,7 @@ export interface BuildAsyncApiSaveDiagramArgs {
    * known document id. The shared loader (ApWrapper2.getCustomContentByIdV2)
    * runs cross-page-copy detection that false-positives in that context — the
    * dashboard space page is never the content's origin page, so it stamps
-   * isCopy=true. CustomContentStorageProvider.save then refuses to update
+   * isCopy=true. saveToPlatform then refuses to update
    * (it requires !isCopy) and CREATES a new document instead — the
    * "editing made a new diagram" bug. Pinning the id and clearing isCopy here
    * makes the dashboard edit update in place.

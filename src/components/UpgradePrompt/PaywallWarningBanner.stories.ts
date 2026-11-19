@@ -9,6 +9,7 @@ type Story = StoryObj<typeof PaywallWarningBanner>
 
 const DOMAIN = 'example-tenant'
 const SPACE = 'ENG'
+const CLEAN_SPACE = '~clean'
 const MACRO_COUNT = 120
 
 /**
@@ -96,6 +97,20 @@ function installForgeMocks() {
   }
 }
 
+/** The context a page-banner iframe received after an SPA navigation. */
+function installStaleSpaceContext(contextSpace: string, pageSpace: string) {
+  forgeGlobal.forgeContext = {
+    accountId: 'storybook-user',
+    siteUrl: `https://${DOMAIN}.atlassian.net`,
+    extension: {
+      type: 'confluence:pageBanner',
+      content: { id: '200' },
+      space: { key: contextSpace, id: '1' },
+      location: `https://${DOMAIN}.atlassian.net/wiki/spaces/${pageSpace}/pages/200/Title`,
+    },
+  }
+}
+
 function installClipboardMock() {
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
@@ -121,9 +136,9 @@ const meta: Meta<typeof PaywallWarningBanner> = {
         component:
           'Non-blocking page banner (confluence:pageBanner) on pages of an over-limit ZenUML ' +
           'Lite space — since the editing block was retired this is the only in-product paywall ' +
-          'surface. Two audiences: recent macro authors get the advocacy text and one action, ' +
-          'View plan and usage; eligible space admins also ' +
-          'get the Unlock this space purchase button. The gate reads localStorage markers ' +
+          'surface. Two audiences: recent macro authors and eligible space admins get different ' +
+          'copy, and both get one action, View plan and usage. The banner carries no purchase ' +
+          'control (Forge pageBanner guideline). The gate reads localStorage markers ' +
           'synchronously in <script setup> — targeting written by the macro iframe, activity by ' +
           'the editor save path — so the banner never flashes. It stays visible on ' +
           'each qualifying page load and records impressions for analytics.',
@@ -161,6 +176,45 @@ export const Shown: Story = {
 }
 
 /**
+ * Quick find from an over-limit space: the banner iframe's Forge context still
+ * names that space while the page URL names a clean one. The over-limit marker
+ * belongs to the previous space, so nothing shows.
+ */
+export const QuickFindToCleanSpace: Story = {
+  name: 'Quick find to a clean space — stale context, no banner',
+  decorators: [
+    () => {
+      installStaleSpaceContext(SPACE, CLEAN_SPACE)
+      return { template: '<story />' }
+    },
+  ],
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(canvas.queryByTestId('paywall-warning-banner')).toBeNull()
+  },
+}
+
+/**
+ * Quick find from a clean space: the context names the clean space while the
+ * page URL names the over-limit one, whose warning must show.
+ */
+export const QuickFindToOverLimitSpace: Story = {
+  name: 'Quick find to an over-limit space — stale context, banner shows',
+  decorators: [
+    () => {
+      installStaleSpaceContext(CLEAN_SPACE, SPACE)
+      return { template: '<story />' }
+    },
+  ],
+  play: async () => {
+    const canvas = within(document.body)
+    const banner = await canvas.findByTestId('paywall-warning-banner')
+    await expect(banner).toBeVisible()
+    await expect(banner).toHaveTextContent(`${MACRO_COUNT} of 100`)
+  },
+}
+
+/**
  * Existing browser data can contain an old dismissal and a high show count.
  * Neither affects eligibility on the next page load.
  */
@@ -187,13 +241,12 @@ export const RepeatedImpression: Story = {
 /**
  * Phase 5b: the viewer is a space admin of the over-limit space and has authored
  * nothing. The old gate showed this person nothing at all — they were the 93% of
- * reachable admins the banner never spoke to. They now get the direct purchase
- * CTA (Enterprise Bundle, per-space, card-paid, no site admin needed) beside
- * View plan and usage; the author variant instead asks a site admin to upgrade.
- * The old "copy a message to your admin" relay is gone from the banner.
+ * reachable admins the banner never spoke to. They now get admin-addressed copy
+ * and View plan and usage; the author variant instead asks a site admin to
+ * upgrade. Neither variant has a purchase or checkout control.
  */
 export const SpaceAdmin: Story = {
-  name: 'Space admin — direct purchase CTA, no authoring required',
+  name: 'Space admin — no checkout control, no authoring required',
   // The audience is resolved by the host route
   // and passed down as a prop — the component never re-derives it from the
   // probe marker, so the story must pass the prop explicitly.
@@ -209,8 +262,8 @@ export const SpaceAdmin: Story = {
     const banner = await canvas.findByTestId('paywall-warning-banner')
     await expect(banner).toBeVisible()
     await expect(banner).toHaveTextContent('You administer this space')
-    // The purchase CTA replaces the advocacy relay for this audience.
-    await expect(await canvas.findByTestId('paywall-banner-unlock-space')).toHaveTextContent('$299')
+    // Page banner guideline: no upsell. Only View plan and usage.
+    await expect(canvas.queryByTestId('paywall-banner-unlock-space')).toBeNull()
     await expect(await canvas.findByTestId('paywall-banner-plan-usage')).toBeVisible()
   },
 }

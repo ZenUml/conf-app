@@ -42,6 +42,12 @@ const panZoomInstanceMock = vi.hoisted(() => ({
   zoom: vi.fn(),
   zoomIn: vi.fn(),
   zoomOut: vi.fn(),
+  zoomAtPointBy: vi.fn(),
+  panBy: vi.fn(),
+  setMinZoom: vi.fn(),
+  setMaxZoom: vi.fn(),
+  setBeforePan: vi.fn(),
+  getSizes: vi.fn(() => ({ realZoom: 0.5, width: 400, height: 300, viewBox: { width: 800, height: 600 } })),
 }));
 const svgPanZoomMock = vi.hoisted(() => vi.fn(() => panZoomInstanceMock));
 vi.mock('svg-pan-zoom', () => ({ default: svgPanZoomMock }));
@@ -343,6 +349,35 @@ describe('Mermaid render retry when the document has no layout', () => {
 
     expect(render).toHaveBeenCalledTimes(1);
     expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+
+  it('waits for layout and retries a hidden state diagram that cannot place its edge labels', async () => {
+    const render = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Could not find a suitable point for the given distance'))
+      .mockResolvedValueOnce({ svg: '<svg>state</svg>' });
+    loadMermaidMock.mockResolvedValue({ render });
+
+    const wrapper = mount(Mermaid, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(wrapper.vm.svg).toBe('<svg>state</svg>'));
+
+    expect(awaitSvgTextLayoutMock).toHaveBeenCalledTimes(1);
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(viewerLoadFailedCalls()).toHaveLength(0);
+  });
+
+  it('reports the edge-label failure when it persists after layout', async () => {
+    const render = vi.fn(() => Promise.reject(new Error('Could not find a suitable point for the given distance')));
+    loadMermaidMock.mockResolvedValue({ render });
+
+    mount(Mermaid, { global: { plugins: [store] } });
+    await vi.waitFor(() => expect(viewerLoadFailedCalls()).toHaveLength(1));
+
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(viewerLoadFailedCalls()[0][1]).toMatchObject({
+      failure_stage: 'render_crash',
+      failure_reason: 'Could not find a suitable point for the given distance',
+    });
   });
 
   it('retries a transient non-invertible SVG matrix failure once', async () => {
@@ -715,8 +750,11 @@ describe('Mermaid fullscreen viewport controls', () => {
 
     const zoomOutCalls = panZoomInstanceMock.zoomOut.mock.calls.length;
     const zoomInCalls = panZoomInstanceMock.zoomIn.mock.calls.length;
-    await wrapper.get('[aria-label="Zoom out"]').trigger('click');
+    // Opened at the floor: zoom in first, then svg-pan-zoom reports the new zoom.
     await wrapper.get('[aria-label="Zoom in"]').trigger('click');
+    svgPanZoomMock.mock.calls.at(-1)![1].onZoom(10);
+    await wrapper.vm.$nextTick();
+    await wrapper.get('[aria-label="Zoom out"]').trigger('click');
     expect(panZoomInstanceMock.zoomOut).toHaveBeenCalledTimes(zoomOutCalls + 1);
     expect(panZoomInstanceMock.zoomIn).toHaveBeenCalledTimes(zoomInCalls + 1);
     expect(panZoomInstanceMock.reset).toHaveBeenCalled();

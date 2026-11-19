@@ -1,3 +1,4 @@
+import type { RecoveryFeature } from '../../shared/fullscreenRecovery';
 import { decryptRecoveryField, encryptRecoveryField, getRecoveryCase } from './fullscreenRecoveryService';
 
 export const FULLSCREEN_RECOVERY_MAIL_TEMPLATE_VERSION = 'requester-first-reply-v1';
@@ -49,11 +50,11 @@ export class RecoveryMailError extends Error {
   constructor(public readonly code: string, public readonly status = 400) { super(code); }
 }
 
-function validEmail(value: string | undefined): value is string {
+export function validEmail(value: string | undefined): value is string {
   return Boolean(value && /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value));
 }
 
-function validSender(value: string | undefined): value is string {
+export function validSender(value: string | undefined): value is string {
   return Boolean(value && (validEmail(value) || /^[^<>\r\n]{1,100} <[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+>$/.test(value)));
 }
 
@@ -62,11 +63,38 @@ function escapeHtml(value: string): string {
     .replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }
 
-const SCENE_COPY: Record<string, string> = {
-  inspect_details: 'inspect diagram details',
-  present: 'present a diagram',
-  discuss: 'discuss a diagram with others',
-  other: 'use Fullscreen for your work',
+/** Wording that names the feature, keyed by feature. The `fullscreen` strings must not change. */
+const MAIL_COPY: Record<RecoveryFeature, {
+  scenes: Record<string, string>;
+  subject: (requestId: string) => string;
+  pending: string;
+  active: (until: string) => string;
+  expired: (at: string) => string;
+}> = {
+  fullscreen: {
+    scenes: {
+      inspect_details: 'inspect diagram details',
+      present: 'present a diagram',
+      discuss: 'discuss a diagram with others',
+      other: 'use Fullscreen for your work',
+    },
+    subject: requestId => `ZenUML Fullscreen support — request ${requestId}`,
+    pending: 'Your seven days of Fullscreen access begin when you first open and successfully view a diagram in Fullscreen.',
+    active: until => `Your Fullscreen access is active until ${until}.`,
+    expired: at => `Your temporary Fullscreen access expired at ${at}. We can continue the conversation about what you need.`,
+  },
+  edit: {
+    scenes: {
+      fix_or_update: 'fix or update a diagram',
+      keep_current: 'keep your documentation current',
+      prepare_review: 'prepare a diagram for a review or release',
+      other: 'edit diagrams for your work',
+    },
+    subject: requestId => `ZenUML editing support — request ${requestId}`,
+    pending: 'Your seven days of editing access begin when you first save a diagram successfully.',
+    active: until => `Your editing access is active until ${until}.`,
+    expired: at => `Your temporary editing access expired at ${at}. We can continue the conversation about what you need.`,
+  },
 };
 
 export function renderFirstReply(input: {
@@ -78,7 +106,10 @@ export function renderFirstReply(input: {
   timeZone: string;
   from: string;
   replyTo: string;
+  /** Absent means `fullscreen`. */
+  feature?: RecoveryFeature;
 }): FrozenReply {
+  const copy = MAIL_COPY[input.feature ?? 'fullscreen'];
   if (!validSender(input.from) || !validEmail(input.replyTo)) throw new RecoveryMailError('mail_configuration_missing', 503);
   let formatter: Intl.DateTimeFormat;
   try {
@@ -88,17 +119,17 @@ export function renderFirstReply(input: {
     });
     formatter.format(input.now);
   } catch { throw new RecoveryMailError('invalid_time_zone'); }
-  const scenarios = [...new Set(input.scenarios)].filter((scene) => SCENE_COPY[scene]);
+  const scenarios = [...new Set(input.scenarios)].filter((scene) => copy.scenes[scene]);
   if (!scenarios.length) throw new RecoveryMailError('invalid_scenarios');
-  const sceneText = scenarios.map((scene) => SCENE_COPY[scene]).join(', ');
+  const sceneText = scenarios.map((scene) => copy.scenes[scene]).join(', ');
   const expiry = input.expiresAt ? new Date(input.expiresAt) : null;
   if (expiry && !Number.isFinite(expiry.getTime())) throw new RecoveryMailError('invalid_expiry', 503);
   if (input.activatedAt && !expiry) throw new RecoveryMailError('invalid_expiry', 503);
   const status = !input.activatedAt
-    ? 'Your seven days of Fullscreen access begin when you first open and successfully view a diagram in Fullscreen.'
+    ? copy.pending
     : expiry && expiry.getTime() > input.now.getTime()
-      ? `Your Fullscreen access is active until ${formatter.format(expiry!)} (${input.timeZone}).`
-      : `Your temporary Fullscreen access expired at ${formatter.format(expiry!)} (${input.timeZone}). We can continue the conversation about what you need.`;
+      ? copy.active(`${formatter.format(expiry!)} (${input.timeZone})`)
+      : copy.expired(`${formatter.format(expiry!)} (${input.timeZone})`);
   const paragraphs = [
     'Hello,',
     `Thanks for contacting ZenUML support about request ${input.requestId}. We understand you want to ${sceneText}.`,
@@ -108,7 +139,7 @@ export function renderFirstReply(input: {
   ];
   const text = paragraphs.join('\n\n');
   const html = `<!doctype html><html lang="en"><body>${paragraphs.map(paragraph => `<p>${escapeHtml(paragraph)}</p>`).join('')}</body></html>`;
-  return { from: input.from, replyTo: input.replyTo, subject: `ZenUML Fullscreen support — request ${input.requestId}`, text, html, timeZone: input.timeZone };
+  return { from: input.from, replyTo: input.replyTo, subject: copy.subject(input.requestId), text, html, timeZone: input.timeZone };
 }
 
 async function snapshotDigest(value: string, base64Key: string): Promise<string> {
@@ -156,7 +187,7 @@ export async function previewFirstReply(env: MailEnv, requestId: string, timeZon
   }
   const email = renderFirstReply({ requestId, scenarios: JSON.parse(request.scenariosJson) as string[],
     activatedAt: request.activatedAt, expiresAt: request.expiresAt, now, timeZone,
-    from: env.RESEND_FROM ?? '', replyTo: env.RESEND_REPLY_TO ?? '' });
+    from: env.RESEND_FROM ?? '', replyTo: env.RESEND_REPLY_TO ?? '', feature: request.feature });
   const previewHash = await snapshotDigest(JSON.stringify({ recipient, email }), env.FULLSCREEN_RECOVERY_ENCRYPTION_KEY);
   return { recipient, email, previewHash, frozen: false, status: { state: 'awaiting_support' as const } };
 }

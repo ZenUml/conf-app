@@ -82,7 +82,7 @@ async function fetchPageCustomContentId(
   return String(id);
 }
 
-test.describe(`Typed deeplink renders its target - ${testConfig.productType}`, { tag: ['@test:typed-deeplink-render', '@variant:lite', '@variant:full', '@variant:diagramly', '@editor', '@viewer', '@graph', '@deeplink'] }, () => {
+test.describe(`Typed deeplink renders its target - ${testConfig.productType}`, { tag: ['@test:typed-deeplink-render', '@variant:lite', '@variant:full', '@variant:diagramly', '@editor', '@viewer', '@graph', '@deeplink', '@feature:paste-insertion', '@interface:page-editor', '@scenario:paste-insertion:page-editor', '@feature:rendering', '@interface:inline-viewer', '@scenario:rendering:inline-viewer'] }, () => {
   test.skip(
     skip,
     testConfig.isLite

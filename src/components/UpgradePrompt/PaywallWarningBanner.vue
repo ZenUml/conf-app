@@ -18,22 +18,15 @@
       This space is over the ZenUML Lite diagram limit ({{ macroCount }} of {{ macrosLimit }}).
       Ask a site admin to upgrade to Full before it affects your team.
     </span>
-    <!-- Space admins get a purchase path they can execute alone: the Enterprise
-         Bundle is per-space and paid by card, so unlike the Marketplace upgrade
-         it needs no Confluence SITE admin. Everyone else gets the advocacy copy,
-         because for them the next step really is to ask someone. -->
+    <!-- No purchase or checkout control here: the Forge pageBanner guideline
+         forbids using banners to upsell or cross-promote. Purchase options
+         belong on the Plan-and-usage page. -->
     <div class="paywall-banner__actions">
       <button
         class="paywall-banner__btn paywall-banner__btn--primary"
         data-testid="paywall-banner-plan-usage"
         @click="onViewPlanUsage"
       >View plan and usage</button>
-      <button
-        v-if="audience === 'space_admin'"
-        class="paywall-banner__btn paywall-banner__btn--secondary"
-        data-testid="paywall-banner-unlock-space"
-        @click="onUnlockSpace"
-      >Unlock this space — {{ ENTERPRISE_BUNDLE_PRICE }}</button>
     </div>
   </div>
 </template>
@@ -41,14 +34,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useCustomerSuccessService, MACROS_LIMIT } from '@/composables/useCustomerSuccessService'
-import {
-  trackUpgradeEvent,
-  UpgradeEventName,
-  bundleClientReferenceId,
-} from '@/utils/upgradeTracking'
+import { trackUpgradeEvent, UpgradeEventName } from '@/utils/upgradeTracking'
 import { getView, openUrl, navigateToAppPage } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
-import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
 import {
   deriveWarningBannerIdentity,
   readTargetingMarker,
@@ -61,6 +49,7 @@ import {
   type BannerAudience,
 } from '@/utils/paywall/warningBanner'
 import { readProbeMarker } from '@/utils/paywall/spaceAdminProbe'
+import { isForgeSpaceContextStale } from '@/utils/ContextParameters/ContextParameters'
 
 /**
  * `isSpaceAdmin` is supplied by the page-banner host (routes/pageBanner.ts)
@@ -74,7 +63,6 @@ const props = withDefaults(defineProps<{ isSpaceAdmin?: boolean }>(), { isSpaceA
 // spaceKey) comes from the targeting marker the macro iframe wrote earlier; we
 // only borrow the composable's PURE url builders (they depend on getClientDomain
 // only, not on initialize() having run).
-const ENTERPRISE_BUNDLE_PRICE = `$${ENTERPRISE_BUNDLE_ANNUAL_COST}/yr/space`
 const customerSuccess = useCustomerSuccessService()
 
 const macrosLimit = MACROS_LIMIT
@@ -95,6 +83,11 @@ let spaceAdminCount: number | undefined
 // previous impression (absent on a first impression).
 let showCount = 1
 let hoursSinceLastShown: number | undefined
+// paywall_banner_shown is sent once per browser, site and space per UTC day:
+// it fired 10.1x per user x space x day (10.5% of billable Mixpanel volume,
+// 2026-11-04..05) because the banner shows on every eligible load. The banner
+// itself still shows every time, and show_count still counts every display.
+let firstShowToday = true
 try {
   identity = deriveWarningBannerIdentity()
   const targeting = readTargetingMarker(identity)
@@ -104,7 +97,10 @@ try {
   showCount = (impression?.showCount ?? 0) + 1
   if (impression?.lastShownAt) {
     const lastShownMs = Date.parse(impression.lastShownAt)
-    if (Number.isFinite(lastShownMs)) hoursSinceLastShown = Math.round((now - lastShownMs) / 3_600_000)
+    if (Number.isFinite(lastShownMs)) {
+      hoursSinceLastShown = Math.round((now - lastShownMs) / 3_600_000)
+      firstShowToday = new Date(lastShownMs).toISOString().slice(0, 10) !== new Date(now).toISOString().slice(0, 10)
+    }
   }
   passesGate =
     !!targeting &&
@@ -124,6 +120,7 @@ try {
 }
 
 const audience: BannerAudience = bannerAudience(isSpaceAdmin)
+const spaceContextStale = isForgeSpaceContextStale()
 
 const visible = ref(passesGate)
 const macroCount = ref(macroCountValue)
@@ -141,13 +138,16 @@ onMounted(() => {
       void closeBannerView()
       return
     }
-    // Impression: bump the show counter and emit the denominator event.
+    // Impression: bump the show counter, and emit the denominator event on
+    // the first display of the UTC day.
     recordBannerShown(identity)
-    trackUpgradeEvent(UpgradeEventName.PAYWALL_BANNER_SHOWN, {
-      surface: 'page_banner',
-      severity,
-      ...bannerContext(),
-    })
+    if (firstShowToday) {
+      trackUpgradeEvent(UpgradeEventName.PAYWALL_BANNER_SHOWN, {
+        surface: 'page_banner',
+        severity,
+        ...bannerContext(),
+      })
+    }
   } catch (e) {
     console.warn('[paywall-banner] mount failed; closing', e)
     void closeBannerView()
@@ -161,6 +161,7 @@ function bannerContext() {
     macro_count: macroCount.value,
     macro_limit: macrosLimit,
     space_key: identity.spaceKey,
+    space_context_stale: spaceContextStale,
     macro_usage_pct: Math.round((macroCount.value / macrosLimit) * 100),
     // Phase 5b: every banner event carries the audience so the funnel splits by
     // who was actually addressed. Without this the two populations are pooled
@@ -192,26 +193,6 @@ async function onViewPlanUsage() {
   if (!navigated) {
     await openUrl(customerSuccess.upgradeUrl.value)
   }
-}
-
-/**
- * Space-admin-only CTA. Goes straight to the Enterprise Bundle checkout because
- * that is the one purchase a space admin can complete without escalating: it is
- * scoped to the space they already administer and paid by card. The Marketplace
- * upgrade — the only other rail — requires a Confluence SITE admin, which a
- * space admin is not, and which we cannot detect at all.
- */
-async function onUnlockSpace() {
-  const bundleUrl = customerSuccess.enterpriseBundleUrl.value
-  const reference = bundleClientReferenceId(bundleUrl)
-  trackUpgradeEvent(UpgradeEventName.PAYWALL_BUNDLE_CTA_CLICKED, {
-    surface: 'page_banner',
-    severity,
-    bundle_price_usd: ENTERPRISE_BUNDLE_ANNUAL_COST,
-    ...(reference !== undefined ? { client_reference_id: reference } : {}),
-    ...bannerContext(),
-  })
-  await openUrl(bundleUrl)
 }
 </script>
 
@@ -269,16 +250,6 @@ async function onUnlockSpace() {
 }
 .paywall-banner__btn--primary:hover {
   background: #7A3F0A;
-}
-
-.paywall-banner__btn--secondary {
-  background: transparent;
-  color: #44546F;
-  border: 1px solid #8590A2;
-}
-.paywall-banner__btn--secondary:hover {
-  background: #F1F2F4;
-  color: #172B4D;
 }
 
 </style>

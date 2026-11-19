@@ -73,7 +73,6 @@ import IconGitBranch from '@/components/icons/IconGitBranch.vue'
 import IconFile from '@/components/icons/IconFile.vue'
 import IconCloud from '@/components/icons/IconCloud.vue'
 import IconComputer from '@/components/icons/IconComputer.vue'
-import { MacroIdProvider } from '@/model/ContentProvider/MacroIdProvider'
 import ApWrapper2 from '@/model/ApWrapper2'
 import { getContext } from '@/model/globals/forgeGlobal'
 import { markCsatPending, isCsatPendingFresh, clearCsatPending } from '@/utils/csat'
@@ -106,9 +105,9 @@ const shortRef = computed(() => truncate(gitBranch || gitTag, 16))
 const shortCommit = computed(() => truncate(commitHash, 7))
 
 onMounted(async () => {
-  const provider = new MacroIdProvider(new ApWrapper2() as any)
-  shortUuid.value = (await provider.getUuid())?.substring(0, 8) ?? ''
-  contentId.value = (await provider.getId()) ?? ''
+  const macroData = await new ApWrapper2().getMacroData()
+  shortUuid.value = macroData?.uuid?.substring(0, 8) ?? ''
+  contentId.value = macroData?.customContentId ?? ''
 
   csatArmed.value = isCsatPendingFresh();
 })

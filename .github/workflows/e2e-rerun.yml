@@ -63,7 +63,7 @@ name: Run recovery
 
 on:
   workflow_run:
-    workflows: ["Build, Test and Draft Release", "PR validation"]
+    workflows: ["Build, Test and Draft Release", "PR validation", "PR checks"]
     types: [completed]
 
 permissions:

@@ -20,7 +20,7 @@ import GenericViewer from "@/components/Viewer/GenericViewer.vue";
 import GraphPageNav from "@/components/Viewer/GraphPageNav.vue";
 import { decompress } from '@/utils/compress';
 import { trackEvent } from '@/utils/window';
-import { ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
+import { ensureDrawioMathForDocument, ensureDrawioViewerLoaded } from '@/utils/drawio/loadDrawioViewer';
 import { resolveGraphXml } from '@/utils/graph/boardDocument';
 
 export default {
@@ -93,6 +93,7 @@ export default {
         // No 'toolbar' config — page nav is rendered into the GenericViewer
         // header via the #header-nav slot above.
         const xmlNode = mxUtils.parseXml(graphXml).documentElement;
+        ensureDrawioMathForDocument(xmlNode);
         this.graphViewer = new window.GraphViewer(this.$refs.graphContainer, xmlNode, {
           'auto-fit': true,
           'border': 10,

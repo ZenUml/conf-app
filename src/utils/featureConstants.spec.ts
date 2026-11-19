@@ -62,3 +62,15 @@ describe('isSecondDiagramPromptEnabled — define contract', () => {
     expect(await transformWithDefine(false)).toBe(false);
   });
 });
+
+describe('isTitleDraftCopyExperimentEnabled — define contract', () => {
+  const source = readFileSync(path.join(__dirname, 'featureConstants.ts'), 'utf-8');
+  it.each([true, false])('resolves the baked boolean literal %s', async (enabled) => {
+    const { code } = await transformWithEsbuild(source, 'featureConstants.ts', {
+      loader: 'ts',
+      define: { 'import.meta.env.VITE_TITLE_DRAFT_COPY_EXPERIMENT_ENABLED': JSON.stringify(enabled) },
+    });
+    const mod = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+    expect(mod.isTitleDraftCopyExperimentEnabled()).toBe(enabled);
+  });
+});

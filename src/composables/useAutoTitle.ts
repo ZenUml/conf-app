@@ -3,6 +3,8 @@ import store from '@/model/store2'
 import aiGenerateTitle from '@/apis/aiGenerateTitle'
 import { resetFeatureFlagsForTests } from '@/apis/aiTitleFeatureFlag'
 import { DiagramType } from '@/model/Diagram/Diagram'
+import { NOT_TITLE_LIKE, isSavedRefusalTitle, looksLikeTitle } from '@/lib/aiTitleGuard.js'
+import { singleShortLabel } from '@/utils/graph/extractGraphText'
 import { hashString } from '@/utils/hashString'
 import { toast } from '@/utils/toast'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
@@ -28,6 +30,9 @@ const hasManuallyEditedTitle = ref(false)
 // generated, so each generated-then-edited title records exactly one modify.
 const aiTitleModifyTracked = ref(false)
 const lastGeneratedContentHash = ref<string | null>(null)
+// The title the model produced, as committed to the store. Read only while
+// autoNameAnimationDone is true; both are set together in generate().
+let lastGeneratedTitle = ''
 
 let genToken = 0
 
@@ -58,19 +63,6 @@ function titleTypeParam(diagramType: DiagramType, code: string): string {
   if (diagramType === DiagramType.Graph) return 'flowchart'
   if (diagramType === DiagramType.OpenApi) return 'OpenAPI specification'
   return DiagramType.Sequence
-}
-
-// The AI-title endpoint is expected to return a short title, not a chat
-// reply. Occasionally (e.g. when the extracted diagram signal is thin or
-// ambiguous) the model answers with a clarifying question instead of a
-// title — reject anything that isn't title-shaped rather than trust any
-// non-empty response. Conservative on purpose: legitimate short titles must
-// never trip these checks.
-function looksLikeTitle(s: string): boolean {
-  if (s.length > 100) return false
-  if (s.includes('\n')) return false
-  if (s.trimEnd().endsWith('?')) return false
-  return true
 }
 
 function delay(ms: number): Promise<void> {
@@ -118,6 +110,22 @@ export function useAutoTitle() {
       if (trigger === 'user') toast({ message: 'Add some diagram code first', duration: 3000 })
       return
     }
+    // Rule for a Graph with too little text: one short label gives the model
+    // nothing to summarise, and it answers by asking for a DSL. Wait while the
+    // user is editing. When a title is requested (AI button or Publish), that
+    // label is the title. See docs/superpowers/specs/2026-05-31-ai-auto-title-design.md.
+    const loneLabel = diagramType === DiagramType.Graph ? singleShortLabel(code) : ''
+    if (loneLabel) {
+      if (trigger === 'user') {
+        store.dispatch('updateTitle', loneLabel)
+        trackAnalyticsEvent('ai_title_label_used', {
+          feature_area: 'ai',
+          surface: 'editor',
+          macro_type: 'graph',
+        })
+      }
+      return
+    }
     const contentHash = hashString(code)
     if (trigger === 'init') {
       if (hasManuallyEditedTitle.value) return
@@ -159,7 +167,7 @@ export function useAutoTitle() {
         return
       }
       if (!looksLikeTitle(title)) {
-        trackAnalyticsEvent('ai_title_generation_failed', { ...trackProps, failure_reason: 'not_title_like' })
+        trackAnalyticsEvent('ai_title_generation_failed', { ...trackProps, failure_reason: NOT_TITLE_LIKE })
         if (trigger === 'user') toast({ message: "Couldn't generate a title — please try again later.", duration: 3000 })
         resetGenerating()
         return
@@ -176,6 +184,7 @@ export function useAutoTitle() {
       store.dispatch('updateTitle', title)
       isAnimating.value = false
       isGeneratingTitle.value = false
+      lastGeneratedTitle = title
       autoNameAnimationDone.value = true
       aiTitleModifyTracked.value = false // fresh title → next manual edit is recordable
 
@@ -225,6 +234,19 @@ export function useAutoTitle() {
     lastGeneratedContentHash.value = null
   }
 
+  // Call once when an editor opens a diagram. A title saved before PR #1053 can
+  // be model refusal text: empty it, so the normal title rules give the next
+  // Publish a real title. Nothing is written until the user publishes.
+  function clearSavedRefusalTitle(macroType: string): void {
+    if (!isSavedRefusalTitle(store.state.diagram.title)) return
+    store.dispatch('updateTitle', '')
+    trackAnalyticsEvent('saved_refusal_title_hidden', {
+      feature_area: 'ai',
+      surface: 'editor',
+      macro_type: macroType as any,
+    })
+  }
+
   function reset(): void {
     genToken += 1
     isGeneratingTitle.value = false
@@ -252,17 +274,20 @@ export function useAutoTitle() {
     dismiss,
     markManualEdit,
     onTitleCleared,
+    clearSavedRefusalTitle,
     reset,
   }
 }
 
-export function notifyAiTitleSaved(opts?: { title?: string; contentId?: string }): void {
-  if (autoNameAnimationDone.value) {
+// Compare the saved title instead of tracking how it could have changed: an edit,
+// a clear and the OpenAPI spec-title fallback all reach the save with another title.
+export function notifyAiTitleSaved(opts: { title?: string; contentId?: string }): void {
+  if (autoNameAnimationDone.value && opts.title === lastGeneratedTitle) {
     trackAnalyticsEvent('ai_title_accepted', {
       feature_area: 'ai',
       surface: 'editor',
-      ...(opts?.title && { accepted_title: opts.title }),
-      ...(opts?.contentId && { content_id: opts.contentId }),
+      accepted_title: opts.title,
+      ...(opts.contentId && { content_id: opts.contentId }),
     })
     autoNameAnimationDone.value = false
   }
@@ -280,6 +305,7 @@ export function notifyAiTitleSaved(opts?: { title?: string; contentId?: string }
   hasManuallyEditedTitle.value = false
   aiTitleModifyTracked.value = false
   lastGeneratedContentHash.value = null
+  lastGeneratedTitle = ''
   genToken = 0
   resetFeatureFlagsForTests()
 }

@@ -5,8 +5,7 @@ import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { renderPlantUmlLocally, PlantUmlLocalRenderError } from '@/utils/plantuml/engine';
-import { PLANTUML_RENDERER_STORAGE_KEY, resetPlantUmlRendererForTests } from '@/utils/plantuml/renderer';
-import { isPlantUmlLocalRendererEnabled } from '@/apis/aiTitleFeatureFlag';
+import { PLANTUML_RENDERER_STORAGE_KEY } from '@/utils/plantuml/renderer';
 
 // ADR-0010: with the local renderer chosen, the viewer draws with the
 // in-browser engine and never contacts plantuml.com, unless the engine cannot
@@ -31,7 +30,6 @@ vi.mock('lodash', async (importOriginal) => {
       Object.assign((...args: unknown[]) => fn(...args), { cancel: () => {} }),
   };
 });
-vi.mock('@/apis/aiTitleFeatureFlag', () => ({ isPlantUmlLocalRendererEnabled: vi.fn(() => Promise.resolve(false)) }));
 vi.mock('@/utils/plantuml/engine', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/utils/plantuml/engine')>();
   return { ...actual, renderPlantUmlLocally: vi.fn() };
@@ -40,7 +38,9 @@ vi.mock('svg-pan-zoom', () => ({
   default: vi.fn(() => ({
     destroy: vi.fn(), disableDblClickZoom: vi.fn(), getPan: vi.fn(() => ({ x: 0, y: 0 })),
     getZoom: vi.fn(() => 1), pan: vi.fn(), reset: vi.fn(), resize: vi.fn(), zoom: vi.fn(),
-    zoomIn: vi.fn(), zoomOut: vi.fn(),
+    zoomIn: vi.fn(), zoomOut: vi.fn(), zoomAtPointBy: vi.fn(), panBy: vi.fn(),
+    setMinZoom: vi.fn(), setMaxZoom: vi.fn(), setBeforePan: vi.fn(),
+    getSizes: vi.fn(() => ({ realZoom: 1, width: 400, height: 300, viewBox: { width: 400, height: 300 } })),
   })),
 }));
 vi.mock('hammerjs', () => ({
@@ -59,7 +59,6 @@ describe('PlantUml local renderer (ADR-0010)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    resetPlantUmlRendererForTests();
     localStorage.setItem(PLANTUML_RENDERER_STORAGE_KEY, 'local');
     vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 106, height: 148 } as DOMRect);
     window.fetch = vi.fn(() => Promise.reject(new Error('no network in local mode'))) as typeof fetch;
@@ -69,6 +68,7 @@ describe('PlantUml local renderer (ADR-0010)', () => {
 
   afterEach(() => {
     localStorage.removeItem(PLANTUML_RENDERER_STORAGE_KEY);
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
@@ -131,9 +131,9 @@ describe('PlantUml local renderer (ADR-0010)', () => {
     expect(window.fetch).not.toHaveBeenCalled();
   });
 
-  it('uses the engine when the Forge flag is on, without any localStorage opt-in', async () => {
+  it('uses the engine by default on Lite, without any localStorage opt-in', async () => {
     localStorage.removeItem(PLANTUML_RENDERER_STORAGE_KEY);
-    vi.mocked(isPlantUmlLocalRendererEnabled).mockResolvedValueOnce(true);
+    vi.stubEnv('PRODUCT_TYPE', 'lite');
     vi.mocked(renderPlantUmlLocally).mockResolvedValue(LOCAL_SVG);
 
     const wrapper = mount(PlantUml, { global: { plugins: [store] } });
@@ -143,7 +143,7 @@ describe('PlantUml local renderer (ADR-0010)', () => {
     expect(window.fetch).not.toHaveBeenCalled();
   });
 
-  it('keeps the server renderer when the flag is off and the viewer has not opted in', async () => {
+  it('keeps the server renderer on Full when the viewer has not opted in', async () => {
     localStorage.removeItem(PLANTUML_RENDERER_STORAGE_KEY);
     window.fetch = vi.fn(() => Promise.resolve(new Response(LOCAL_SVG, { status: 200 }))) as typeof fetch;
 

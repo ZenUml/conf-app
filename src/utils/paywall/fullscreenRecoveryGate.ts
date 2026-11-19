@@ -6,30 +6,41 @@ import { getFullscreenRecovery } from '@/apis/fullscreenRecovery';
 import { getContext, getView, navigateToAppPage } from '@/model/globals/forgeGlobal';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import { onVisibleDiagramReady } from '@/utils/fullscreenReady';
-import type { RecoveryScenario } from '../../../shared/fullscreenRecovery';
+import type { RecoveryFeature, RecoveryScenario } from '../../../shared/fullscreenRecovery';
 
 /** Independent, explicit pilot policy. Never changes the editor's count/paid policy. */
 export async function mountFullscreenRecovery(opts: {
+  feature?: RecoveryFeature;
   doc?: Diagram;
   existingExemption?: boolean;
   spaceKey: string;
   content: Component;
   contentProps?: Record<string, unknown>;
+  /** `edit`: called when the user opens the editor from the gate. */
+  onOpen?: () => void;
 }): Promise<'handled' | 'disabled' | 'unavailable'> {
   try {
-    const snapshot = await getFullscreenRecovery(opts.spaceKey);
+    const snapshot = await getFullscreenRecovery(opts.spaceKey, opts.feature);
     if (opts.existingExemption && snapshot.exemptionOverrideReviewed !== true) return 'disabled';
     if (snapshot.state === 'disabled' || snapshot.state === 'unavailable') return snapshot.state;
+    // An active edit grant means the ordinary editor: no wrapper, no strip over the editor chrome.
+    if (opts.feature === 'edit' && snapshot.state === 'active') return 'disabled';
     const context = await getContext();
     mountRoot(opts.doc ?? NULL_DIAGRAM, FullscreenRecoveryHost, {
-      initialSnapshot: snapshot, content: markRaw(opts.content), contentProps: opts.contentProps ?? {},
+      initialSnapshot: snapshot, feature: opts.feature ?? 'fullscreen', content: markRaw(opts.content), contentProps: opts.contentProps ?? {},
       context: {
         contentId: context.extension?.content?.id,
         customContentId: context.extension?.config?.customContentId || context.extension?.modal?.customContentId,
         spaceKey: opts.spaceKey,
       },
+      onOpen: opts.onOpen,
       returnInline: async () => { await (await getView()).close(); },
       planUsage: async (requestId?: string, scenarios?: RecoveryScenario[]) => {
+        // The Plan-and-usage page knows only the Fullscreen context; an edit request opens it plain.
+        if (opts.feature === 'edit') {
+          if (!await navigateToAppPage('zenuml-plan-usage')) throw new Error('Plan and usage navigation is unavailable');
+          return;
+        }
         const query = new URLSearchParams({ source: 'fullscreen_recovery', space_key: opts.spaceKey });
         if (requestId) query.set('request', requestId);
         const pageId = context.extension?.content?.id;

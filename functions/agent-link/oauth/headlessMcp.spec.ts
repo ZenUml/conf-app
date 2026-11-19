@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { handleHeadlessRpc, looksLikeRelayToken, clientDeclaresUi, macroTypeOf } from './headlessMcp';
+import { handleHeadlessRpc, looksLikeRelayToken, clientDeclaresUi, macroTypeOf, clientDomainOf, embeddedDiagramCountOf } from './headlessMcp';
 import { authenticateHeadless, challengeFor } from './headlessAuth';
-import { issueAccessToken, type GrantStoreLike } from './asStore';
+import { issueAccessToken, saveClient, type GrantStoreLike } from './asStore';
 import { saveGrant } from './tokenStore';
 import { resourceFor } from './asMetadata';
 import type { FetchLike } from './atlassianClient';
@@ -249,7 +249,7 @@ describe('headless RPC', () => {
     const token = await tokenFor(env.store);
     const res = await call(env, token, 'resources/list');
     const body = await res.json();
-    expect(body.result.resources[0]._meta.ui.csp.resourceDomains).toEqual([new URL(MCP).origin, 'https://www.plantuml.com']);
+    expect(body.result.resources[0]._meta.ui.csp.resourceDomains).toEqual([new URL(MCP).origin]);
   });
 
   it('lists the view as a resource', async () => {
@@ -456,6 +456,45 @@ describe('tool usage analytics', () => {
     expect(typeof events[0].properties.duration_ms).toBe('number');
   });
 
+  it('names the host from the OAuth registration, since tools/call carries no clientInfo', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    await saveClient(env.store, {
+      clientId: 'client-A',
+      redirectUris: ['https://claude.ai/api/mcp/auth_callback'],
+      clientName: 'Claude',
+      createdAtMs: Date.now(),
+    });
+    const token = await tokenFor(env.store);
+    await call(env, token, 'tools/call', { name: 'list_sites', arguments: {} });
+    expect(events[0].properties).toMatchObject({ oauth_client_id: 'client-A', oauth_client_name: 'Claude' });
+  });
+
+  it('still records the call when the client registration cannot be read', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    await call(env, token, 'tools/call', { name: 'list_sites', arguments: {} });
+    expect(events[0].properties).toMatchObject({ oauth_client_id: 'client-A', oauth_client_name: 'unknown' });
+  });
+
+  it('sends the site as a bare subdomain, the form is_internal_client_domain matches', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    await call(env, token, 'tools/call', { name: 'list_sites', arguments: {} });
+    expect(events[0].properties.client_domain).toBe('one');
+  });
+
+  it('sends no site for a call that named one the grant cannot reach', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    await call(env, token, 'tools/call', { name: 'read_diagram', arguments: { cloudId: 'not-mine', contentId: 'cc-1' } });
+    const called = events.find((e) => e.event === 'agent_link_mcp_tool_called');
+    expect(called?.properties.client_domain).toBeUndefined();
+  });
+
   it('records a tool refusal with its closed-vocabulary code', async () => {
     const events = captureEvents();
     const env = await trackedEnv();
@@ -465,6 +504,82 @@ describe('tool usage analytics', () => {
     expect(called?.properties).toMatchObject({ mcp_tool_outcome: 'tool_error', reason: 'unknown_site' });
     // 'not-mine' is not a UUID, so it is client free text and never sent.
     expect(called?.properties.cloud_id).toBeUndefined();
+  });
+
+  it('names the failed step and its HTTP status on an upstream refusal', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    const { fetchImpl } = atlassianFetch({ content: () => new Response('down', { status: 503 }) });
+    await call(env, token, 'tools/call', { name: 'read_diagram', arguments: { cloudId: 'cloud-1', contentId: 'cc-1' } }, fetchImpl);
+    const called = events.find((e) => e.event === 'agent_link_mcp_tool_called');
+    expect(called?.properties).toMatchObject({
+      mcp_tool_outcome: 'tool_error',
+      reason: 'upstream',
+      failure_step: 'diagram_read',
+      upstream_status: 503,
+    });
+    expect(called?.properties.identity_failure).toBeUndefined();
+  });
+
+  it('records why a create could not resolve the macro identity, on the call and as identity_unresolved', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    const base = atlassianFetch().fetchImpl;
+    // No ZenUML custom content of any type: the resolver refuses with no_macro_on_site.
+    const fetchImpl: FetchLike = async (url, init) =>
+      url.includes('/custom-content?type=')
+        ? new Response(JSON.stringify({ results: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
+        : base(url, init);
+    const res = await call(
+      env,
+      token,
+      'tools/call',
+      { name: 'create_diagram', arguments: { cloudId: 'cloud-1', pageId: 'page-1', type: 'mermaid', dsl: 'graph TD; A-->B' } },
+      fetchImpl,
+    );
+    expect(res.status).toBe(200);
+    const called = events.find((e) => e.event === 'agent_link_mcp_tool_called');
+    expect(called?.properties).toMatchObject({
+      mcp_tool: 'create_diagram',
+      reason: 'upstream',
+      failure_step: 'identity',
+      identity_failure: 'no_macro_on_site',
+    });
+    expect(called?.properties.upstream_status).toBeUndefined();
+    const unresolved = events.find((e) => e.event === 'agent_link_identity_unresolved');
+    expect(unresolved?.properties).toMatchObject({
+      user_account_id: ACCOUNT,
+      mcp_mode: 'headless',
+      mcp_tool: 'create_diagram',
+      reason: 'no_macro_on_site',
+      client_domain: 'one',
+    });
+  });
+
+  it('reports a site listing Atlassian answered 401 as a dead grant, with the OAuth challenge', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    const { fetchImpl } = atlassianFetch({ sites: () => new Response('nope', { status: 401 }) });
+    const res = await call(env, token, 'tools/call', { name: 'list_sites', arguments: {} }, fetchImpl);
+    expect(res.status).toBe(401);
+    expect(res.headers.get('WWW-Authenticate')).toContain('Bearer');
+    const called = events.find((e) => e.event === 'agent_link_mcp_tool_called');
+    expect(called?.properties).toMatchObject({ mcp_tool_outcome: 'tool_error', reason: 'no_grant' });
+    expect(called?.properties.failure_step).toBeUndefined();
+  });
+
+  it('keeps any other site-listing failure upstream, naming the step and status', async () => {
+    const events = captureEvents();
+    const env = await trackedEnv();
+    const token = await tokenFor(env.store);
+    const { fetchImpl } = atlassianFetch({ sites: () => new Response('busy', { status: 503 }) });
+    const res = await call(env, token, 'tools/call', { name: 'list_sites', arguments: {} }, fetchImpl);
+    expect(res.status).toBe(200);
+    const called = events.find((e) => e.event === 'agent_link_mcp_tool_called');
+    expect(called?.properties).toMatchObject({ reason: 'upstream', failure_step: 'list_sites', upstream_status: 503 });
   });
 
   it('records the site a call targeted', async () => {
@@ -596,21 +711,60 @@ describe('clientDeclaresUi', () => {
 
 describe('macroTypeOf', () => {
   it('takes read_diagram\'s type from the result, folded into the macro_type vocabulary', () => {
-    expect(macroTypeOf('read_diagram', {}, { diagramType: 'OpenAPI' })).toBe('openapi');
-    expect(macroTypeOf('read_diagram', {}, { diagramType: 'graph' })).toBe('graph');
+    expect(macroTypeOf('read_diagram', { diagramType: 'OpenAPI' })).toBe('openapi');
+    expect(macroTypeOf('read_diagram', { diagramType: 'graph' })).toBe('graph');
   });
 
-  it('takes create_diagram\'s type from the arguments', () => {
-    expect(macroTypeOf('create_diagram', { diagramType: 'mermaid' }, {})).toBe('mermaid');
+  it('takes create_diagram\'s and update_diagram\'s type from the result, which is what was stored', () => {
+    expect(macroTypeOf('create_diagram', { diagramType: 'Mermaid' })).toBe('mermaid');
+    expect(macroTypeOf('update_diagram', { diagramType: 'sequence' })).toBe('sequence');
   });
 
-  it('leaves update_diagram and other tools untyped rather than guessing', () => {
-    expect(macroTypeOf('update_diagram', { diagramType: 'mermaid' }, { diagramType: 'mermaid' })).toBeUndefined();
-    expect(macroTypeOf('list_sites', {}, {})).toBeUndefined();
+  it('leaves other tools untyped', () => {
+    expect(macroTypeOf('list_sites', { diagramType: 'mermaid' })).toBeUndefined();
   });
 
   it('drops a stored type outside the closed vocabulary', () => {
-    expect(macroTypeOf('read_diagram', {}, { diagramType: 'something-else' })).toBeUndefined();
-    expect(macroTypeOf('read_diagram', {}, null)).toBeUndefined();
+    expect(macroTypeOf('read_diagram', { diagramType: 'something-else' })).toBeUndefined();
+    expect(macroTypeOf('read_diagram', null)).toBeUndefined();
+  });
+});
+
+describe('clientDomainOf', () => {
+  const one = { cloudId: 'cloud-1', url: 'https://one.atlassian.net' };
+  const two = { cloudId: 'cloud-2', url: 'https://two.atlassian.net' };
+
+  it('uses the site the call named', () => {
+    expect(clientDomainOf([one, two], { cloudId: 'cloud-2' })).toBe('two');
+  });
+
+  it('names no site when the call named one the grant cannot reach, even with one site', () => {
+    expect(clientDomainOf([one], { cloudId: 'not-mine' })).toBeUndefined();
+  });
+
+  it('falls back to the only site for a call that names none', () => {
+    expect(clientDomainOf([one], {})).toBe('one');
+  });
+
+  it('names no site for a call that names none when the grant reaches several', () => {
+    expect(clientDomainOf([one, two], {})).toBeUndefined();
+  });
+
+  it('survives an unparseable site URL and a site list that never loaded', () => {
+    expect(clientDomainOf([{ cloudId: 'x', url: 'not a url' }], { cloudId: 'x' })).toBeUndefined();
+    expect(clientDomainOf([], undefined)).toBeUndefined();
+  });
+});
+
+describe('embeddedDiagramCountOf', () => {
+  it('counts the embedded rows of a page-scoped list_diagrams, zero included', () => {
+    const value = { diagrams: [{ contentId: '1' }, { contentId: '2', embedded: true }, { contentId: '3', embedded: true }] };
+    expect(embeddedDiagramCountOf('list_diagrams', { pageId: '9' }, value)).toBe(2);
+    expect(embeddedDiagramCountOf('list_diagrams', { pageId: '9' }, { diagrams: [] })).toBe(0);
+  });
+
+  it('is absent where embeds are not looked up', () => {
+    expect(embeddedDiagramCountOf('list_diagrams', {}, { diagrams: [{ embedded: true }] })).toBeUndefined();
+    expect(embeddedDiagramCountOf('read_diagram', { pageId: '9' }, {})).toBeUndefined();
   });
 });

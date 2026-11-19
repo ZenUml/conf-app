@@ -14,6 +14,13 @@ const KEY_PREFIX = 'zenuml.connectMcpShown'
 export interface ShownScope {
   cloudId?: string | null
   accountId?: string | null
+  /**
+   * A promo placement (fullscreen_card, editor_new_diagram, editor_tip) gets
+   * its own daily record, so one surface's impression does not hide another
+   * surface's denominator. The header button (toolbar / More menu) keeps the
+   * original unsuffixed key.
+   */
+  placement?: string | null
 }
 
 type Storage = Pick<globalThis.Storage, 'getItem' | 'setItem'>
@@ -35,7 +42,7 @@ export function createConnectMcpShownRecord(
   storage: Storage | null = defaultStorage(),
   clock: () => number = Date.now,
 ) {
-  const key = `${KEY_PREFIX}:${scope.cloudId || '-'}:${scope.accountId || '-'}`
+  const key = `${KEY_PREFIX}:${scope.cloudId || '-'}:${scope.accountId || '-'}${scope.placement ? `:${scope.placement}` : ''}`
 
   return {
     /**

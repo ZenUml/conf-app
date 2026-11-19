@@ -33,6 +33,19 @@ export function extractGraphText(xml: string | null | undefined): string {
   return describeShapes(doc).slice(0, 2000);
 }
 
+// Longest single label that can stand as a title without the model. Matches the
+// 80-character title cut in functions/ai-generate-title.ts.
+const MAX_LABEL_TITLE_LENGTH = 80;
+const SHAPE_DESCRIPTION_PREFIX = 'Diagram shapes:';
+
+// Returns the label when extractGraphText's output is exactly one short label,
+// and '' for several labels, a long label, or a shape description.
+export function singleShortLabel(extracted: string): string {
+  const text = (extracted || '').trim();
+  if (!text || text.includes('\n') || text.length > MAX_LABEL_TITLE_LENGTH) return '';
+  return text.startsWith(SHAPE_DESCRIPTION_PREFIX) ? '' : text;
+}
+
 // DrawIO's literal default value for a freshly-created text/shape cell. A
 // debounced mid-edit snapshot can capture a shape before the user's own label
 // commits, so a lone "Text" cell is placeholder noise, not user signal — treat
@@ -99,7 +112,7 @@ function describeShapes(doc: Document): string {
     .slice(0, 12)
     .map(([name, n]) => (n > 1 ? `${n}× ${name}` : name));
 
-  let out = `Diagram shapes: ${parts.join(', ')}.`;
+  let out = `${SHAPE_DESCRIPTION_PREFIX} ${parts.join(', ')}.`;
   if (edgeCount > 0) out += ` ${edgeCount} connector${edgeCount === 1 ? '' : 's'}.`;
   return out;
 }

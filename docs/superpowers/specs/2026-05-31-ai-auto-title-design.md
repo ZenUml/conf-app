@@ -220,3 +220,27 @@ over the same `useAutoTitle` state machine:
 Cloudflare Workers AI: ~18 Neurons/call (fp16 upper bound), free tier 10,000 Neurons/day
 (~16k titles/mo). Our `create_macro_end` volume is in the low hundreds/month, so the feature
 is effectively **$0**; even 200× growth (~100k titles/mo) is ~$16/mo.
+
+## Addendum (2026-11-05): replies that are not titles, and Graphs with too little text
+
+The model can answer with a chat reply and HTTP 200, such as "Please provide the DSL...".
+`src/lib/aiTitleGuard.js` rejects these replies. The backend checks the whole first line
+before its 80-character cut, tries the fallback model, and answers `422 not_title_like`
+when both models refuse. The editor checks again before it commits a title.
+
+Rule for a Graph, by the text that `extractGraphText` finds:
+
+| Text in the diagram | Example | While editing | AI button or Publish with an empty title |
+|---|---|---|---|
+| None | Empty canvas, one blank box | No call, no title | Publish asks the user to type a title; the AI button shows a toast |
+| One label, 80 characters or fewer | `Control` | No call, no title | The label is the title, with no model call |
+| One label, over 80 characters | A note in one box | Model | Model |
+| Two or more labels | `Control`, `Storage` | Model | Model |
+| No labels, describable shapes | `Diagram shapes: ec2.` | Model | Model |
+
+When the model refuses, the title stays empty: no toast while editing and a toast from the
+AI button. For a Graph, Publish then asks the user to type a title (`ensureTitle`).
+
+Measured on the staging endpoint with the Graph prompt, 2026-11-05: one label `Control`
+gave refusal text in 4 of 6 calls and the word `DSL` in 1 more. Two labels, three labels
+and two shape descriptions gave 0 refusals in 24 calls.

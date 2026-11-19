@@ -40,6 +40,7 @@ permissions:
 jobs:
   select:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       sha: ${{ steps.select.outputs.sha }}
       target: ${{ steps.select.outputs.target }}

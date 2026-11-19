@@ -37,7 +37,7 @@ const checkedFetch = async (url, init = {}) => {
 async function rpc(url, method, params = {}) {
   const response = await checkedFetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'x-zenuml-internal-probe': 'render-mcp-ci-smoke' },
     body: JSON.stringify({ jsonrpc: '2.0', id: ++requestId, method, params }),
   });
   const text = await response.text();
@@ -69,7 +69,7 @@ try {
     assert.ok(initialized.capabilities?.tools, 'Server must expose tools');
     await checkedFetch(endpoint, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'x-zenuml-internal-probe': 'render-mcp-ci-smoke' },
       body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
     });
     const tools = await rpc(endpoint, 'tools/list');
@@ -91,7 +91,7 @@ try {
     assert.equal(view.mimeType, 'text/html;profile=mcp-app');
     assert.ok(view._meta?.ui?.csp, 'Resource CSP missing');
     assert.deepEqual(view._meta.ui.csp, {
-      resourceDomains: [origin, 'https://www.plantuml.com'], connectDomains: [origin], frameDomains: [],
+      resourceDomains: [origin], connectDomains: [origin], frameDomains: [],
     }, 'Resource CSP does not match the allowed origins');
     assert.deepEqual(view._meta.ui.csp, listed._meta?.ui?.csp, 'Listed/read resource CSP differs');
     const parity = { html: view.text, csp: view._meta.ui.csp };

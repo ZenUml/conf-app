@@ -23,7 +23,7 @@
           @click="openDiagram(d)"
         >
           <span class="row__body">
-            <span class="row__title">{{ d.title || 'Untitled diagram' }}</span>
+            <span class="row__title">{{ visibleDiagramTitle(d.title) || 'Untitled diagram' }}</span>
             <span class="row__meta">
               {{ typeLabel(d.diagramType) }}<template v-if="d.spaceKey"> · {{ d.spaceKey }}</template>
             </span>
@@ -122,6 +122,7 @@
 </template>
 
 <script setup>
+import { visibleDiagramTitle } from '@/lib/aiTitleGuard.js'
 // confluence:homepageFeed card (see manifest.yml). Confluence renders this in
 // the right panel of the Home page — a surface with no page/content context,
 // so "insert a macro here" is not an actionable link the way it is from
@@ -163,7 +164,6 @@ import { navigateToPage, openUrl } from "@/model/globals/forgeGlobal";
 import globals from "@/model/globals";
 import { typeLabel, toMacroType } from "@/utils/byline/pageDiagrams";
 import { DiagramType } from "@/model/Diagram/Diagram";
-import { isAgentLinkEnabled } from "@/apis/aiTitleFeatureFlag";
 import {
   mcpAddCommand,
   mcpServerName,
@@ -268,9 +268,9 @@ const diagrams = ref([]);
 const openExample = ref(null);
 const loadedImages = ref({});
 
-// Connect MCP row: hidden until the agent-link flag resolves on, the same
-// flag that gates the macro's Connect MCP button. Fails closed.
-const mcpEnabled = ref(false);
+// Connect MCP row: shown on every app since the agent-link-enabled flag was
+// retired, like the macro's Connect MCP button.
+const mcpEnabled = ref(true);
 const mcpOpen = ref(false);
 const mcpSetupCommand = ref("");
 const mcpName = ref("");
@@ -337,19 +337,9 @@ function mcpProps(extra = {}) {
   };
 }
 
-async function loadMcpFlag() {
-  try {
-    mcpEnabled.value = await isAgentLinkEnabled();
-  } catch (e) {
-    console.error("[homepageFeed] agent-link flag lookup failed", e);
-    mcpEnabled.value = false;
-  }
-}
-
 onMounted(() => {
   trackAnalyticsEvent("homepage_feed_viewed", baseProps());
   void loadRecent();
-  void loadMcpFlag();
 });
 
 async function openDiagram(hit) {

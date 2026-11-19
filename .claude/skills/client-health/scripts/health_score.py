@@ -117,7 +117,32 @@ INTERNAL_DOMAINS = ["zenuml", "whimet", "full-stg", "lite-stg", "lite-dev",
                      "lite-prod", "dia-stg", "asyncapi-stg", "diagramly",
                      "danshuitaihejie"]
 VOLUME_EVENTS = ["macro_viewed", "macro_create_succeeded", "macro_save_succeeded",
-                  "paywall_triggered", "paywall_blocked_create", "paywall_blocked_edit"]
+                  "paywall_gate_evaluated"]
+# Paywall friction = gate evaluations where the gate fired, or where the
+# space is over its limit, enforced and unpaid. The older paywall_triggered /
+# paywall_blocked_create / paywall_blocked_edit events are not counted: the
+# editor block is switched off (useCustomerSuccessService: shouldBlockActions
+# is constant false), so none has arrived since 2026-09-11 and a 90-day
+# window would rank tenants on data that stopped.
+PAYWALL_FRICTION_NAME = "paywall_over_limit"
+PAYWALL_FRICTION_JS = """
+    var p = e.properties;
+    if (p.gate_fired === true) return true;
+    return p.css_enabled === true && p.space_paid !== true
+      && typeof p.macro_count === 'number' && typeof p.macro_limit === 'number'
+      && p.macro_count >= p.macro_limit;
+"""
+
+
+def is_paywall_friction(props):
+    """Python twin of PAYWALL_FRICTION_JS, kept beside it so the rule has a
+    unit test. Change both together."""
+    if props.get("gate_fired") is True:
+        return True
+    count, limit = props.get("macro_count"), props.get("macro_limit")
+    return (props.get("css_enabled") is True and props.get("space_paid") is not True
+            and isinstance(count, (int, float)) and isinstance(limit, (int, float))
+            and count >= limit)
 
 
 def _domain_filter_js():
@@ -152,10 +177,12 @@ function main() {{
     event_selectors: events.map(function(n){{ return {{event: n}}; }})
   }})
   .filter(function(e){{{_domain_filter_js()}}})
+  .filter(function(e){{
+    if (e.name !== 'paywall_gate_evaluated') return true;{PAYWALL_FRICTION_JS}  }})
   .groupBy([
     function(e){{ return e.properties.client_domain; }},
     function(e){{ return new Date(e.time).toISOString().slice(0,10); }},
-    'name'
+    function(e){{ return e.name === 'paywall_gate_evaluated' ? '{PAYWALL_FRICTION_NAME}' : e.name; }}
   ], mixpanel.reducer.count());
 }}
 """
@@ -166,7 +193,7 @@ def parse_volume_rows(rows, today=None):
     recent_cut = today - datetime.timedelta(days=29)     # last 30 days: [today-29, today]
     prior_start = today - datetime.timedelta(days=59)     # prior 30 days: [today-59, today-30]
     prior_end = today - datetime.timedelta(days=30)
-    paywall_events = {"paywall_triggered", "paywall_blocked_create", "paywall_blocked_edit"}
+    paywall_events = {PAYWALL_FRICTION_NAME}
 
     per_domain = defaultdict(lambda: {
         "usage_volume": 0, "paywall_friction": 0,

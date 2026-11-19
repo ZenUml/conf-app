@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import yaml from 'js-yaml';
 
-for (const name of ['pr-validation', 'main-build-preparation']) {
+for (const name of ['pr-checks', 'main-build-preparation']) {
   test(`${name} gates on the offline Mixpanel browser regression with installed Chromium`, () => {
     const workflow = yaml.load(readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), 'utf8'));
     const steps = workflow.jobs['preview-e2e'].steps;

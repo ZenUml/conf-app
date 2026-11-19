@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 
@@ -17,6 +17,32 @@ function eligible(id: string, overrides: Record<string, string> = {}, cancelled 
   const github = { ref, event_name: 'push', event: { repository: { default_branch: 'main' } } };
   return Function('needs', 'github', 'cancelled', 'always', 'format', `return (${expression})`)(needs, github, () => cancelled, () => true, (_: string, branch: string) => `refs/heads/${branch}`);
 }
+
+describe('main AsyncAPI build coverage', () => {
+  const workflowJobs = (name: string) => (load(readFileSync(`.github/workflows/${name}.yml`, 'utf8')) as any).jobs;
+  const buildMain = workflowJobs('main-build-preparation');
+
+  it('builds AsyncAPI once on main, through the gated production matrix', () => {
+    expect(buildMain['build-prod'].strategy.matrix.variant).toContain('asyncapi');
+    expect(buildMain['build-prod'].steps.map((step: any) => step.run)).toContain('pnpm build:${{ matrix.variant }}');
+    expect(buildMain.provenance.needs).toContain('build-prod');
+    const unitRuns = buildMain.build.steps.map((step: any) => step.run ?? '');
+    expect(unitRuns.filter((run: string) => run.includes('pnpm build:'))).toEqual([]);
+  });
+
+  it('does not prepare AsyncAPI Studio in the main unit-test job', () => {
+    expect(JSON.stringify(buildMain.build.steps)).not.toContain('asyncapi-studio');
+  });
+
+  it('keeps the AsyncAPI build check on pull requests', () => {
+    // Any workflow a pull request starts counts: which one holds the job is not the point.
+    const pullRequestWorkflows = readdirSync('.github/workflows')
+      .map(file => load(readFileSync(`.github/workflows/${file}`, 'utf8')) as any)
+      .filter(workflow => workflow.on?.pull_request);
+    const steps = pullRequestWorkflows.flatMap(workflow => Object.values(workflow.jobs)).flatMap((job: any) => job.steps ?? []);
+    expect(steps.map((step: any) => step.run)).toContain('pnpm build:asyncapi');
+  });
+});
 
 describe('main downstream staging gates', () => {
   for (const id of downstream) {

@@ -1,10 +1,10 @@
 <template>
   <Teleport :to="headerTarget || 'body'" :disabled="!headerTarget">
   <div class="diagram-viewport-toolbar" :class="{ 'diagram-viewport-toolbar--header': !!headerTarget, 'diagram-viewport-toolbar--compact': !!headerTarget && !showFitControls }" role="toolbar" :aria-label="`${label} zoom controls`">
-    <button type="button" class="diagram-viewport-button" :disabled="headerTarget && !ready" aria-label="Zoom out" :title="`Zoom out (${wheelShortcut})`" @click="emitAction('zoom_out')">
+    <button type="button" class="diagram-viewport-button" :disabled="(headerTarget && !ready) || !canZoomOut" aria-label="Zoom out" :title="`Zoom out (${wheelShortcut})`" @click="emitAction('zoom_out')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path v-if="headerTarget" d="M5 12h14"/><template v-else><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M15.2 15.2 21 21"/></template></svg>
     </button>
-    <button type="button" class="diagram-viewport-button" :disabled="headerTarget && !ready" aria-label="Zoom in" :title="`Zoom in (${wheelShortcut})`" @click="emitAction('zoom_in')">
+    <button type="button" class="diagram-viewport-button" :disabled="(headerTarget && !ready) || !canZoomIn" aria-label="Zoom in" :title="`Zoom in (${wheelShortcut})`" @click="emitAction('zoom_in')">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path v-if="headerTarget" d="M5 12h14M12 5v14"/><template v-else><circle cx="10.5" cy="10.5" r="6.5"/><path d="M7.5 10.5h6M10.5 7.5v6M15.2 15.2 21 21"/></template></svg>
     </button>
     <template v-if="headerTarget && showFitControls">
@@ -58,6 +58,13 @@ export default {
       type: String,
       required: true,
     },
+    /**
+     * False once the diagram is at its natural-size ceiling (or opened there):
+     * the button is disabled rather than left to do nothing.
+     */
+    canZoomIn: { type: Boolean, default: true },
+    /** False at the opening-size floor. */
+    canZoomOut: { type: Boolean, default: true },
   },
   emits: ['zoom-in', 'zoom-out', 'fit-height', 'fit-width'],
   watch: {
@@ -75,6 +82,7 @@ export default {
   methods: {
     emitAction(viewportAction) {
       if (this.headerTarget && !this.ready) return;
+      if ((viewportAction === 'zoom_in' && !this.canZoomIn) || (viewportAction === 'zoom_out' && !this.canZoomOut)) return;
       this.$emit(viewportAction.replace('_', '-'));
       trackViewportControl({
         macroType: this.macroType,

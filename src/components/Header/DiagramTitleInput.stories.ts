@@ -131,6 +131,25 @@ export const Suggested: Story = {
   },
 }
 
+/** A title saved before PR #1053 can be model refusal text. On open the field is emptied, and auto-title fills it from the code. */
+export const SavedRefusalTitle: Story = {
+  decorators: [
+    () => {
+      setupStore({ code: SAMPLE_CODE, title: 'Please provide the DSL that describes your flowchart and I will suggest a tit' })
+      mockFetch('Payment Flow Sequence', 0)
+      return { template: '<story />' }
+    },
+  ],
+  play: async () => {
+    const body = within(document.body)
+    // 1.5 s debounce + 22 chars × 40 ms typewriter; allow up to 6 s for CI
+    await waitFor(
+      () => expect(body.getByPlaceholderText('Untitled diagram')).toHaveValue('Payment Flow Sequence'),
+      { timeout: 6000 },
+    )
+  },
+}
+
 /** The flash-title-error event (a save attempted with an empty title) turns the field red — red border, red-tinted background and red text — until the next edit. */
 export const TitleError: Story = {
   decorators: [

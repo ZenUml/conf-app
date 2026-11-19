@@ -38,13 +38,59 @@ export function getBaseUrl() {
  */
 export const NO_SPACE_CONTEXT = 'no_space_context';
 
+const PAGE_BANNER_EXTENSION_TYPE = 'confluence:pageBanner';
+const PAGE_LOCATION_PATH =
+  /^\/wiki\/spaces\/([^/]+)\/(?:overview\/?$|pages\/(\d+)(?:\/|$)|blog\/\d{4}\/\d{2}\/\d{2}\/(\d+)(?:\/|$))/;
+
+/**
+ * The space key the page's own URL names, or null when the URL has no trusted
+ * shape. A URL carrying a content id must name the content this iframe is for;
+ * otherwise it does not describe this page.
+ */
+function spaceKeyFromLocation(location: unknown, contentId: unknown): string | null {
+  if (typeof location !== 'string') return null;
+  try {
+    const match = PAGE_LOCATION_PATH.exec(new URL(location).pathname);
+    if (!match) return null;
+    const urlContentId = match[2] ?? match[3];
+    if (urlContentId !== undefined && urlContentId !== String(contentId)) return null;
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The Forge context's space, corrected for a page-banner iframe.
+ *
+ * After a Confluence SPA navigation by quick find, a new `confluence:pageBanner`
+ * iframe receives the new `content.id` and `location` and the PREVIOUS page's
+ * `space` (lite-stg 2026-11-08; macro iframes on the same navigation had the
+ * right space, so only banners are corrected). `location` is synchronous, which
+ * the banner's fast-exit gates depend on. A corrected space has no `id` because
+ * the context's id is the previous space's; callers resolve it from the key.
+ */
+export function resolveForgeSpace(): { key: string; id?: string } | undefined {
+  const extension = forgeGlobal.forgeContext?.extension;
+  const contextSpace = extension?.space;
+  if (extension?.type !== PAGE_BANNER_EXTENSION_TYPE) return contextSpace;
+  const locationKey = spaceKeyFromLocation(extension.location, extension.content?.id);
+  if (!locationKey || locationKey.toLowerCase() === contextSpace?.key?.toLowerCase()) return contextSpace;
+  return { key: locationKey };
+}
+
+/** True when {@link resolveForgeSpace} had to replace the context's space. */
+export function isForgeSpaceContextStale(): boolean {
+  const contextSpace = forgeGlobal.forgeContext?.extension?.space;
+  return Boolean(contextSpace) && resolveForgeSpace() !== contextSpace;
+}
+
 export function getSpaceKey() {
   //@ts-ignore
   const urlSpaceKey = getUrlParam('spaceKey');
   //@ts-ignore
   const initialContextSpaceKey = window.initialContext?.currentSpace?.key;
-  const forgeSpaceKey = forgeGlobal.forgeContext?.extension?.space?.key;
-  return urlSpaceKey || initialContextSpaceKey || forgeSpaceKey || NO_SPACE_CONTEXT;
+  return urlSpaceKey || initialContextSpaceKey || resolveForgeSpace()?.key || NO_SPACE_CONTEXT;
 }
 
 export function getSubdomain(baseUrl: string) {

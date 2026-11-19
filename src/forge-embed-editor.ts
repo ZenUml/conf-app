@@ -16,6 +16,7 @@ import uuidv4 from "@/utils/uuid";
 import { resolveEffectiveCustomContentId } from '@/utils/effectiveCustomContentId';
 import { startEditJourney, endEditJourney, getOrCreateSession, getEditJourneyId, continueEditJourney, setEditJourneyMeta } from '@/utils/journeyTracking';
 import { tryPageEditorPaywall } from '@/utils/paywall/mountPaywallGate';
+import { activateEditRecoveryAfterSave } from '@/utils/paywall/editRecoveryActivation';
 import { markRecentMacroActivity } from '@/utils/paywall/warningBanner';
 import { isValidCustomContentId } from '@/utils/customContentId';
 import { markEditorAuthoringStarted, markEditorSaved, registerEditorCloseTracking } from '@/utils/analytics/editorCloseOutcome';
@@ -101,17 +102,17 @@ async function saveEmbedAndExit(selectedCustomContentId: string) {
       // the same reason: ending it before the gates emitted macro_authoring_ended
       // 'saved' for a rejected pick, and a later close then emitted
       // macro_create_cancelled, so the two events contradicted each other.
-      // The success event is awaited (sendBeacon transport) so it is ordered
-      // before view.submit tears this iframe down. Delivery stays best-effort:
-      // Mixpanel keeps batching unless send_immediately is set, so the await
-      // does not guarantee the event leaves the browser. The correctness fix for
-      // conf-app#519 is the single operation-mode discriminator above, not the
-      // await. Embed bypasses Persistence.ts, so the saved mark (see
+      // The success event is awaited so the helper hands it to sendBeacon,
+      // bypassing Mixpanel batching, before view.submit tears this iframe down.
+      // Delivery stays best-effort: beacon handoff does not prove ingestion.
+      // The correctness fix for conf-app#519 is the single operation-mode
+      // discriminator above. Embed bypasses Persistence.ts, so the saved mark (see
       // editorCloseOutcome) is here too.
       if (getEditJourneyId()) {
         endEditJourney('saved');
       }
       markEditorSaved();
+      try { await activateEditRecoveryAfterSave(); } catch { /* never fails a save */ }
       await trackAnalyticsEventBeforeUnload(
         isNew ? "macro_create_succeeded" : "macro_save_succeeded",
         {

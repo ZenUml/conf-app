@@ -13,6 +13,20 @@ describe("eventSampling", () => {
   beforeEach(() => vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-15T00:00:00Z")));
   afterEach(() => vi.mocked(Date.now).mockRestore());
 
+  describe("dated rates", () => {
+    it("sends editor_preview_element_clicked at 100% until 2026-12-23, then 10%", () => {
+      const lastFullDay = Date.parse("2026-12-22T23:59:59.999Z");
+      const firstSampledDay = Date.parse("2026-12-23T00:00:00Z");
+      expect(sampleRateFor("editor_preview_element_clicked", Date.parse("2026-11-25T00:00:00Z"))).toBe(1);
+      expect(sampleRateFor("editor_preview_element_clicked", lastFullDay)).toBe(1);
+      expect(sampleRateFor("editor_preview_element_clicked", firstSampledDay)).toBe(0.1);
+      expect(decideSample("editor_preview_element_clicked", () => 0.05, firstSampledDay))
+        .toEqual({ keep: true, rate: 0.1 });
+      expect(decideSample("editor_preview_element_clicked", () => 0.5, firstSampledDay))
+        .toEqual({ keep: false, rate: 0.1 });
+    });
+  });
+
   describe("event budget (from October 2026, ongoing)", () => {
     const october = Date.parse("2026-10-12T00:00:00Z");
     const before = Date.parse("2026-09-30T23:59:59.999Z");
@@ -26,14 +40,14 @@ describe("eventSampling", () => {
       }
     });
 
-    it("stops the seven named diagnostics from October 2026 onward", () => {
+    it("stops the five named diagnostics from October 2026 onward", () => {
       for (const name of [
-        "cohorts_refreshed", "copy_for_ai_impression", "editor_global_replace_observed",
-        "report_macro_metrics", "snapshot_backfill_skipped", "viewport_control_used",
+        "cohorts_refreshed", "editor_global_replace_observed",
+        "report_macro_metrics", "snapshot_backfill_skipped",
         "whats_new_banner_evaluated",
       ]) {
         expect(sampleRateFor(name, october)).toBe(0);
-        expect(sampleRateFor(name, before)).toBe(name === "copy_for_ai_impression" || name === "report_macro_metrics" ? 0.1 : 1);
+        expect(sampleRateFor(name, before)).toBe(name === "report_macro_metrics" ? 0.1 : 1);
         expect(sampleRateFor(name, after)).toBe(0);
       }
     });
@@ -45,6 +59,55 @@ describe("eventSampling", () => {
         "feedback_report_opened", "targeted_survey_shown", "csat_displayed",
         "magic_writeback_completed", "agent_link_mcp_tool_called",
       ]) expect(sampleRateFor(name, october)).toBe(sampleRateFor(name, after));
+    });
+
+    it("keeps the macro creation entry and process events at full rate", () => {
+      // A new customer's first events are the creation entry points. Sampling
+      // them at 10% made "what did this site do first" unanswerable: the real
+      // first event was dropped nine times in ten, so the journey appeared to
+      // start mid-flow. These are an acquisition funnel, not volume telemetry.
+      const names = [
+        "new_diagram_link_seeded", "macro_type_changed",
+        "editor_starter_shown", "editor_template_gallery_opened", "editor_template_applied",
+        "get_started_route_accessed",
+        "get_started_create_embed", "get_started_create_first_diagram", "get_started_create_graph",
+        "get_started_create_mermaid", "get_started_create_openapi", "get_started_create_sequence",
+        "byline_create_clicked", "byline_diagram_created", "byline_create_cancelled",
+        "byline_editor_deeplinked",
+      ];
+      for (const name of names) {
+        expect(OCTOBER_RETAINED_EVENTS.has(name)).toBe(true);
+        expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(false);
+        expect(sampleRateFor(name, october)).toBe(1);
+        expect(sampleRateFor(name, after)).toBe(1);
+        expect(decideSample(name, () => { throw new Error("RNG must not run"); }, after))
+          .toEqual({ keep: true, rate: 1 });
+      }
+    });
+
+    it("keeps fullscreen_zoom_summary at full rate: it samples per view itself", () => {
+      // fullscreenZoomSummary.ts keeps 10% of Fullscreen views and sends every
+      // row of a kept view. A second, per-row cut here would break the
+      // "last row per zoom_session_id" rule and overwrite its sample_rate.
+      expect(OCTOBER_RETAINED_EVENTS.has("fullscreen_zoom_summary")).toBe(true);
+      expect(OCTOBER_REDUCED_EVENTS.has("fullscreen_zoom_summary")).toBe(false);
+      expect(sampleRateFor("fullscreen_zoom_summary", after)).toBe(1);
+    });
+
+    it("keeps the unplaced-diagram funnel at full rate", () => {
+      // byline_opened and the four unplaced_* events are the only record of
+      // whether a byline-created diagram's author was told it was not on the
+      // page. At 10% a single site's journey could not be read.
+      const names = [
+        "byline_opened", "unplaced_property_write",
+        "unplaced_banner_evaluated", "unplaced_banner_shown", "unplaced_banner_dismissed",
+      ];
+      for (const name of names) {
+        expect(OCTOBER_RETAINED_EVENTS.has(name)).toBe(true);
+        expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(false);
+        expect(sampleRateFor(name, october)).toBe(1);
+        expect(sampleRateFor(name, after)).toBe(1);
+      }
     });
 
     it("keeps the complete paid conversion and Request Full funnel at current rates", () => {
@@ -65,9 +128,56 @@ describe("eventSampling", () => {
       }
     });
 
+    it("keeps the placement picker funnel at full rate", () => {
+      for (const name of ["placement_picker_opened", "placement_picker_dismissed", "diagram_added_to_page"]) {
+        expect(OCTOBER_RETAINED_EVENTS.has(name)).toBe(true);
+        expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(false);
+        expect(sampleRateFor(name, october)).toBe(1);
+      }
+    });
+
+    it("keeps the complete AI Chat and AI Repair event families at full rate", () => {
+      const names = [
+        "ai_chat_button_shown",
+        "ai_chat_opened",
+        "ai_chat_closed",
+        "ai_chat_suggestion_selected",
+        "ai_chat_prompt_submitted",
+        "ai_chat_no_change",
+        "ai_chat_change_applied",
+        "ai_chat_prompt_failed",
+        "ai_chat_prompt_cancelled",
+        "ai_chat_code_visibility_toggled",
+        "ai_chat_syntax_issue_shown",
+        "ai_chat_syntax_repair_requested",
+        "ai_chat_diff_toggled",
+        "ai_chat_history_opened",
+        "ai_chat_history_load_succeeded",
+        "ai_chat_history_load_failed",
+        "ai_chat_version_restore_requested",
+        "ai_chat_version_restored",
+        "ai_chat_change_undone",
+        "ai_chat_version_restore_failed",
+        "ai_repair_button_shown",
+        "ai_repair_requested",
+        "ai_repair_succeeded",
+        "ai_repair_failed",
+        "ai_repair_applied",
+        "ai_repair_dismissed",
+      ];
+
+      for (const name of names) {
+        expect(OCTOBER_RETAINED_EVENTS.has(name)).toBe(true);
+        expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(false);
+        expect(sampleRateFor(name, october)).toBe(1);
+        expect(sampleRateFor(name, after)).toBe(1);
+        expect(decideSample(name, () => { throw new Error("RNG must not run"); }, after))
+          .toEqual({ keep: true, rate: 1 });
+      }
+    });
+
     it("reduces only listed success/info events to one tenth of their existing arrival rate", () => {
-      expect(sampleRateFor("copy_for_ai_clicked", october)).toBe(1);
-      expect(sampleRateFor("copy_for_ai_menu_opened", october)).toBe(0.1);
+      expect(sampleRateFor("viewer_more_menu_opened", october)).toBe(0.1);
       expect(sampleRateFor("diagram_attribution_shown", october)).toBe(0.005);
       expect(sampleRateFor("space_admin_active", october)).toBe(0.01);
       expect(sampleRateFor("convert_to_png", october)).toBe(0.01);
@@ -96,7 +206,7 @@ describe("eventSampling", () => {
       for (const name of [
         "diagram_attribution_shown", "diagram_audience_registration_succeeded",
         "related_diagrams_lookup_succeeded", "related_token_indicators_shown",
-        "whats_new_banner_shown",
+        "whats_new_banner_shown", "viewport_control_used",
       ]) {
         expect(OCTOBER_REDUCED_EVENTS.has(name)).toBe(true);
         expect(sampleRateFor(name, october)).toBeCloseTo(sampleRateFor(name, before) / 10);
@@ -148,21 +258,6 @@ describe("eventSampling", () => {
       expect(sampleRateFor("create_attachmentmermaid")).toBe(0.1);
       expect(sampleRateFor("create_attachmentplantuml")).toBe(0.1);
       expect(sampleRateFor("create_attachmentsequence")).toBe(0.1);
-    });
-
-    // copy_for_ai_impression is an instance-level event: 80,912 occurrences from
-    // 4,414 users in the 30 days to 2026-09-07, 19.4% of all billable volume.
-    // Its only consumer is a rate (clicks / impressions), so a sample answers it.
-    it("samples the Copy for AI impression to 10%", () => {
-      expect(sampleRateFor("copy_for_ai_impression")).toBe(0.1);
-    });
-
-    // The click side of the same rate must stay whole — it is ~166 users a
-    // month, contributes nothing to the bill, and sampling both sides would
-    // multiply the estimator's error for no saving.
-    it("leaves the Copy for AI click and menu events at full fidelity", () => {
-      expect(sampleRateFor("copy_for_ai_clicked")).toBe(1);
-      expect(sampleRateFor("copy_for_ai_menu_opened")).toBe(1);
     });
 
     it("leaves error / funnel events at full fidelity", () => {

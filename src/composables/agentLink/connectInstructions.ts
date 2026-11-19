@@ -30,7 +30,7 @@ export function mcpServerName(product: { isDiagramly?: boolean; isAsyncApi?: boo
 }
 
 /** The product the prompt names the diagram after, matching mcpServerName(). */
-function productLabel(product: { isDiagramly?: boolean; isAsyncApi?: boolean } = forgeGlobal): string {
+export function productLabel(product: { isDiagramly?: boolean; isAsyncApi?: boolean } = forgeGlobal): string {
   if (product.isDiagramly) return 'Diagramly'
   if (product.isAsyncApi) return 'AsyncAPI'
   return 'ZenUML'
@@ -69,6 +69,98 @@ export function mcpServerUrl(backendBaseUrl: string | undefined = mcpBackendBase
 
 export function mcpAddCommand(backendBaseUrl?: string): string {
   return `claude mcp add --transport http ${mcpServerName()} ${mcpServerUrl(backendBaseUrl)}`
+}
+
+// Codex CLI (`codex mcp add --help`, codex-cli 0.169.0): `--url` adds a
+// streamable HTTP server. Run against conf-stg-lite on 2026-11-17, it wrote
+// [mcp_servers.<name>] url = "…" to config.toml, then printed "Detected OAuth
+// support. Starting OAuth flow…" and opened the authorize URL; `codex mcp
+// login <name>` repeats the sign-in on its own.
+export function codexAddCommand(serverUrl: string = mcpServerUrl(), name: string = mcpServerName()): string {
+  return `codex mcp add ${name} --url ${serverUrl}`
+}
+
+// One-click install links for the Connect MCP dialog's client tabs. A Forge
+// Custom UI frame opens links through router.open, which Confluence handles
+// only for web URLs: on whimet4 (2026-11-17) a cursor:// URL did nothing at
+// all, while an https URL got Confluence's "Opening external page"
+// confirmation. So both links are https pages that hand off to the client.
+//
+// Cursor documents the deeplink
+// cursor://anysphere.cursor-deeplink/mcp/install?name=$NAME&config=$BASE64
+// (https://cursor.com/docs/context/mcp/install-links), where the config is
+// the server's mcp.json entry, JSON-stringified, then base64-encoded. Its web
+// page https://cursor.com/install-mcp takes the same name and config and
+// redirects to exactly that deeplink (observed 2026-11-17; the page itself is
+// not in Cursor's docs).
+export function cursorInstallUrl(serverUrl: string = mcpServerUrl(), name: string = mcpServerName()): string {
+  const config = btoa(JSON.stringify({ url: serverUrl }))
+  return `https://cursor.com/install-mcp?name=${encodeURIComponent(name)}&config=${encodeURIComponent(config)}`
+}
+
+// VS Code (https://code.visualstudio.com/api/extension-guides/ai/mcp):
+// vscode:mcp/install?{url-encoded JSON}, which opens the server for review
+// rather than installing it silently. Wrapped in the documented
+// https://vscode.dev/redirect?url= page, for the reason above.
+export function vscodeInstallUrl(serverUrl: string = mcpServerUrl(), name: string = mcpServerName()): string {
+  const install = `vscode:mcp/install?${encodeURIComponent(JSON.stringify({ name, type: 'http', url: serverUrl }))}`
+  return `https://vscode.dev/redirect?url=${encodeURIComponent(install)}`
+}
+
+// The Other tab's setup: a prompt for an agent that can run commands or edit
+// files (Kiro, opencode, Copilot CLI, Factory…) to add the server to its own
+// MCP configuration. An agent cannot add a server to the session it is in,
+// and the OAuth sign-in needs the person, so the prompt asks it to say how
+// to reload and sign in rather than to use the tools straight away. A chat
+// app (Claude on the web, ChatGPT) cannot act on it; those add servers in
+// their settings.
+export function buildInstallPrompt(serverUrl: string = mcpServerUrl(), name: string = mcpServerName()): string {
+  return [
+    'Add this remote MCP server to your own MCP configuration:',
+    `- name: ${name}`,
+    '- transport: streamable HTTP',
+    `- URL: ${serverUrl}`,
+    'It signs in with Atlassian OAuth the first time it is used, so add no API key or header.',
+    `Then tell me how to reload you and sign in, so the ${name} tools show up.`,
+  ].join('\n')
+}
+
+export type McpClientChoice = 'claude_code' | 'claude_app' | 'cursor' | 'codex' | 'vscode' | 'chatgpt' | 'other'
+
+// The dialog's tabs, most-used client first, by accounts whose MCP client
+// named itself on agent_link_mcp_initialized (customer sites,
+// 2026-09-15..11-17): claude-code 24, Anthropic/ClaudeAI 5, cursor-vscode 3,
+// codex-mcp-client 3, Visual Studio Code 1. ChatGPT had none yet; it comes
+// after them, before the catch-all.
+export const MCP_CLIENTS: ReadonlyArray<{ id: McpClientChoice; label: string }> = [
+  { id: 'claude_code', label: 'Claude Code' },
+  { id: 'claude_app', label: 'Claude app' },
+  { id: 'cursor', label: 'Cursor' },
+  { id: 'codex', label: 'Codex' },
+  { id: 'vscode', label: 'VS Code' },
+  { id: 'chatgpt', label: 'ChatGPT' },
+  { id: 'other', label: 'Other' },
+]
+
+const CLIENT_CHOICE_KEY = 'zenuml.mcpClientChoice'
+
+/** The tab this browser last chose; Claude Code when none (or storage is unavailable). */
+export function rememberedMcpClient(): McpClientChoice {
+  try {
+    const v = localStorage.getItem(CLIENT_CHOICE_KEY)
+    if (MCP_CLIENTS.some((c) => c.id === v)) return v as McpClientChoice
+  } catch {
+    // Storage blocked: fall through to the default.
+  }
+  return 'claude_code'
+}
+
+export function rememberMcpClient(choice: McpClientChoice): void {
+  try {
+    localStorage.setItem(CLIENT_CHOICE_KEY, choice)
+  } catch {
+    // Best effort: the choice only saves a click next time.
+  }
 }
 
 // The first release offers the headless MCP only: the agent signs in with
@@ -110,6 +202,25 @@ export function buildHeadlessPrompt(target: HeadlessDiagramTarget): string {
     '2. Summarize what the diagram shows.',
     '3. Point out anything unclear, inconsistent or missing.',
     '4. Suggest improvements, then wait for my go-ahead before changing it with update_diagram.',
+  )
+  return lines.join('\n')
+}
+
+// The macro editor's prompt for a new, not yet saved diagram (MCP promo,
+// 'editor_new_diagram'). There is nothing stored to read or update yet, and
+// writing to the page while it is open in the Confluence editor would race
+// the author's own publish, so the agent drafts source for the author to
+// paste, and only touches Confluence after the diagram is saved.
+export function buildEditorDraftPrompt(target: { cloudId?: string; pageId?: string; dialect: string }): string {
+  const article = /^[aeiou]/i.test(target.dialect) ? 'an' : 'a'
+  const lines = [`Use the ${mcpServerName()} MCP to help me draw ${article} ${target.dialect} diagram for my Confluence page.`]
+  if (target.cloudId) lines.push(`cloudId: ${target.cloudId}`)
+  if (target.pageId) lines.push(`pageId: ${target.pageId}`)
+  lines.push(
+    '',
+    '1. Read the relevant code in this repository and ask me what the diagram should cover if it is unclear.',
+    `2. Write the ${target.dialect} source and show it to me so I can paste it into the ${productLabel()} editor.`,
+    '3. Do not change Confluence yet. Once I have saved the diagram, find it with list_diagrams for this page and change it with update_diagram only after my go-ahead.',
   )
   return lines.join('\n')
 }

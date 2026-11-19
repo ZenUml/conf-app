@@ -30,6 +30,7 @@ import {
   countsInvariant,
   createProductionDependencies,
   nextCursor,
+  normalizeDiagramType,
   requestConfluenceJsonWithRetry,
   runMacroCountSnapshot,
   sha256Hex,
@@ -186,6 +187,10 @@ describe('privacy-safe row construction and counts', () => {
     expect(JSON.stringify(first.row)).not.toMatch(/must never|account-secret|A->B|title|authorId|body|raw/);
   });
 
+  it('maps the markdown diagram type to its own bucket', () => {
+    expect(normalizeDiagramType('markdown')).toBe('markdown');
+  });
+
   it('classifies missing, invalid, and unknown bodies into the unknown count bucket', async () => {
     const rows = await Promise.all([
       toPrivacySafeRow(content({ id: '1', body: {} }), LITE_CUSTOM_CONTENT_TYPES[0], 'tenant'),
@@ -214,6 +219,7 @@ describe('privacy-safe row construction and counts', () => {
       mermaid: 0,
       plantuml: 1,
       asyncapi: 1,
+      markdown: 0,
       unknown: 3,
     });
     expect(countsInvariant(counts)).toBe(true);
@@ -322,6 +328,7 @@ describe('daily scanner protocol', () => {
         mermaid: 0,
         plantuml: 0,
         asyncapi: 0,
+        markdown: 0,
         unknown: 1,
       },
     });

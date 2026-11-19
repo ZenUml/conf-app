@@ -1,7 +1,8 @@
 import {
-  FULLSCREEN_RECOVERY_POLICY_VERSION,
-  FULLSCREEN_RECOVERY_SCENARIOS,
+  RECOVERY_FEATURE_DEFINITIONS,
+  resolveRecoveryFeature,
   type RecoveryActivateInput,
+  type RecoveryFeature,
   type RecoveryMailState,
   type RecoveryRequestInput,
   type RecoveryResult,
@@ -11,10 +12,10 @@ import {
 import { mixpanelImportServiceEvents } from './mixpanelService';
 import type { AnalyticsEventName } from './analyticsTypes';
 import { RECOVERY_SPACE_KEY, recoveryEligibility } from './fullscreenRecoveryEligibility';
+import { resolveEnforcement } from './paywallEnforcement';
 
 export const LITE_FORGE_APP_ID = '8ad26115-211f-4216-971b-0540f606303d';
 const DAY_MS = 86_400_000;
-const SCENARIOS = new Set<string>(FULLSCREEN_RECOVERY_SCENARIOS);
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const B64 = /^[A-Za-z0-9+/]+={0,2}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -27,12 +28,16 @@ export interface RecoveryEnv {
   MACRO_COUNT_SNAPSHOT_BUCKET?: R2Bucket;
   FULLSCREEN_RECOVERY_ENCRYPTION_KEY?: string;
   FULLSCREEN_RECOVERY_SUPPORT_TOKENS?: string;
+  RESEND_API_KEY?: string;
+  RESEND_FROM?: string;
   RESEND_REPLY_TO?: string;
+  /** Optional recipient of the internal "request arrived" email; falls back to RESEND_REPLY_TO. */
+  FULLSCREEN_RECOVERY_NOTIFY_TO?: string;
   MIXPANEL_TOKEN?: string;
 }
 export interface RecoveryIdentity { cloudId: string; accountId: string; forgeAppId: string }
 export interface FullscreenRecoveryRequestRow {
-  id: string; cloudId: string; accountId: string; feature: 'fullscreen';
+  id: string; cloudId: string; accountId: string; feature: RecoveryFeature;
   scenariosJson: string; noteCiphertext: string; emailCiphertext: string;
   consentVersion: string; consentAt: string; contentId: string | null;
   customContentId: string | null; spaceKey: string | null; createdAt: string;
@@ -42,7 +47,11 @@ export interface FullscreenRecoveryRequestRow {
 export interface RecoveryPolicy {
   enabled: true;
   exemptionOverrideReviewed?: boolean;
+  /** `edit` only: the published free limit, taken from the site enforcement. */
+  limit?: number;
 }
+/** What a feature's policy source may need beyond the site. `fullscreen` ignores all of it. */
+export interface RecoveryPolicyContext { forgeAppId?: string; spaceKey?: string; now?: Date }
 export class RecoveryError extends Error {
   constructor(public code: string, public status = 400) { super(code); }
 }
@@ -89,8 +98,33 @@ export function isRecoveryIdentity(value: unknown): value is RecoveryIdentity {
     && typeof fit.accountId === 'string' && fit.accountId.length > 0;
 }
 
+/** Where a feature's policy comes from. A second feature plugs its own source in here. */
+const RECOVERY_POLICY_SOURCES: Record<RecoveryFeature, (env: RecoveryEnv, cloudId: string, context: RecoveryPolicyContext) => Promise<RecoveryPolicy | null | 'unavailable'>> = {
+  fullscreen: (env, cloudId) => readFullscreenKvPolicy(env, cloudId),
+  edit: readEditPolicy,
+};
+
+export function readRecoveryPolicy(
+  env: RecoveryEnv, cloudId: string, feature: RecoveryFeature = 'fullscreen', context: RecoveryPolicyContext = {},
+): Promise<RecoveryPolicy | null | 'unavailable'> {
+  return RECOVERY_POLICY_SOURCES[feature](env, cloudId, context);
+}
+
+/**
+ * `edit` is on when the site policy is at `block_edit` and in force, the space has reached the
+ * enforcement threshold, and the space is not exempt (`resolveEnforcement`). Licence and paid-rail
+ * coverage is then decided by `recoveryEligibility`, which snapshot, request and activation all run
+ * after this read: that is the precondition `resolveEnforcement` states, and the coverage rules
+ * stay in one place. Any error or missing binding reads as "no gate" (fail open).
+ */
+async function readEditPolicy(env: RecoveryEnv, cloudId: string, context: RecoveryPolicyContext): Promise<RecoveryPolicy | null> {
+  if (!context.forgeAppId || !context.spaceKey) return null;
+  const enforcement = await resolveEnforcement(env, { cloudId, forgeAppId: context.forgeAppId, spaceKey: context.spaceKey }, context.now);
+  return enforcement?.effects.requestEdit === true ? { enabled: true, limit: enforcement.limit } : null;
+}
+
 /** Only a server-managed KV policy can enforce this gate. Malformed policy fails open. */
-export async function readRecoveryPolicy(env: RecoveryEnv, cloudId: string): Promise<RecoveryPolicy | null | 'unavailable'> {
+async function readFullscreenKvPolicy(env: RecoveryEnv, cloudId: string): Promise<RecoveryPolicy | null | 'unavailable'> {
   if (!env.KV_FEATURE_FLAGS) return 'unavailable';
   let raw: string | null;
   try { raw = await env.KV_FEATURE_FLAGS.get(`fullscreen-recovery:policy:${cloudId}`); }
@@ -107,22 +141,23 @@ export async function readRecoveryPolicy(env: RecoveryEnv, cloudId: string): Pro
 export async function getRecoveryCase(db: D1Database, id: string): Promise<FullscreenRecoveryRequestRow | null> {
   return db.prepare('SELECT * FROM FullscreenRecoveryRequest WHERE id = ?1').bind(id).first<FullscreenRecoveryRequestRow>();
 }
-async function getOwnRequest(db: D1Database, identity: RecoveryIdentity): Promise<FullscreenRecoveryRequestRow | null> {
+async function getOwnRequest(db: D1Database, identity: RecoveryIdentity, feature: RecoveryFeature): Promise<FullscreenRecoveryRequestRow | null> {
   return db.prepare(`SELECT * FROM FullscreenRecoveryRequest
-    WHERE cloudId = ?1 AND accountId = ?2 AND feature = 'fullscreen'`)
-    .bind(identity.cloudId, identity.accountId).first<FullscreenRecoveryRequestRow>();
+    WHERE cloudId = ?1 AND accountId = ?2 AND feature = ?3`)
+    .bind(identity.cloudId, identity.accountId, feature).first<FullscreenRecoveryRequestRow>();
 }
 
 export async function recoverySnapshot(
   env: RecoveryEnv, identity: RecoveryIdentity | null, now = new Date(), spaceKey?: string,
+  feature: RecoveryFeature = 'fullscreen',
 ): Promise<RecoverySnapshot> {
   const serverNow = now.toISOString();
   const base: RecoverySnapshot = {
-    state: 'disabled', serverNow, policyVersion: FULLSCREEN_RECOVERY_POLICY_VERSION,
+    state: 'disabled', serverNow, policyVersion: RECOVERY_FEATURE_DEFINITIONS[feature].policyVersion,
     exemptionOverrideReviewed: false,
   };
   if (!identity) return base;
-  const policy = await readRecoveryPolicy(env, identity.cloudId);
+  const policy = await readRecoveryPolicy(env, identity.cloudId, feature, { forgeAppId: identity.forgeAppId, spaceKey, now });
   if (policy === 'unavailable') return { ...base, state: 'unavailable' };
   if (!policy) return base;
   const supportEmail = typeof env.RESEND_REPLY_TO === 'string'
@@ -131,12 +166,13 @@ export async function recoverySnapshot(
   const withPolicy: RecoverySnapshot = {
     ...base, supportEmail,
     exemptionOverrideReviewed: policy.exemptionOverrideReviewed === true,
+    ...(policy.limit !== undefined ? { limit: policy.limit } : {}),
   };
   if (!env.DB || !env.FULLSCREEN_RECOVERY_ENCRYPTION_KEY) return { ...withPolicy, state: 'unavailable' };
   const eligibility = await recoveryEligibility(env, identity, spaceKey, policy, now);
   if (eligibility !== 'eligible') return { ...withPolicy, state: eligibility };
   try {
-    const row = await getOwnRequest(env.DB, identity);
+    const row = await getOwnRequest(env.DB, identity, feature);
     if (!row) return { ...withPolicy, state: 'not_requested' };
     const [email, note] = await Promise.all([
       decryptRecoveryField(row.emailCiphertext, env.FULLSCREEN_RECOVERY_ENCRYPTION_KEY),
@@ -170,12 +206,16 @@ function validOptionalId(value: unknown): value is string | undefined {
 export function parseRecoveryRequest(value: unknown): RecoveryRequestInput {
   if (!value || typeof value !== 'object') throw new RecoveryError('invalid_request');
   const v = value as Partial<RecoveryRequestInput>;
+  const feature = resolveRecoveryFeature(v.feature);
+  if (!feature) throw new RecoveryError('invalid_request');
+  const definition = RECOVERY_FEATURE_DEFINITIONS[feature];
+  const scenarios = new Set<string>(definition.scenarios);
   if (v.action !== 'request' || typeof v.attemptId !== 'string' || !UUID.test(v.attemptId)
     || !Array.isArray(v.scenarios) || v.scenarios.length < 1 || v.scenarios.length > 4
-    || v.scenarios.some(s => !SCENARIOS.has(s)) || new Set(v.scenarios).size !== v.scenarios.length
+    || v.scenarios.some(s => !scenarios.has(s)) || new Set(v.scenarios).size !== v.scenarios.length
     || typeof v.note !== 'string' || v.note.length > 2000
     || typeof v.email !== 'string' || v.email.length > 254 || !EMAIL.test(v.email)
-    || v.consent !== true || v.consentVersion !== FULLSCREEN_RECOVERY_POLICY_VERSION
+    || v.consent !== true || v.consentVersion !== definition.policyVersion
     || !validOptionalId(v.contentId) || !validOptionalId(v.customContentId)
     || typeof v.spaceKey !== 'string' || !RECOVERY_SPACE_KEY.test(v.spaceKey)) throw new RecoveryError('invalid_request');
   return v as RecoveryRequestInput;
@@ -183,6 +223,7 @@ export function parseRecoveryRequest(value: unknown): RecoveryRequestInput {
 export function parseRecoveryActivation(value: unknown): RecoveryActivateInput {
   if (!value || typeof value !== 'object') throw new RecoveryError('invalid_activation');
   const v = value as Partial<RecoveryActivateInput>;
+  if (!resolveRecoveryFeature(v.feature)) throw new RecoveryError('invalid_activation');
   if (v.action !== 'activate' || typeof v.attemptId !== 'string' || !UUID.test(v.attemptId)
     || typeof v.requestId !== 'string' || !UUID.test(v.requestId)
     || typeof v.spaceKey !== 'string' || !RECOVERY_SPACE_KEY.test(v.spaceKey)) throw new RecoveryError('invalid_activation');
@@ -194,7 +235,8 @@ export async function createRecoveryRequest(
   env: RecoveryEnv, identity: RecoveryIdentity, input: RecoveryRequestInput, now = new Date(),
 ): Promise<RecoveryResult> {
   if (!env.DB || !env.FULLSCREEN_RECOVERY_ENCRYPTION_KEY) throw new RecoveryError('unavailable', 503);
-  const policy = await readRecoveryPolicy(env, identity.cloudId);
+  const feature = input.feature ?? 'fullscreen';
+  const policy = await readRecoveryPolicy(env, identity.cloudId, feature, { forgeAppId: identity.forgeAppId, spaceKey: input.spaceKey, now });
   if (policy === 'unavailable') throw new RecoveryError('unavailable', 503);
   if (!policy) throw new RecoveryError('not_enforced', 409);
   const eligibility = await recoveryEligibility(env, identity, input.spaceKey, policy, now);
@@ -207,13 +249,13 @@ export async function createRecoveryRequest(
   const inserted = await env.DB.prepare(`INSERT OR IGNORE INTO FullscreenRecoveryRequest
     (id,cloudId,accountId,feature,scenariosJson,noteCiphertext,emailCiphertext,consentVersion,consentAt,
      contentId,customContentId,spaceKey,createdAt,grantId)
-    VALUES (?1,?2,?3,'fullscreen',?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)`)
+    VALUES (?1,?2,?3,?14,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)`)
     .bind(id, identity.cloudId, identity.accountId, JSON.stringify(input.scenarios), noteCiphertext,
       emailCiphertext, input.consentVersion, createdAt, input.contentId || null,
-      input.customContentId || null, input.spaceKey || null, createdAt, grantId).run();
-  const row = await getOwnRequest(env.DB, identity);
+      input.customContentId || null, input.spaceKey || null, createdAt, grantId, feature).run();
+  const row = await getOwnRequest(env.DB, identity, feature);
   if (!row) throw new RecoveryError('unavailable', 503);
-  const snapshot = await recoverySnapshot(env, identity, now, input.spaceKey);
+  const snapshot = await recoverySnapshot(env, identity, now, input.spaceKey, feature);
   if (snapshot.state === 'unavailable') throw new RecoveryError('unavailable', 503);
   return { snapshot, outcome: inserted.meta.changes === 1 ? 'created' : 'reused' };
 }
@@ -223,12 +265,13 @@ export async function activateRecovery(
   env: RecoveryEnv, identity: RecoveryIdentity, input: RecoveryActivateInput, now = new Date(),
 ): Promise<RecoveryResult> {
   if (!env.DB) throw new RecoveryError('unavailable', 503);
-  const policy = await readRecoveryPolicy(env, identity.cloudId);
+  const feature = input.feature ?? 'fullscreen';
+  const policy = await readRecoveryPolicy(env, identity.cloudId, feature, { forgeAppId: identity.forgeAppId, spaceKey: input.spaceKey, now });
   if (policy === 'unavailable') throw new RecoveryError('unavailable', 503);
   if (!policy) throw new RecoveryError('not_enforced', 409);
   const eligibility = await recoveryEligibility(env, identity, input.spaceKey, policy, now);
   if (eligibility !== 'eligible') throw new RecoveryError(eligibility === 'disabled' ? 'not_eligible' : 'unavailable', eligibility === 'disabled' ? 409 : 503);
-  const current = await getOwnRequest(env.DB, identity);
+  const current = await getOwnRequest(env.DB, identity, feature);
   if (!current || current.id !== input.requestId) throw new RecoveryError('not_found', 404);
   const activatedAt = now.toISOString();
   const expiresAt = new Date(now.getTime() + 7 * DAY_MS).toISOString();
@@ -236,7 +279,7 @@ export async function activateRecovery(
     SET activatedAt = ?1, expiresAt = ?2
     WHERE id = ?3 AND cloudId = ?4 AND accountId = ?5 AND activatedAt IS NULL`)
     .bind(activatedAt, expiresAt, input.requestId, identity.cloudId, identity.accountId).run();
-  const snapshot = await recoverySnapshot(env, identity, now, input.spaceKey);
+  const snapshot = await recoverySnapshot(env, identity, now, input.spaceKey, feature);
   if (snapshot.state === 'unavailable') throw new RecoveryError('unavailable', 503);
   return { snapshot, outcome: result.meta.changes === 1 ? 'activated' : 'already_active' };
 }
@@ -268,12 +311,13 @@ export function emitFullscreenRecoveryEvent(
   env: RecoveryEnv, event: AnalyticsEventName, insertId: string, distinctId: string,
   properties: Record<string, string | number | boolean | null | readonly string[]>,
   waitUntil?: (promise: Promise<unknown>) => void,
+  feature: RecoveryFeature = 'fullscreen',
 ): void {
   if (!env.MIXPANEL_TOKEN) return;
   const delivery = mixpanelImportServiceEvents([{
     event, insertId, distinctId, time: Math.floor(Date.now() / 1000),
-    properties: { feature_area: 'upgrade', surface: 'fullscreen_viewer', feature: 'fullscreen',
-      policy_version: FULLSCREEN_RECOVERY_POLICY_VERSION, ...properties },
+    properties: { feature_area: 'upgrade', surface: feature === 'edit' ? 'editor' : 'fullscreen_viewer', feature,
+      policy_version: RECOVERY_FEATURE_DEFINITIONS[feature].policyVersion, ...properties },
   }], env.MIXPANEL_TOKEN, { runtime: env }).catch(() => {
     console.warn('[fullscreen-recovery] analytics delivery failed');
   });

@@ -41,6 +41,21 @@ export const REVEAL_TTL_MS = 60_000
 /** How long the highlight runs once the page has stopped moving. */
 export const REVEAL_HIGHLIGHT_MS = 2800
 
+/**
+ * How long the macro keeps itself in view after the first reveal. The macro
+ * only knows when ITS document has stopped growing; the rest of the page keeps
+ * loading. Measured on whimet4 2026-11-08: a macro above the placed one grew
+ * from 176px to 592px about 1.5 s after the others had settled, pushing the
+ * placed diagram 416px down, out of the spot the reveal had scrolled it to.
+ */
+export const REVEAL_FOLLOW_MS = 10_000
+
+/** At most this many re-reveals: a page that keeps moving for longer is fighting us. */
+export const REVEAL_MAX_REFOCUS = 3
+
+/** Ignore jitter smaller than this when deciding the macro was pushed. */
+const PUSHED_PX = 40
+
 interface RevealNote {
   pageId: string
   customContentId: string
@@ -122,9 +137,25 @@ const REVEAL_STYLE_ID = 'zenuml-reveal-style'
 const REVEAL_OVERLAY_CLASS = 'zenuml-reveal-flash'
 
 /**
+ * How tall the focus target is. Chrome scrolls a focused element into view only
+ * when it is not already fully visible, and then centres it. A 1px target at
+ * the macro's top edge is "visible" as soon as that edge peeks in at the bottom
+ * of the screen — measured on whimet4 2026-11-08: a re-reveal of a macro whose
+ * top sat 201px above the viewport's bottom did not scroll at all. So the target
+ * covers the part of the diagram the user should see: the whole macro, capped
+ * at half the screen so that centring a tall one never hides its top. The top
+ * viewport's height is not readable from a cross-origin iframe; the screen's is.
+ */
+function anchorHeight(doc: Document): number {
+  const macro = doc.documentElement.scrollHeight || 1
+  const screenHalf = Math.round((window.screen?.availHeight || 800) / 2)
+  return Math.max(1, Math.min(macro, screenHalf))
+}
+
+/**
  * Pull the page here, then say which one moved.
  *
- * The focus target is a 1px element rather than the diagram itself because
+ * The focus target is a bare element rather than the diagram itself because
  * focusing a real control would also ARM it — a stray Enter would then open or
  * edit the diagram the user has not looked at yet.
  *
@@ -147,7 +178,7 @@ export function revealThisMacro(highlightMs: number = REVEAL_HIGHLIGHT_MS): void
     const anchor = doc.createElement('div')
     anchor.tabIndex = -1
     anchor.setAttribute('aria-hidden', 'true')
-    anchor.style.cssText = 'position:absolute;top:0;left:0;width:1px;height:1px;outline:none;pointer-events:none'
+    anchor.style.cssText = `position:absolute;top:0;left:0;width:1px;height:${anchorHeight(doc)}px;outline:none;pointer-events:none`
     doc.body.prepend(anchor)
     anchor.focus()
     // Focus was only ever a means to scroll; leaving it parked on an invisible
@@ -210,4 +241,83 @@ export function revealThisMacro(highlightMs: number = REVEAL_HIGHLIGHT_MS): void
     // The diagram is on the page either way. Never let the flourish break the render.
     console.debug('[reveal] could not reveal this macro', e)
   }
+}
+
+/**
+ * After the first reveal, put the macro back in view whenever content above it
+ * finishes loading and pushes it down.
+ *
+ * An IntersectionObserver is the only signal that crosses the iframe boundary:
+ * with the implicit root it reports how much of this document is visible in
+ * the top-level viewport, as rectangles in this document's own coordinates. So
+ * the clip says which way the macro left:
+ *
+ * - bottom clipped (or gone, having last been at the bottom): it moved DOWN —
+ *   content above grew, or the user scrolled up. Re-reveal.
+ * - top clipped: it moved UP, which a layout shift above cannot do — the user
+ *   scrolled down past it. They have taken over; stop following.
+ *
+ * Also stops at the first interaction inside the macro, after
+ * REVEAL_MAX_REFOCUS re-reveals, and after `followMs`. Returns a stop function.
+ */
+export function followThisMacro(
+  opts: { followMs?: number; maxRefocus?: number; reveal?: () => void; onRefocus?: (count: number) => void } = {},
+): () => void {
+  const { followMs = REVEAL_FOLLOW_MS, maxRefocus = REVEAL_MAX_REFOCUS, reveal = revealThisMacro, onRefocus } = opts
+  let stopped = false
+  let observer: IntersectionObserver | null = null
+  let timer: number | undefined
+  const doc = window.document
+  const userEvents = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const
+
+  const stop = () => {
+    if (stopped) return
+    stopped = true
+    observer?.disconnect()
+    window.clearTimeout(timer)
+    userEvents.forEach(type => window.removeEventListener(type, stop, true))
+  }
+
+  try {
+    if (typeof IntersectionObserver !== 'function') return stop
+    let bestVisible = 0
+    let refocused = 0
+
+    observer = new IntersectionObserver(
+      entries => {
+        const entry = entries[entries.length - 1]
+        if (!entry || stopped) return
+        const box = entry.boundingClientRect
+        const seen = entry.intersectionRect
+        const visible = entry.isIntersecting ? seen.height : 0
+        const topClipped = entry.isIntersecting && seen.top > box.top + 1
+        const bottomClipped = entry.isIntersecting && seen.bottom < box.bottom - 1
+
+        if (topClipped) {
+          stop()
+          return
+        }
+        // Gone entirely without passing through "top clipped" means it left
+        // through the bottom edge.
+        const pushedDown = bestVisible - visible > PUSHED_PX && (bottomClipped || !entry.isIntersecting)
+        if (pushedDown) {
+          refocused += 1
+          bestVisible = 0
+          reveal()
+          onRefocus?.(refocused)
+          if (refocused >= maxRefocus) stop()
+          return
+        }
+        bestVisible = Math.max(bestVisible, visible)
+      },
+      { threshold: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1] },
+    )
+    observer.observe(doc.documentElement)
+    userEvents.forEach(type => window.addEventListener(type, stop, { capture: true, passive: true }))
+    timer = window.setTimeout(stop, followMs)
+  } catch (e) {
+    console.debug('[reveal] could not follow this macro', e)
+    stop()
+  }
+  return stop
 }

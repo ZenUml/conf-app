@@ -18,6 +18,8 @@ import {
   isOctoberReplayBudgetActive,
 } from "./octoberReplayBudget";
 import { resolveEffectiveCustomContentId } from "@/utils/effectiveCustomContentId";
+import { startStatsigReplaySpike } from "./statsigReplaySpike";
+import { startClarityReplaySpike } from "./clarityReplaySpike";
 
 // Singleton init promise: the first tracked event per iframe resolves the
 // session-replay flag (one Forge bridge round-trip) and inits Mixpanel;
@@ -340,6 +342,8 @@ function _initMixpanel(): Promise<void> {
         forgeContext?.extension?.modal?.macroMode === "title-draft";
       const isFeedbackDialog =
         forgeContext?.extension?.modal?.macroMode === "feedback";
+      startStatsigReplaySpike(forgeContext?.accountId, moduleKey);
+      startClarityReplaySpike(forgeContext?.accountId, moduleKey);
       let replayConfigTimedOut = false;
       // NOTE (#707): this short-circuit runs before _resolveSessionReplayConfig,
       // so the bounded flag wait below is inactive while the October budget

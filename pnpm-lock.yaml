@@ -113,6 +113,12 @@ importers:
       '@sindresorhus/slugify':
         specifier: 3.0.0
         version: 3.0.0
+      '@statsig/js-client':
+        specifier: 3.33.8
+        version: 3.33.8
+      '@statsig/session-replay':
+        specifier: 3.33.8
+        version: 3.33.8
       '@vitejs/plugin-vue':
         specifier: ^6.0.2
         version: 6.0.3(vite@7.3.0(@types/node@25.0.3)(jiti@1.21.7)(lightningcss@1.33.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.8.4))(vue@3.5.26(typescript@5.9.3))
@@ -128,6 +134,9 @@ importers:
       autoprefixer:
         specifier: ^10.4.13
         version: 10.4.23(postcss@8.4.31)
+      clarity-js:
+        specifier: 0.8.77
+        version: 0.8.77
       clipboard:
         specifier: ^2.0.11
         version: 2.0.11
@@ -3426,6 +3435,15 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@rrweb/record@2.1.7':
+    resolution: {integrity: sha512-lIAbWdH8JwRuujURxTBtgrlsPvyBUGXUa9aB5hK8s5DdHgagyLFkIaAWhtthuOwT3o4o4+w38yUVPLc3W2oOrw==}
+
+  '@rrweb/types@2.2.2':
+    resolution: {integrity: sha512-b9BNYEBcQF9dGQ5JJOoqBEFM7HlLmOdKgCfS2qkQj3gevF1wyuJIGPDGpaAYpl0H24fFOHGw6IdbYH6qrZNk1w==}
+
+  '@rrweb/utils@2.2.2':
+    resolution: {integrity: sha512-C078kPGG4iJ6uuSPELy/RkXZ6Ge3rUsSrX0KYzbtSjoCwMErrqF0RMbWjxpUROI0Hx7ewKeiDTp+Og9AYzYzjg==}
+
   '@scarf/scarf@1.4.0':
     resolution: {integrity: sha512-xxeapPiUXdZAE3che6f3xogoJPeZgig6omHEy1rIY5WVsB3H2BHNnZH+gHG6x91SCWyQCzWGsuL2Hh3ClO5/qQ==}
 
@@ -3484,8 +3502,14 @@ packages:
   '@statsig/client-core@3.31.0':
     resolution: {integrity: sha512-SuxQD6TmVszPG7FoMKwTk/uyBuVFk7XnxI3T/E0uyb7PL7GNjONtfsoh+NqBBVUJVse0CUeSFfgJPoZy1ZOslQ==}
 
-  '@statsig/js-client@3.31.0':
-    resolution: {integrity: sha512-LFa5E0LjT6sTfZv3sNGoyRLSZ1078+agdgOA+Vm1ecjG+KbSOfBLTW7hMwimrJ29slRwbYDzbtKaPJo/R37N2g==}
+  '@statsig/client-core@3.33.8':
+    resolution: {integrity: sha512-5N1XnYMgjXGPwQFO2bsyq2i7NL2yh+Oi8NALIgKCxVL3333Le66iRemPyK61XjkuIXvlNRn7iwoEEdJ1DKxuMg==}
+
+  '@statsig/js-client@3.33.8':
+    resolution: {integrity: sha512-xyfeoSLqn+lJRWo+8k915vSJtf+iuglMakiYxhu0Y7Fjb01Gf1cLmjtuMJYdjC1XCkyGgmiHFDtlLVms7LOcUg==}
+
+  '@statsig/session-replay@3.33.8':
+    resolution: {integrity: sha512-JdivvUqy+eZTOGU9AMBNrntWOTHyyEm29vUtDbB+pVz4a2nmp7poWxbbvbRRnfJtqyRAmJ/49stXxo2HPt0mig==}
 
   '@stoplight/better-ajv-errors@1.0.3':
     resolution: {integrity: sha512-0p9uXkuB22qGdNfy3VeEhxkU5uwvp/KrBTAbrLBURv6ilxIVwanKwjMc41lQfIVgPGcOkmLbTolfFrSsueu7zA==}
@@ -5448,6 +5472,9 @@ packages:
   cipher-base@1.0.7:
     resolution: {integrity: sha512-Mz9QMT5fJe7bKI7MH31UilT5cEK5EHHRCccw/YRFsRY47AuNgaV6HY3rscp0/I4Q+tTW/5zoqpSeRRI54TkDWA==}
     engines: {node: '>= 0.10'}
+
+  clarity-js@0.8.77:
+    resolution: {integrity: sha512-r1sDoeqZRxBUqhb4B6g4aOfCo14OIxz4ICUJTo4gApdPRMizsCVLGCG5FNYQs7NVe1sYTkYOfSJNxx/VDKdp0A==}
 
   class-variance-authority@0.7.1:
     resolution: {integrity: sha512-Ka+9Trutv7G8M6WT6SeiRWz792K5qEqIGEGzXKhAE6xOWAY6pPH8U+9IY3oCMv6kqTmLsv7Xh/2w2RigkePMsg==}
@@ -9469,11 +9496,20 @@ packages:
   roughjs@4.6.6:
     resolution: {integrity: sha512-ZUz/69+SYpFN/g/lUlo2FXcIjRkSu3nDarreVdGGndHEBJ6cXPdKguS8JGxwj5HA5xIbVKSmLgr5b3AWxtRfvQ==}
 
+  rrdom@2.2.2:
+    resolution: {integrity: sha512-hVe7bm9dw8Rluj1MIKh6fPDkc7RC5ri7PQi5eggXd3SN8WDt+uoNtceSIZC6ouMXzjqoMkQYJmIKmQEFc0mHCw==}
+
   rrweb-cssom@0.6.0:
     resolution: {integrity: sha512-APM0Gt1KoXBz0iIkkdB/kfvGOwC4UuJFeG/c+yV7wSc7q96cG/kJ0HiYCnzivD9SB53cLV1MlHFNfOuPaadYSw==}
 
   rrweb-cssom@0.8.0:
     resolution: {integrity: sha512-guoltQEx+9aMf2gDZ0s62EcV8lsXR+0w8915TC3ITdn2YueuNjdAYh/levpU9nFaoChh9RUS5ZdQMrKfVEN9tw==}
+
+  rrweb-snapshot@2.2.2:
+    resolution: {integrity: sha512-/0w4Xzd/Tw5a80dmEmv8/YkFitJYoMOnbtmt0jCAEdZ1w0nDSw5hvf59E/oDLy+z+x+vCcT0ibI+IYWeuCHegQ==}
+
+  rrweb@2.1.7:
+    resolution: {integrity: sha512-UZzK43vVmbtBt5WyEVO/CO8q9hKi38LRZDQS5C+X+FYgpVLK4vhWyUzzi1K0iXzHFb3MOVaTak5TAsdK5K6V6Q==}
 
   run-applescript@7.1.0:
     resolution: {integrity: sha512-DPe5pVFaAsinSaV6QjQ6gdiedWDcRCbUuiQfQa2wmWV7+xC9bGulGI8+TdRmoFkAPaBXk8CrAbnlY2ISniJ47Q==}
@@ -11332,7 +11368,7 @@ snapshots:
       '@atlaskit/atlassian-context': 0.2.0(react@18.3.1)
       '@babel/runtime': 7.29.2
       '@statsig/client-core': 3.31.0
-      '@statsig/js-client': 3.31.0
+      '@statsig/js-client': 3.33.8
       eventemitter2: 4.1.2
     transitivePeerDependencies:
       - react
@@ -11342,7 +11378,7 @@ snapshots:
       '@atlaskit/atlassian-context': 0.6.0(react@18.3.1)
       '@babel/runtime': 7.29.2
       '@statsig/client-core': 3.31.0
-      '@statsig/js-client': 3.31.0
+      '@statsig/js-client': 3.33.8
       eventemitter3: 4.0.7
     transitivePeerDependencies:
       - react
@@ -14337,6 +14373,16 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.55.1':
     optional: true
 
+  '@rrweb/record@2.1.7':
+    dependencies:
+      '@rrweb/types': 2.2.2
+      '@rrweb/utils': 2.2.2
+      rrweb: 2.1.7
+
+  '@rrweb/types@2.2.2': {}
+
+  '@rrweb/utils@2.2.2': {}
+
   '@scarf/scarf@1.4.0': {}
 
   '@sentry-internal/tracing@7.106.0':
@@ -14387,9 +14433,17 @@ snapshots:
 
   '@statsig/client-core@3.31.0': {}
 
-  '@statsig/js-client@3.31.0':
+  '@statsig/client-core@3.33.8': {}
+
+  '@statsig/js-client@3.33.8':
     dependencies:
-      '@statsig/client-core': 3.31.0
+      '@statsig/client-core': 3.33.8
+
+  '@statsig/session-replay@3.33.8':
+    dependencies:
+      '@rrweb/record': 2.1.7
+      '@statsig/client-core': 3.33.8
+      rrweb: 2.1.7
 
   '@stoplight/better-ajv-errors@1.0.3(ajv@8.20.0)':
     dependencies:
@@ -17317,6 +17371,8 @@ snapshots:
       inherits: 2.0.4
       safe-buffer: 5.2.1
       to-buffer: 1.2.2
+
+  clarity-js@0.8.77: {}
 
   class-variance-authority@0.7.1:
     dependencies:
@@ -22064,9 +22120,28 @@ snapshots:
       points-on-curve: 0.2.0
       points-on-path: 0.2.1
 
+  rrdom@2.2.2:
+    dependencies:
+      rrweb-snapshot: 2.2.2
+
   rrweb-cssom@0.6.0: {}
 
   rrweb-cssom@0.8.0: {}
+
+  rrweb-snapshot@2.2.2:
+    dependencies:
+      postcss: 8.5.33
+
+  rrweb@2.1.7:
+    dependencies:
+      '@rrweb/types': 2.2.2
+      '@rrweb/utils': 2.2.2
+      '@types/css-font-loading-module': 0.0.7
+      '@xstate/fsm': 1.6.5
+      base64-arraybuffer: 1.0.2
+      mitt: 3.0.1
+      rrdom: 2.2.2
+      rrweb-snapshot: 2.2.2
 
   run-applescript@7.1.0: {}
 

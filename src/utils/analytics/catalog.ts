@@ -780,7 +780,9 @@ export type AnalyticsEventName =
   // and any backend timing/attempt/config metadata returned by job-status.
   // backend_duration_ms covers the whole Diagramly worker interval, while
   // backend_llm_duration_ms sums only its LLM calls across repair attempts.
-  // failed additionally carries failure_phase; never attach diagram code,
+  // failed additionally carries failure_phase, backend_failure_kind (+
+  // backend_syntax_error_kind) for a FAILED job and start_http_status for a
+  // failed start — enums/numbers only; never attach diagram code,
   // error source text, or a job id to these events.
   | "ai_repair_requested"
   | "ai_repair_succeeded"

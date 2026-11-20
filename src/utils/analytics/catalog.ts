@@ -424,6 +424,17 @@ export type GalleryOpenTrigger = "auto_first_open" | "manual";
 // so pairing the two values into a funnel would be lopsided by construction.
 export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
 
+// Mermaid sequence inline edit (editor_inline_edit_*). Mirrors EditableKind
+// and EditRejection in src/features/mermaidInlineEdit/types.ts, in snake case
+// for Mixpanel; kept as literals so the catalog has no feature import.
+export type InlineEditKind = "participant_label" | "message_text";
+export type InlineEditRejection =
+  | "stale_source"
+  | "name_exists"
+  | "invalid_characters"
+  | "empty"
+  | "position_mismatch";
+
 // Effective Session Replay policy stamped on analytics events. `authoring`
 // means a sampled macro create/edit start requested recording independently of
 // the Forge flag cohort. See macro_create_started / macro_edit_started below.
@@ -1990,6 +2001,24 @@ export type AnalyticsEventName =
   // look at (focus or press in the code pane) or change the source". Read-out rule:
   // docs/features/editor-preview-click.md.
   | "editor_preview_element_clicked"
+  // Mermaid sequence inline edit (2026-11-20, flag `mermaid-inline-edit-enabled`).
+  // Editor preview only: a double-click on a participant label or a message
+  // text of a Mermaid sequence diagram opens a text box over it, and the commit
+  // rewrites the source. `started` = the box opened (the denominator);
+  // `succeeded` = the edit was written to the source (unchanged text sends
+  // nothing here); `rejected` = the edit function or the stale-source check
+  // refused it (`inline_edit_rejection`); `cancelled` = Esc, or the box closed
+  // with unchanged text (`inline_edit_cancel_reason`); `unavailable` = flag on
+  // and a sequence diagram rendered, but the position parser gave no map, so
+  // the diagram stays read-only (at most once per editor session).
+  // Properties: feature_area 'macro', surface 'editor', macro_type,
+  // inline_edit_kind, inline_edit_had_alias (participant only),
+  // inline_edit_ms_open. Never diagram text or ids. docs/features/mermaid-inline-edit.md.
+  | "editor_inline_edit_started"
+  | "editor_inline_edit_succeeded"
+  | "editor_inline_edit_rejected"
+  | "editor_inline_edit_cancelled"
+  | "editor_inline_edit_unavailable"
   // Onboarding funnel — "second diagram" prompt (registered ahead of its
   // producer: this task only registers the event names + properties so the
   // catalog/types are ready; no call site exists yet in this codebase. A

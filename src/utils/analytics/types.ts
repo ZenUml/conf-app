@@ -66,6 +66,8 @@ import type {
   ActivationPath,
   GalleryOpenTrigger,
   CodePanelToggleTrigger,
+  InlineEditKind,
+  InlineEditRejection,
   SessionReplayEventSource,
   SessionReplayStartCallOutcome,
   ClarityReplayOutcome,
@@ -449,6 +451,17 @@ export type AnalyticsProperties = {
   preview_source_changed_in_window?: boolean;
   preview_window_completed?: boolean;
   preview_ms_since_editor_open?: number;
+  // editor_inline_edit_* only (Mermaid sequence inline edit). Bounded values:
+  // never the edited text, the actor id or the message index.
+  inline_edit_kind?: InlineEditKind;
+  /** editor_inline_edit_rejected: the EditRejection reason. */
+  inline_edit_rejection?: InlineEditRejection;
+  /** editor_inline_edit_cancelled: Esc, or the box closed with unchanged text. */
+  inline_edit_cancel_reason?: "escape" | "unchanged";
+  /** Participant edits only: the participant has an alias (`participant A as Alice`). */
+  inline_edit_had_alias?: boolean;
+  /** Time the text box was open, on succeeded / rejected / cancelled. */
+  inline_edit_ms_open?: number;
   change_kind?: "request" | "syntax_repair" | "undo" | "rollback";
   version_id?: string;
   version_number?: number;

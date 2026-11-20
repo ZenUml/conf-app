@@ -120,6 +120,15 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   // and stamps sample_rate itself, so a kept view sends every row. About 500 a
   // month. Must not sit in OCTOBER_REDUCED_EVENTS (a second, per-row cut).
   "fullscreen_zoom_summary",
+  // Mermaid sequence inline edit: user actions in the editor preview only, and
+  // `unavailable` at most once per editor session (a few hundred a month at
+  // most). Rate 1 on purpose, so it must not sit in OCTOBER_REDUCED_EVENTS: a
+  // 10% cut would leave too few rejections per reason to read.
+  "editor_inline_edit_started",
+  "editor_inline_edit_succeeded",
+  "editor_inline_edit_rejected",
+  "editor_inline_edit_cancelled",
+  "editor_inline_edit_unavailable",
   "title_draft_requested",
   "title_draft_flag_shown",
   "title_draft_not_now",

@@ -1,0 +1,72 @@
+--- a/sequenceDiagram.jison
++++ b/sequenceDiagram.jison
+@@ -10,7 +10,7 @@
+  */
+ %lex
+ 
+-%options case-insensitive
++%options case-insensitive ranges
+ 
+ // Special states for recognizing aliases
+ // A special state for grabbing text up to the first comment/newline
+@@ -176,8 +176,8 @@
+ 	| autonumber NUM 'NEWLINE' { $$ = {type:'sequenceIndex',sequenceIndex: Number($2), sequenceIndexStep:1, sequenceVisible:true, signalType:yy.LINETYPE.AUTONUMBER};}
+ 	| autonumber off 'NEWLINE' { $$ = {type:'sequenceIndex', sequenceVisible:false, signalType:yy.LINETYPE.AUTONUMBER};}
+ 	| autonumber 'NEWLINE'  {$$ = {type:'sequenceIndex', sequenceVisible:true, signalType:yy.LINETYPE.AUTONUMBER}; }
+-	| 'activate' actor 'NEWLINE' {$$={type: 'activeStart', signalType: yy.LINETYPE.ACTIVE_START, actor: $2.actor};}
+-	| 'deactivate' actor 'NEWLINE' {$$={type: 'activeEnd', signalType: yy.LINETYPE.ACTIVE_END, actor: $2.actor};}
++	| 'activate' actor 'NEWLINE' {$$={type: 'activeStart', signalType: yy.LINETYPE.ACTIVE_START, actor: $2.actor, idLoc: $2.idLoc};}
++	| 'deactivate' actor 'NEWLINE' {$$={type: 'activeEnd', signalType: yy.LINETYPE.ACTIVE_END, actor: $2.actor, idLoc: $2.idLoc};}
+ 	| note_statement 'NEWLINE'
+ 	| links_statement 'NEWLINE'
+ 	| link_statement 'NEWLINE'
+@@ -261,14 +261,14 @@
+ 	;
+ 
+ participant_statement
+-	: 'participant' actor 'AS' restOfLine 'NEWLINE' {$2.draw='participant'; $2.type='addParticipant';$2.description=yy.parseMessage($4); $$=$2;}
++	: 'participant' actor 'AS' restOfLine 'NEWLINE' {$2.draw='participant'; $2.type='addParticipant';$2.description=yy.parseMessage($4); $2.aliasLoc=@4.range; $$=$2;}
+ 	| 'participant' actor 'NEWLINE' {$2.draw='participant'; $2.type='addParticipant';$$=$2;}
+-	| 'participant_actor' actor 'AS' restOfLine 'NEWLINE' {$2.draw='actor'; $2.type='addParticipant';$2.description=yy.parseMessage($4); $$=$2;}
++	| 'participant_actor' actor 'AS' restOfLine 'NEWLINE' {$2.draw='actor'; $2.type='addParticipant';$2.description=yy.parseMessage($4); $2.aliasLoc=@4.range; $$=$2;}
+ 	| 'participant_actor' actor 'NEWLINE' {$2.draw='actor'; $2.type='addParticipant'; $$=$2;}
+ 	| 'destroy' actor 'NEWLINE' {$2.type='destroyParticipant'; $$=$2;}
+-    | 'participant' actor_with_config 'AS' restOfLine 'NEWLINE' {$2.draw='participant'; $2.type='addParticipant'; $2.description=yy.parseMessage($4); $$=$2;}
++    | 'participant' actor_with_config 'AS' restOfLine 'NEWLINE' {$2.draw='participant'; $2.type='addParticipant'; $2.description=yy.parseMessage($4); $2.aliasLoc=@4.range; $$=$2;}
+     | 'participant' actor_with_config 'NEWLINE' {$2.draw='participant'; $2.type='addParticipant'; $$=$2;}
+-    | 'participant_actor' actor_with_config 'AS' restOfLine 'NEWLINE' {$2.draw='actor'; $2.type='addParticipant'; $2.description=yy.parseMessage($4); $$=$2;}
++    | 'participant_actor' actor_with_config 'AS' restOfLine 'NEWLINE' {$2.draw='actor'; $2.type='addParticipant'; $2.description=yy.parseMessage($4); $2.aliasLoc=@4.range; $$=$2;}
+     | 'participant_actor' actor_with_config 'NEWLINE' {$2.draw='actor'; $2.type='addParticipant'; $$=$2;}
+ 
+ 	;
+@@ -361,7 +361,8 @@
+         $$ = {
+           type: 'addParticipant',
+           actor: $1,
+-          config: $2
++          config: $2,
++          idLoc: @1.range
+         };
+       }
+     ;
+@@ -378,8 +379,8 @@
+ // 	;
+ 
+ actor
+-    : ACTOR {$$={ type: 'addParticipant', actor:$1}}
+-    | 'link' {$$={ type: 'addParticipant', actor:$1}}
++    : ACTOR {$$={ type: 'addParticipant', actor:$1, idLoc:@1.range}}
++    | 'link' {$$={ type: 'addParticipant', actor:$1, idLoc:@1.range}}
+     ;
+ // actor_actor: ACTOR {$$={type: 'addActor', actor:$1}};
+ 
+@@ -418,7 +419,7 @@
+ 	;
+ 
+ text2
+-  : TXT {$$ = yy.parseMessage($1.trim().substring(1)) }
++  : TXT {$$ = yy.parseMessage($1.trim().substring(1)); $$.loc = @1.range; }
+   ;
+ 
+ %%
+\ No newline at end of file

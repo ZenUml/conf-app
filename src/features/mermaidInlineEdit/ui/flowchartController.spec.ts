@@ -265,6 +265,24 @@ describe('flowchart in-place editing (controller)', () => {
     expect(events(h, 'editor_inline_edit_started')).toEqual([NODE]);
   });
 
+  it('a click on a linked node does not follow the link in the editor preview (a double-click must not navigate)', async () => {
+    const h = setup();
+    await h.render();
+    const link = node(h, 'J').closest('a')!;
+    expect(link).not.toBeNull();
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 });
+    node(h, 'J').dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    // Not a link: clicks are left alone.
+    const plain = new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 });
+    node(h, 'A').dispatchEvent(plain);
+    expect(plain.defaultPrevented).toBe(false);
+    h.controller.destroy();
+    const after = new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 });
+    node(h, 'J').dispatchEvent(after);
+    expect(after.defaultPrevented).toBe(false);
+  });
+
   it('the layer takes the label ink, not the transparent colour that hides the label', async () => {
     const style = document.createElement('style');
     style.textContent = 'p { color: rgb(1, 2, 3); } svg p.mie-hidden { color: transparent !important; }';

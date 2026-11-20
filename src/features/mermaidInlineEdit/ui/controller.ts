@@ -826,6 +826,18 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
     }
     open(adapter, r.open, event, code as string, map);
   };
+  /**
+   * A linked node (`click X href`) is an <a> in the SVG. In the editor preview
+   * its first click would leave the editor, so a double-click on it, or an
+   * attempt to edit it, would navigate: links are not followed here.
+   */
+  const onClick = (event: MouseEvent) => {
+    const root = svg();
+    if (!root || !adapterFor(root) || !(event.target instanceof Element)) return;
+    const link = event.target.closest('a');
+    if (link && root.contains(link)) event.preventDefault();
+  };
+  container.addEventListener('click', onClick);
   container.addEventListener('dblclick', onDoubleClick);
   container.addEventListener('pointerover', onPointerOver);
   container.addEventListener('pointerleave', hideHover);
@@ -866,6 +878,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
       abort();
       if (closing) releaseHold();
       destroyed = true;
+      container.removeEventListener('click', onClick);
       container.removeEventListener('dblclick', onDoubleClick);
       container.removeEventListener('pointerover', onPointerOver);
       container.removeEventListener('pointerleave', hideHover);

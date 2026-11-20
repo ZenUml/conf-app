@@ -355,7 +355,13 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
     if (!s.hint) return;
     const l = s.layer.getBoundingClientRect();
     const h = s.host.getBoundingClientRect();
-    s.hint.style.left = `${l.left + l.width / 2 - h.left}px`;
+    // Centred (CSS translateX(-50%)), but kept inside the host so a label
+    // near the pane edge does not get its hint clipped.
+    const half = s.hint.offsetWidth / 2;
+    const centre = l.left + l.width / 2 - h.left;
+    const max = h.width - half - 4;
+    const min = half + 4;
+    s.hint.style.left = `${max < min ? centre : Math.min(Math.max(centre, min), max)}px`;
     s.hint.style.top = `${l.bottom - h.top + 4}px`;
   }
 

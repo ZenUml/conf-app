@@ -127,6 +127,7 @@
   import Split from 'split.js'
   import Header from "@/components/Header/Header.vue";
   import DiagramPortal from "@/components/DiagramPortal.vue";
+  import { MERMAID_INLINE_EDIT_SURFACE } from '@/features/mermaidInlineEdit/ui/surface'
   import SyntaxErrorBox from '@/components/SyntaxErrorBox.vue'
   import ForeignDialectHint from '@/components/ForeignDialectHint.vue'
   import AIChatPanel from '@/components/AIChat/AIChatPanel.vue'
@@ -170,6 +171,9 @@
     props: {
       msg: String
     },
+    // Marks the Mermaid renderer below as the editor preview, the only
+    // surface where a sequence diagram can be edited on the canvas.
+    provide: { [MERMAID_INLINE_EDIT_SURFACE]: true },
     setup() {
       const store = useStore()
       // Here rather than in data(): the promo needs them to tell whether it is

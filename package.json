@@ -169,6 +169,7 @@
     "concurrently": "^8.2.2",
     "eslint": "^9.4.0",
     "eslint-plugin-vue": "^9.0.0",
+    "jison": "^0.4.18",
     "jsdom": "^23.1.0",
     "portless": "^0.15.6",
     "rollup-plugin-visualizer": "^6.0.5",

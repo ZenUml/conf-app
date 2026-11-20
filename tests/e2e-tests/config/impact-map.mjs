@@ -59,6 +59,7 @@ export const IMPACT = [
   // ── diagram types ──────────────────────────────────────────────────────
   { glob: 'src/components/Mermaid.vue', tags: ['@mermaid', '@viewer', '@editor', '@viewport'] },
   { glob: 'src/utils/mermaid/**', tags: ['@mermaid', '@viewer', '@editor'] },
+  { glob: 'src/features/mermaidInlineEdit/**', tags: ['@mermaid', '@editor'] },
   { glob: 'src/components/Sequence.vue', tags: ['@sequence', '@viewer', '@editor', '@viewport'] },
   { glob: 'src/utils/sequence/**', tags: ['@sequence', '@viewer', '@editor'] },
   { glob: 'src/components/PlantUml.vue', tags: ['@plantuml', '@viewer', '@editor', '@viewport'] },

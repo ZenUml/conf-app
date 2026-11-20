@@ -110,6 +110,8 @@ export default {
       zoomMax: Infinity,
       inlineAspectRatio: null,
       inlineMaxWidth: null,
+      // Mermaid inline edit: see holdView().
+      viewHeld: false,
     };
   },
   computed: {
@@ -223,7 +225,15 @@ export default {
       });
       this.panZoomSvg = svgElement;
       this.panZoom.disableDblClickZoom();
-      this.reset();
+      if (this.viewHeld) {
+        // Inline edit session: the caller restores zoom and pan right
+        // after this returns, in the same task. No refit, no limits, and dirty
+        // so the ResizeObserver's first callback does not reset() either.
+        this.releaseLimits();
+        this.panZoomDirty = true;
+      } else {
+        this.reset();
+      }
       // No-op outside Fullscreen; see fullscreenZoomSummary.ts.
       startFullscreenZoomSession({
         macroType: this.macroType,
@@ -431,6 +441,50 @@ export default {
       const realZoom = this.panZoom?.getSizes?.().realZoom;
       if (!(realZoom > 1)) return;
       this.panZoom.zoom(this.panZoom.getZoom() / realZoom);
+    },
+    /**
+     * Mermaid inline edit: while held, attach() keeps the new SVG at
+     * svg-pan-zoom's initial state instead of reset(), and zoom/pan limits are
+     * off, so the caller can put the edited text back where it was on screen.
+     * Releasing re-applies limits around the current view.
+     */
+    holdView(held) {
+      this.viewHeld = !!held;
+      if (!this.panZoom) return;
+      if (this.viewHeld) this.releaseLimits();
+      else this.applyLimits();
+    },
+    releaseLimits() {
+      this.panZoom.setBeforePan(null);
+      this.panZoom.setMinZoom(LAYOUT_MIN_ZOOM);
+      this.panZoom.setMaxZoom(LAYOUT_MAX_ZOOM);
+    },
+    /** SVG px per natural px (svg-pan-zoom's getZoom() is relative to its fit). */
+    getRealZoom() {
+      return this.panZoom?.getSizes().realZoom ?? null;
+    },
+    setRealZoom(realZoom) {
+      const current = this.getRealZoom();
+      if (!this.panZoom || !(current > 0) || !(realZoom > 0)) return;
+      this.panZoom.zoom(this.panZoom.getZoom() * realZoom / current);
+    },
+    panByScreen(dx, dy) {
+      if (this.panZoom && (dx || dy)) this.panZoom.panBy({ x: dx, y: dy });
+    },
+    /**
+     * svg-pan-zoom keeps zoom/pan in a shadow state and writes the transform on
+     * the next animation frame (ShadowViewport.updateCTMOnNextFrame), so the DOM
+     * cannot be measured right after zoom()/panBy(). Write the same matrix now,
+     * in the same format; the pending frame then writes an identical value.
+     */
+    flushView() {
+      const g = this.panZoomSvg?.querySelector('.svg-pan-zoom_viewport');
+      const zoom = this.panZoom?.getSizes().realZoom;
+      if (!g || !(zoom > 0)) return;
+      const pan = this.panZoom.getPan();
+      const matrix = `matrix(${zoom},0,0,${zoom},${pan.x},${pan.y})`;
+      g.setAttributeNS(null, 'transform', matrix);
+      g.style.transform = matrix;
     },
     zoomIn() {
       this.panZoom?.zoomIn();

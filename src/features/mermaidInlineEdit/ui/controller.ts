@@ -1,19 +1,20 @@
 /**
- * Interaction layer for "edit Mermaid sequence diagrams on the canvas": the
- * in-place (Figma-style) text editor.
+ * Interaction layer for "edit Mermaid diagrams on the canvas": the in-place
+ * (Figma-style) text editor.
  *
  * A transparent contenteditable layer lives in the DiagramViewport element,
  * outside the v-html SVG, so a re-render never destroys it. It copies the font
- * and position of the SVG text it covers; that text is hidden underneath.
+ * and position of the label it covers; that label is hidden underneath.
  * While a session is open every input renders a candidate built from a fixed
  * base (baseCode + baseMap) through Mermaid.vue's renderPreview, with no store
  * write. After each swap, in the same task, the viewport is put back (zoom,
- * and the edited text's first-line centre at the same screen point) and the
- * layer is re-placed over the new text. The store is written once, on commit.
- * Esc leaves no trace.
+ * and the edited label's anchor at the same screen point) and the layer is
+ * re-placed over the new label, found again by its key. The store is written
+ * once, on commit. Esc leaves no trace.
  *
- * Text model: codec/ (decode for the prefill, encode per keystroke,
- * renderParity as the gate, isUnchanged as "no edit").
+ * Everything that depends on the diagram type is in an adapter (adapter.ts).
+ * A commit may be async (an adapter's gate re-parses the result); while it
+ * runs the layer stays and takes no input.
  *
  * One rule decides whether anything is editable, checked when the map
  * arrives, on double-click and on commit: the code the visible SVG was
@@ -23,24 +24,19 @@
  * (wired in ../index.ts), so this file runs in tests with fakes.
  */
 import './inlineEdit.css';
-import { EDITABLE_KINDS, type EditRejection, type EditResult, type EditableKind, type GetSequenceSourceMap, type SequenceSourceMap } from '../types';
-import type { AnalyticsEventName, InlineEditKind } from '@/utils/analytics/catalog';
+import type { EditRejection, EditResult, SourceMap } from '../types';
+import type { AnalyticsEventName, InlineEditUnavailableReason } from '@/utils/analytics/catalog';
 import type { AnalyticsProperties } from '@/utils/analytics/types';
 import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace';
-import { REJECTION_MESSAGES } from './copy';
-import { FOOTER_TAG, elementsOf, isSequenceSvg, resolveTarget, tagRenderedSequence } from './domMapping';
-import {
-  decodeSourceText, encodeDisplayText, isUnchanged, readMessageLines, readParticipantLines, renderParity,
-} from '../codec';
+import { baseProps, unionRect, type EditHandle, type InlineEditAdapter, type Point } from './adapter';
+import { createSequenceAdapter, glyphColour, type SequenceAdapterDeps } from './sequenceAdapter';
 import { createRenderLoop, type RenderLoop } from './renderLoop';
+
+export { glyphColour };
 
 export type InlineEditEventName = Extract<AnalyticsEventName, `editor_inline_edit_${string}`>;
 
-export interface InlineEditDeps {
-  getSourceMap: GetSequenceSourceMap;
-  renameParticipant: (code: string, map: SequenceSourceMap, actorId: string, newName: string) => EditResult;
-  editMessageText: (code: string, map: SequenceSourceMap, messageIndex: number, newText: string) => EditResult;
-  sourceTextOf: (map: SequenceSourceMap, kind: EditableKind, key: string | number) => string | null;
+export interface InlineEditDeps extends SequenceAdapterDeps {
   /** The store's current Mermaid source (`store.state.diagram.mermaidCode`). */
   getCode: () => string;
   /** The one correct write: clears the error and dispatches the store update. */
@@ -56,6 +52,9 @@ export interface InlineEditDeps {
    * a synchronous runner.
    */
   schedule?: (run: () => void) => void;
+  /** Timers for the slow-render debounce. Default: the window's. */
+  setTimer?: (run: () => void, ms: number) => unknown;
+  clearTimer?: (handle: unknown) => void;
 }
 
 export interface InlineEditController {
@@ -87,33 +86,32 @@ export interface InlineEditHost {
   viewport(): InlineEditViewport | null;
 }
 
-type Target =
-  | { kind: 'messageText'; key: number }
-  | { kind: 'participantLabel'; baseId: string; hasAlias: boolean; copy: 'header' | 'footer' };
-
 interface Session {
-  target: Target;
-  /** Element key in the SVG on screen: message index, or the participant id the picture was drawn with. */
-  currentId: string;
+  adapter: InlineEditAdapter;
+  handle: EditHandle;
+  /** The target's element key in the SVG on screen. */
+  currentKey: string;
   baseCode: string;
-  baseMap: SequenceSourceMap;
-  source: string;
-  lineBefore: string;
+  baseMap: SourceMap;
   initialText: string;
   layer: HTMLDivElement;
   hint: HTMLDivElement | null;
   invalid: EditRejection | null;
   host: HTMLElement;
   viewport: InlineEditViewport;
-  anchor: { x: number; y: number };
+  anchor: Point;
   realZoom: number;
   loop: RenderLoop;
   composing: boolean;
   lastInputAt: number;
   rendering: boolean;
+  /** Duration of the last preview render (ms); drives the slow-render debounce. */
+  lastRenderMs: number;
+  /** An async commit is being checked: the layer stays and takes no input. */
+  committing: boolean;
   shownCode: string;
-  /** Participant id each candidate code draws the edited participant with. */
-  idByCode: Map<string, string>;
+  /** Element key each candidate code draws the target with. */
+  keyByCode: Map<string, string>;
   svgObserver: MutationObserver | null;
   openedAt: number;
   cleanup: () => void;
@@ -122,10 +120,11 @@ interface Session {
 /** After close: keep the view until the render showing `code` lands. */
 interface Closing {
   code: string;
-  anchor: { x: number; y: number };
+  anchor: Point;
   realZoom: number;
   viewport: InlineEditViewport;
-  locate: (root: Element, code: string) => SVGTextElement[];
+  adapter: InlineEditAdapter;
+  locate: (root: Element, code: string) => Element[];
   teardown: (() => void) | null;
 }
 
@@ -135,7 +134,9 @@ export interface InlineEditStats {
   renders: number;
   /** input event -> new SVG in DOM, viewport restored, layer re-placed (ms). */
   latencies: number[];
-  /** Screen position of the edited text's first-line centre after each re-place. */
+  /** renderPreview start -> resolved (ms), per preview render. */
+  renderMs: number[];
+  /** Screen position of the edited label's anchor after each re-place. */
   anchorTrace: Array<{ x: number; y: number; realZoom: number | null; id?: string }>;
   invalid: number;
 }
@@ -146,39 +147,21 @@ const ENABLED_CLASS = 'mie-enabled';
 const CURSOR_CLASS = 'mie-cursor';
 const HIDDEN_CLASS = 'mie-hidden';
 const INVALID_CLASS = 'mie-invalid';
-
-const KIND_PROPERTY: Record<EditableKind, InlineEditKind> = {
-  participantLabel: 'participant_label',
-  messageText: 'message_text',
-  nodeLabel: 'node_label',
-  edgeLabel: 'edge_label',
-};
+/** Wait after the last keystroke before a preview render, once renders are slow (adapter.slowRenderMs). */
+export const SLOW_RENDER_DEBOUNCE_MS = 250;
+/** Commit rejections that keep the layer open: the user can fix the text. */
+const KEEP_OPEN: ReadonlySet<EditRejection> = new Set(['empty', 'invalid_characters']);
 
 // One editor session is one iframe page load (the editor modal is its own iframe).
-let unavailableSentThisSession = false;
+// Key `${diagram}:${reason}`. Sequence only ever sends `no_map`, so for it this
+// is the shipped "at most once per editor session".
+const unavailableSent = new Set<string>();
 export function __resetInlineEditSessionForTests(): void {
-  unavailableSentThisSession = false;
+  unavailableSent.clear();
 }
 
-/**
- * The colour the glyphs of an SVG text are painted with. Read it from the
- * deepest element that paints them: the first <tspan> when there is one, else
- * the <text>. Mermaid's `.actor` rule fills the participant <text> with the box
- * colour (#eee) while its <tspan> is painted dark, so the <text> fill is wrong.
- */
-export function glyphColour(text: Element, win: Window = window): string {
-  const painter = text.querySelector('tspan') ?? text;
-  const cs = win.getComputedStyle(painter);
-  return cs.fill && cs.fill !== 'none' ? cs.fill : cs.color;
-}
-
-/** The text elements of one copy of a participant label (header: data-id; footer: our tag). */
-function participantTexts(root: Element, id: string, copy: 'header' | 'footer'): SVGTextElement[] {
-  const group = copy === 'header'
-    ? Array.from(root.querySelectorAll('[data-et="participant"]')).find((el) => el.getAttribute('data-id') === id)
-    : Array.from(root.querySelectorAll(`[${FOOTER_TAG}]`)).find((el) => el.getAttribute(FOOTER_TAG) === id);
-  return group ? (Array.from(group.querySelectorAll('text')) as SVGTextElement[]) : [];
-}
+const isThenable = (value: unknown): value is Promise<EditResult> =>
+  !!value && typeof (value as { then?: unknown }).then === 'function';
 
 export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, host: InlineEditHost): InlineEditController {
   const doc = container.ownerDocument;
@@ -189,38 +172,49 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
   if (channel) channel.port1.onmessage = () => queued.shift()?.();
   const schedule = deps.schedule
     ?? (channel ? (run: () => void) => { queued.push(run); channel.port2.postMessage(0); } : (run: () => void) => { win.setTimeout(run, 0); });
+  const setTimer = deps.setTimer ?? ((run: () => void, ms: number) => win.setTimeout(run, ms));
+  const clearTimer = deps.clearTimer ?? ((handle: unknown) => win.clearTimeout(handle as number));
+
+  const adapters: InlineEditAdapter[] = [createSequenceAdapter(deps, win) as unknown as InlineEditAdapter];
+  const adapterFor = (root: Element | null) => adapters.find((a) => a.accepts(root)) ?? null;
 
   let destroyed = false;
   let suspended = false;
   let generation = 0;
   let renderedCode: string | null = null;
-  let map: SequenceSourceMap | null = null;
+  let map: SourceMap | null = null;
+  /** The adapter the map came from. */
+  let mapAdapter: InlineEditAdapter | null = null;
   /** The code a source map is being computed for (cursor stays on meanwhile). */
   let mapPendingFor: string | null = null;
+  /** The code whose source map came back null or failed: that diagram is read-only. */
+  let mapUnavailableFor: string | null = null;
   let session: Session | null = null;
   let closing: Closing | null = null;
   let hoverBox: HTMLDivElement | null = null;
 
-  const stats: InlineEditStats = { sessions: 0, inputs: 0, renders: 0, latencies: [], anchorTrace: [], invalid: 0 };
+  const stats: InlineEditStats = { sessions: 0, inputs: 0, renders: 0, latencies: [], renderMs: [], anchorTrace: [], invalid: 0 };
   if (import.meta.env.DEV) {
     // Measurement hook for the Storybook harness; stripped from production builds.
     (win as any).__mieInlineEdit = {
       stats,
       session: () => session,
       viewport: () => host.viewport(),
-      resetStats() { Object.assign(stats, { inputs: 0, renders: 0, latencies: [], anchorTrace: [], invalid: 0 }); },
+      resetStats() { Object.assign(stats, { inputs: 0, renders: 0, latencies: [], renderMs: [], anchorTrace: [], invalid: 0 }); },
       idle: () => session?.loop.idle() ?? Promise.resolve(),
       rerender: () => (session ? host.renderPreview(session.shownCode) : Promise.resolve(false)),
     };
   }
 
-  const base = (): AnalyticsProperties => ({ feature_area: 'macro', surface: 'editor', macro_type: 'mermaid', inline_edit_diagram: 'sequence' });
-  const kindProps = (t: Target): AnalyticsProperties => t.kind === 'messageText'
-    ? { ...base(), inline_edit_kind: KIND_PROPERTY.messageText }
-    : { ...base(), inline_edit_kind: KIND_PROPERTY.participantLabel, inline_edit_had_alias: t.hasAlias };
   const msOpen = (s: Session) => Math.round(now() - s.openedAt);
-  const track = (name: InlineEditEventName, props: AnalyticsProperties = base()) => {
+  const track = (name: InlineEditEventName, props: AnalyticsProperties) => {
     try { deps.track(name, props); } catch { /* analytics never breaks editing */ }
+  };
+  const reportUnavailable = (adapter: InlineEditAdapter, reason: InlineEditUnavailableReason) => {
+    const key = `${adapter.diagram}:${reason}`;
+    if (unavailableSent.has(key)) return;
+    unavailableSent.add(key);
+    track('editor_inline_edit_unavailable', { ...baseProps(adapter.diagram), inline_edit_unavailable_reason: reason });
   };
   const svg = () => container.querySelector('.diagram-viewport-content svg[aria-roledescription]')
     ?? container.querySelector('svg[aria-roledescription]');
@@ -239,117 +233,56 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
 
   function prepare(code: string, gen: number): void {
     const root = svg();
-    if (!isSequenceSvg(root)) return;
-    // Mermaid.vue renders normalizeMermaidWhitespace(code). An actor id holding
-    // U+00A0 would render a different data-id than the map key. Read-only, no event.
+    const adapter = adapterFor(root);
+    if (!root || !adapter) return;
+    // Mermaid.vue renders normalizeMermaidWhitespace(code). An id holding
+    // U+00A0 would render a different key than the map key. Read-only, no event.
     if (normalizeMermaidWhitespace(code) !== code) return;
-    tagRenderedSequence(root);
+    adapter.prepareSvg(root);
     mapPendingFor = code;
-    let pending: Promise<SequenceSourceMap | null>;
+    let pending: Promise<SourceMap | null>;
     try {
-      pending = Promise.resolve(deps.getSourceMap(code));
+      pending = Promise.resolve(adapter.getSourceMap(code));
     } catch (error) {
       pending = Promise.reject(error);
     }
     const settle = () => {
       if (mapPendingFor === code) mapPendingFor = null;
     };
+    const unavailable = () => {
+      mapUnavailableFor = code;
+      if (adapter.unavailableOn === 'render') reportUnavailable(adapter, 'no_map');
+    };
     pending.then(
       (result) => {
         if (destroyed || gen !== generation || renderedCode !== code) return;
         settle();
         if (!result) {
-          if (!unavailableSentThisSession) {
-            unavailableSentThisSession = true;
-            track('editor_inline_edit_unavailable', { ...base(), inline_edit_unavailable_reason: 'no_map' });
-          }
+          unavailable();
           setAffordance();
           return;
         }
         // A map for other code (or code that moved on) is never used.
-        if (result.code === code && deps.getCode() === code) map = result;
+        if (result.code === code && deps.getCode() === code) {
+          map = result;
+          mapAdapter = adapter;
+        }
         setAffordance();
       },
       () => {
         if (destroyed || gen !== generation) return;
         settle();
         setAffordance();
-        if (unavailableSentThisSession) return;
-        unavailableSentThisSession = true;
-        track('editor_inline_edit_unavailable', { ...base(), inline_edit_unavailable_reason: 'no_map' });
+        unavailable();
       },
     );
   }
 
-  // ---------- geometry ----------
+  // ---------- layer ----------
 
-  function textsOf(root: Element, target: Target, id: string): SVGTextElement[] {
-    return target.kind === 'messageText'
-      ? (elementsOf(root, { kind: 'messageText', key: target.key }) as SVGTextElement[])
-      : participantTexts(root, id, target.copy);
-  }
-
-  function firstLineCentre(texts: Element[]): { x: number; y: number } {
-    const r = texts[0].getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-  }
-
-  /** Copy font and position from the SVG text lines onto the layer. Styles only, never text. */
-  function placeLayer(s: Session, texts: SVGTextElement[]): void {
-    const { layer, host: hostEl } = s;
-    const first = texts[0];
-    const ctm = typeof first.getScreenCTM === 'function' ? first.getScreenCTM() : null;
-    const scale = ctm ? Math.hypot(ctm.a, ctm.b) || 1 : 1;
-    const cs = win.getComputedStyle(first);
-    const ink = glyphColour(first, win);
-    const fontSize = parseFloat(cs.fontSize) || 16;
-    const rects = texts.map((t) => t.getBoundingClientRect());
-    // Line pitch in SVG units: from the drawn lines when there are two, else
-    // the single line's box height (Mermaid's own line height is that box, rounded).
-    const pitch = rects.length > 1
-      ? (rects[1].top + rects[1].height / 2 - (rects[0].top + rects[0].height / 2)) / scale
-      : Math.round(rects[0].height / scale) || Math.round(fontSize * 1.2);
-    const hostRect = hostEl.getBoundingClientRect();
-    const left = Math.min(...rects.map((r) => r.left));
-    const right = Math.max(...rects.map((r) => r.right));
-    const cx = (left + right) / 2 - hostRect.left;
-    const cy0 = rects[0].top + rects[0].height / 2 - hostRect.top;
-    const st = layer.style;
-    st.fontFamily = cs.fontFamily;
-    st.fontWeight = cs.fontWeight;
-    st.fontStyle = cs.fontStyle;
-    st.letterSpacing = cs.letterSpacing;
-    st.color = ink;
-    st.caretColor = ink;
-    st.left = `${cx}px`;
-    st.fontSize = `${fontSize * scale}px`;
-    st.lineHeight = `${pitch * scale}px`;
-    st.top = `${cy0 - (pitch * scale) / 2}px`;
-    st.transform = 'translateX(-50%)';
-    calibrate(layer, rects[0]);
+  function placeLayer(s: Session, elements: Element[]): void {
+    s.adapter.place(s.layer, elements, s.host);
     placeHint(s);
-  }
-
-  /**
-   * Blink lays an HTML line out with integer ascent/descent, so the glyph box
-   * sits up to ~1px off the centre of a fractional line box (measured: dy
-   * -0.3..-0.9px at zoom 0.875..2). Measure the first line's Range against the
-   * SVG text's box and shift by the difference.
-   */
-  function calibrate(layer: HTMLDivElement, svgRect: DOMRect): void {
-    const node = layer.firstChild;
-    if (!node || node.nodeType !== Node.TEXT_NODE) return;
-    const data = (node as Text).data;
-    const end = data.indexOf('\n') === -1 ? data.length : data.indexOf('\n');
-    if (end === 0) return;
-    const range = doc.createRange();
-    if (typeof range.getBoundingClientRect !== 'function') return;
-    range.setStart(node, 0);
-    range.setEnd(node, end);
-    const r = range.getBoundingClientRect();
-    if (!(r.height > 0)) return;
-    const dy = svgRect.top + svgRect.height / 2 - (r.top + r.height / 2);
-    if (Math.abs(dy) > 0.01 && Math.abs(dy) < 4) layer.style.top = `${parseFloat(layer.style.top) + dy}px`;
   }
 
   /** The hint sits directly under the layer, centred on it. */
@@ -384,7 +317,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
       s.hint.setAttribute('data-testid', 'mermaid-inline-edit-hint');
       s.host.appendChild(s.hint);
     }
-    s.hint.textContent = REJECTION_MESSAGES[reason];
+    s.hint.textContent = s.adapter.messages[reason];
     placeHint(s);
   }
 
@@ -409,15 +342,11 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
     hoverBox = null;
   }
 
-  function showHover(texts: Element[]): void {
+  function showHover(elements: Element[]): void {
     const vp = host.viewport();
-    if (!vp || !texts.length) return hideHover();
+    if (!vp || !elements.length) return hideHover();
     const hostRect = vp.$el.getBoundingClientRect();
-    const rects = texts.map((t) => t.getBoundingClientRect());
-    const left = Math.min(...rects.map((r) => r.left));
-    const right = Math.max(...rects.map((r) => r.right));
-    const top = Math.min(...rects.map((r) => r.top));
-    const bottom = Math.max(...rects.map((r) => r.bottom));
+    const { left, top, right, bottom } = unionRect(elements);
     if (!hoverBox) {
       hoverBox = doc.createElement('div');
       hoverBox.className = 'mie-hover';
@@ -431,13 +360,12 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
   }
 
   const onPointerOver = (event: Event) => {
-    if (session || !container.classList.contains(ENABLED_CLASS)) return hideHover();
+    if (session || !container.classList.contains(ENABLED_CLASS) || !map || !mapAdapter) return hideHover();
     const root = svg();
-    const target = root ? resolveTarget(event.target, root) : null;
-    if (!root || !target) return hideHover();
-    const anchor: Element = target.anchor;
-    // A message: all its lines. A participant: the copy under the pointer.
-    showHover(target.kind === 'messageText' ? elementsOf(root, target) : Array.from(anchor.querySelectorAll('text')));
+    if (!root || !mapAdapter.accepts(root)) return hideHover();
+    const hit = mapAdapter.hit(event.target, root);
+    if (!hit) return hideHover();
+    showHover(mapAdapter.hoverElements(root, hit, map));
   };
 
   // ---------- session ----------
@@ -453,13 +381,13 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
       const c = closing;
       c.viewport.setRealZoom(c.realZoom);
       c.viewport.flushView();
-      if (root && isSequenceSvg(root)) {
-        tagRenderedSequence(root);
-        const texts = c.locate(root, code);
-        if (texts.length) {
+      if (root && c.adapter.accepts(root)) {
+        c.adapter.prepareSvg(root);
+        const elements = c.locate(root, code);
+        if (elements.length) {
           // A late preview of an older candidate: keep the layer the only visible text.
-          if (code !== c.code && c.teardown) for (const t of texts) t.classList.add(HIDDEN_CLASS);
-          const p = firstLineCentre(texts);
+          if (code !== c.code && c.teardown) for (const t of elements) t.classList.add(HIDDEN_CLASS);
+          const p = c.adapter.anchor(elements);
           c.viewport.panByScreen(c.anchor.x - p.x, c.anchor.y - p.y);
           c.viewport.flushView();
         }
@@ -474,20 +402,20 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
   function afterSwap(s: Session, root: Element | null, code: string): void {
     s.viewport.setRealZoom(s.realZoom);
     s.viewport.flushView();
-    if (!root || !isSequenceSvg(root)) return;
-    tagRenderedSequence(root);
-    const id = s.idByCode.get(code) ?? s.currentId;
-    const texts = textsOf(root, s.target, id);
-    if (!texts.length) return;
-    s.currentId = id;
-    for (const t of texts) t.classList.add(HIDDEN_CLASS);
-    const p = firstLineCentre(texts);
+    if (!root || !s.adapter.accepts(root)) return;
+    s.adapter.prepareSvg(root);
+    const key = s.keyByCode.get(code) ?? s.currentKey;
+    const elements = s.handle.locate(root, key);
+    if (!elements.length) return;
+    s.currentKey = key;
+    for (const t of elements) t.classList.add(HIDDEN_CLASS);
+    const p = s.adapter.anchor(elements);
     s.viewport.panByScreen(s.anchor.x - p.x, s.anchor.y - p.y);
     s.viewport.flushView();
-    placeLayer(s, texts);
+    placeLayer(s, elements);
     s.shownCode = code;
-    const after = firstLineCentre(texts);
-    stats.anchorTrace.push({ x: after.x, y: after.y, realZoom: s.viewport.getRealZoom(), id });
+    const after = s.adapter.anchor(elements);
+    stats.anchorTrace.push({ x: after.x, y: after.y, realZoom: s.viewport.getRealZoom(), id: key });
     observeSvg(s, root);
   }
 
@@ -497,11 +425,11 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
     if (typeof MutationObserver === 'undefined') return;
     const observer = new MutationObserver(() => {
       if (session !== s || s.rendering || !root.isConnected) return;
-      const texts = textsOf(root, s.target, s.currentId);
-      if (!texts.length) return;
+      const elements = s.handle.locate(root, s.currentKey);
+      if (!elements.length) return;
       s.realZoom = s.viewport.getRealZoom() ?? s.realZoom;
-      s.anchor = firstLineCentre(texts);
-      placeLayer(s, texts);
+      s.anchor = s.adapter.anchor(elements);
+      placeLayer(s, elements);
     });
     observer.observe(root, { attributes: true, subtree: true, attributeFilter: ['transform', 'style'] });
     // Our own zoom/pan above must not count as a user move.
@@ -510,29 +438,12 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
   }
 
   /** The candidate for the layer's current text, or the rejection. Always from the base. */
-  function evaluate(s: Session): { ok: true; code: string; id: string } | { ok: false; reason: EditRejection } {
-    const text = readText(s.layer);
-    const t = s.target;
-    const baseId = t.kind === 'messageText' ? String(t.key) : t.baseId;
-    const decodeKind = t.kind === 'messageText' ? 'messageText' : 'participantLabel';
-    if (isUnchanged(s.source, text, decodeKind)) return { ok: true, code: s.baseCode, id: baseId };
-    // The codec reports an empty actor id as invalid_characters; the user's problem is "empty".
-    if (t.kind === 'participantLabel' && text.trim() === '') return { ok: false, reason: 'empty' };
-    const enc = encodeDisplayText(text, t.kind === 'messageText' ? 'messageText' : t.hasAlias ? 'aliasText' : 'actorId', {
-      original: s.source, lineBefore: s.lineBefore, allowEmpty: t.kind === 'messageText',
-    });
-    if (!enc.ok) return { ok: false, reason: enc.reason };
-    let result: EditResult;
+  function evaluate(s: Session) {
     try {
-      result = t.kind === 'messageText'
-        ? deps.editMessageText(s.baseCode, s.baseMap, t.key, enc.source)
-        : deps.renameParticipant(s.baseCode, s.baseMap, t.baseId, enc.source);
+      return s.handle.evaluate(readText(s.layer));
     } catch {
-      result = { ok: false, reason: 'position_mismatch' };
+      return { ok: false as const, reason: 'position_mismatch' as const };
     }
-    if (!result.ok) return result;
-    const id = t.kind === 'participantLabel' && !t.hasAlias ? enc.source.trim() : baseId;
-    return { ok: true, code: result.code, id };
   }
 
   function candidate(s: Session): { code: string; tag: number } | null {
@@ -543,75 +454,59 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
       return null;
     }
     setInvalid(s, null);
-    s.idByCode.set(r.code, r.id);
+    s.keyByCode.set(r.code, r.key);
     return { code: r.code, tag: s.lastInputAt };
   }
 
-  function rejectBeforeOpen(target: Target, reason: EditRejection): void {
-    deps.toast(REJECTION_MESSAGES[reason]);
-    track('editor_inline_edit_rejected', { ...kindProps(target), inline_edit_rejection: reason });
-  }
-
-  function open(target: Target, texts: SVGTextElement[], event: MouseEvent, code: string, sourceMap: SequenceSourceMap): void {
+  function open(adapter: InlineEditAdapter, handle: EditHandle, event: MouseEvent, code: string, sourceMap: SourceMap): void {
     const root = svg();
     const vp = host.viewport();
-    if (!root || !vp || !texts.length) return;
-    const isMessage = target.kind === 'messageText';
-    const key = isMessage ? target.key : target.baseId;
-    let source: string | null;
-    try {
-      source = deps.sourceTextOf(sourceMap, target.kind, key);
-    } catch {
-      source = null;
-    }
-    const range = isMessage
-      ? sourceMap.messages.get(target.key)?.textRange
-      : (() => { const loc = sourceMap.participants.get(target.baseId); return loc ? (loc.hasAlias ? loc.labelRanges[0] : loc.idRanges[0]) : undefined; })();
-    if (source === null || !range) {
-      rejectBeforeOpen(target, 'position_mismatch');
-      return;
-    }
-    const decodeKind = isMessage ? 'messageText' : 'participantLabel';
-    // The picture must be exactly what the source decodes to (header copy for
-    // participants). Otherwise the element is inert: no layer, no event.
-    const drawn = isMessage ? readMessageLines(root, target.key) : readParticipantLines(root, target.baseId);
-    if (!renderParity(source, drawn, decodeKind)) return;
-    const prefill = decodeSourceText(source, decodeKind);
-    if (prefill === null) return;
+    if (!root || !vp) return;
+    const elements = handle.locate(root, handle.baseKey);
+    if (!elements.length) return;
     hideHover();
 
     const layer = doc.createElement('div');
     layer.className = 'mie-layer';
+    layer.setAttribute('data-mie-diagram', adapter.diagram);
     try { layer.contentEditable = 'plaintext-only'; } catch { /* unsupported value */ }
     if (layer.contentEditable !== 'plaintext-only') layer.contentEditable = 'true';
     layer.setAttribute('role', 'textbox');
-    layer.setAttribute('aria-multiline', String(isMessage || target.hasAlias));
-    layer.setAttribute('aria-label', isMessage ? 'Edit message text' : 'Edit participant name');
+    layer.setAttribute('aria-multiline', String(handle.multiline));
+    layer.setAttribute('aria-label', handle.ariaLabel);
     layer.setAttribute('data-testid', 'mermaid-inline-edit-layer');
     layer.spellcheck = false;
-    layer.textContent = prefill;
+    layer.textContent = handle.prefill;
 
-    const lineStart = code.lastIndexOf('\n', range[0] - 1) + 1;
-    const baseId = isMessage ? String(target.key) : target.baseId;
     vp.holdView(true);
     const s: Session = {
-      target, currentId: baseId, baseCode: code, baseMap: sourceMap,
-      source, lineBefore: code.slice(lineStart, range[0]), initialText: prefill, layer, hint: null, invalid: null,
-      host: vp.$el, viewport: vp, anchor: firstLineCentre(texts), realZoom: vp.getRealZoom() ?? 1,
+      adapter, handle, currentKey: handle.baseKey, baseCode: code, baseMap: sourceMap,
+      initialText: handle.prefill, layer, hint: null, invalid: null,
+      host: vp.$el, viewport: vp, anchor: adapter.anchor(elements), realZoom: vp.getRealZoom() ?? 1,
       loop: null as unknown as RenderLoop,
-      composing: false, lastInputAt: 0, rendering: false, shownCode: code, idByCode: new Map([[code, baseId]]),
+      composing: false, lastInputAt: 0, rendering: false, lastRenderMs: 0, committing: false,
+      shownCode: code, keyByCode: new Map([[code, handle.baseKey]]),
       svgObserver: null, openedAt: now(), cleanup: () => undefined,
     };
     s.loop = createRenderLoop({
       initialCode: code,
       schedule,
-      next: () => candidate(s),
+      now,
+      setTimer,
+      clearTimer,
+      // Slow renders: wait for a typing pause. The layer itself is plain
+      // contenteditable, so typing never waits for a render.
+      delay: () => (adapter.slowRenderMs !== null && s.lastRenderMs > adapter.slowRenderMs ? SLOW_RENDER_DEBOUNCE_MS : 0),
+      next: () => (s.committing ? null : candidate(s)),
       render: async (next) => {
         s.rendering = true;
+        const started = now();
         try {
           return await host.renderPreview(next);
         } finally {
           s.rendering = false;
+          s.lastRenderMs = now() - started;
+          stats.renderMs.push(s.lastRenderMs);
         }
       },
       onRendered: (c, ok) => {
@@ -628,6 +523,11 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
       if (e.target !== layer) return;
       e.stopPropagation();
       if (e.type !== 'keydown') return;
+      // A commit is being checked: the text is fixed until it settles.
+      if (s.committing) {
+        e.preventDefault();
+        return;
+      }
       const k = e as KeyboardEvent;
       if (k.isComposing || k.keyCode === 229 || s.composing) return;
       if (k.key === 'Enter' && !k.shiftKey) {
@@ -636,7 +536,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
       } else if (k.key === 'Escape') {
         e.preventDefault();
         cancel('escape');
-      } else if (k.key === 'Enter' && k.shiftKey && !isMessage && !target.hasAlias) {
+      } else if (k.key === 'Enter' && k.shiftKey && !handle.multiline) {
         // An actor id cannot hold a line break.
         e.preventDefault();
       }
@@ -647,14 +547,17 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
       s.lastInputAt = now();
       s.loop.request();
     };
+    const onBeforeInput = (e: Event) => {
+      if (s.committing) e.preventDefault();
+    };
     const onInput = (e: Event) => {
-      if ((e as InputEvent).isComposing || s.composing) return;
+      if ((e as InputEvent).isComposing || s.composing || s.committing) return;
       request();
     };
     const onCompositionStart = () => { s.composing = true; };
     const onCompositionEnd = () => {
       s.composing = false;
-      request();
+      if (!s.committing) request();
     };
     const onDocPointerDown = (e: Event) => {
       if (session === s && !(e.target instanceof Node && layer.contains(e.target))) commit('away');
@@ -665,6 +568,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
 
     for (const name of KEY_EVENTS) win.addEventListener(name, onKey, true);
     for (const name of STOP_POINTER) layer.addEventListener(name, stop);
+    layer.addEventListener('beforeinput', onBeforeInput);
     layer.addEventListener('input', onInput);
     layer.addEventListener('compositionstart', onCompositionStart);
     layer.addEventListener('compositionend', onCompositionEnd);
@@ -673,6 +577,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
     s.cleanup = () => {
       for (const name of KEY_EVENTS) win.removeEventListener(name, onKey, true);
       for (const name of STOP_POINTER) layer.removeEventListener(name, stop);
+      layer.removeEventListener('beforeinput', onBeforeInput);
       layer.removeEventListener('input', onInput);
       layer.removeEventListener('compositionstart', onCompositionStart);
       layer.removeEventListener('compositionend', onCompositionEnd);
@@ -687,12 +592,12 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
     setAffordance();
     host.setViewKeeper(keeper);
     vp.$el.appendChild(layer);
-    for (const t of texts) t.classList.add(HIDDEN_CLASS);
-    placeLayer(s, texts);
+    for (const t of elements) t.classList.add(HIDDEN_CLASS);
+    placeLayer(s, elements);
     observeSvg(s, root);
     layer.focus({ preventScroll: true });
     selectWordAt(layer, event.clientX, event.clientY);
-    track('editor_inline_edit_started', kindProps(target));
+    track('editor_inline_edit_started', handle.props);
   }
 
   /** Put the caret on the word under the pointer (select it), else at the end. */
@@ -731,7 +636,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
     sel.addRange(range);
   }
 
-  /** Remove the session; the SVG text stays hidden and the layer up until `teardown` runs. */
+  /** Remove the session; the label stays hidden and the layer up until `teardown` runs. */
   function endSession(s: Session): () => void {
     s.cleanup();
     session = null;
@@ -745,8 +650,8 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
 
   function holdUntil(s: Session, code: string, teardown: (() => void) | null): void {
     closing = {
-      code, anchor: s.anchor, realZoom: s.realZoom, viewport: s.viewport, teardown,
-      locate: (root, rendered) => textsOf(root, s.target, s.idByCode.get(rendered) ?? s.currentId),
+      code, anchor: s.anchor, realZoom: s.realZoom, viewport: s.viewport, adapter: s.adapter, teardown,
+      locate: (root, rendered) => s.handle.locate(root, s.keyByCode.get(rendered) ?? s.currentKey),
     };
   }
 
@@ -777,17 +682,24 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
     });
   }
 
+  /** The source moved on since the layer opened (with or without a notification). */
+  const isStale = (s: Session) => deps.getCode() !== s.baseCode || map !== s.baseMap || !sameSource(s.baseCode);
+
+  function rejectStale(s: Session): void {
+    deps.toast(s.adapter.messages.stale_source);
+    track('editor_inline_edit_rejected', { ...s.handle.props, inline_edit_rejection: 'stale_source', inline_edit_ms_open: msOpen(s) });
+    abort();
+  }
+
   function commit(how: 'enter' | 'away'): void {
     const s = session;
-    if (!s) return;
-    const code = deps.getCode();
-    if (code !== s.baseCode || map !== s.baseMap || !sameSource(code)) {
+    if (!s || s.committing) return;
+    if (isStale(s)) {
       // The source moved on without a notification: never write over it.
-      deps.toast(REJECTION_MESSAGES.stale_source);
-      track('editor_inline_edit_rejected', { ...kindProps(s.target), inline_edit_rejection: 'stale_source', inline_edit_ms_open: msOpen(s) });
-      abort();
+      rejectStale(s);
       return;
     }
+    const text = readText(s.layer);
     const r = evaluate(s);
     if (!r.ok) {
       // Enter keeps editing; leaving restores the base and says why.
@@ -795,35 +707,75 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
         setInvalid(s, r.reason);
         return;
       }
-      deps.toast(REJECTION_MESSAGES[r.reason]);
-      track('editor_inline_edit_rejected', { ...kindProps(s.target), inline_edit_rejection: r.reason, inline_edit_ms_open: msOpen(s) });
+      deps.toast(s.adapter.messages[r.reason]);
+      track('editor_inline_edit_rejected', { ...s.handle.props, inline_edit_rejection: r.reason, inline_edit_ms_open: msOpen(s) });
       restoreBase(s);
       return;
     }
     if (r.code === s.baseCode) {
-      track('editor_inline_edit_cancelled', { ...kindProps(s.target), inline_edit_cancel_reason: 'unchanged', inline_edit_ms_open: msOpen(s) });
+      track('editor_inline_edit_cancelled', { ...s.handle.props, inline_edit_cancel_reason: 'unchanged', inline_edit_ms_open: msOpen(s) });
+      restoreBase(s);
+      return;
+    }
+    let result: EditResult | Promise<EditResult>;
+    try {
+      result = s.handle.commit(text, r.code);
+    } catch {
+      result = { ok: false, reason: 'position_mismatch' };
+    }
+    if (!isThenable(result)) {
+      settleCommit(s, result, r.key);
+      return;
+    }
+    // A gate re-parses with Mermaid: keep the layer, take no input, and start
+    // no further preview render (a late one would supersede the commit render).
+    s.committing = true;
+    s.loop.cancelPending();
+    s.layer.setAttribute('aria-busy', 'true');
+    const key = r.key;
+    const done = (res: EditResult) => {
+      if (session !== s || destroyed) return;
+      s.committing = false;
+      s.layer.removeAttribute('aria-busy');
+      if (isStale(s)) {
+        rejectStale(s);
+        return;
+      }
+      settleCommit(s, res, key);
+    };
+    result.then(done, () => done({ ok: false, reason: 'position_mismatch' }));
+  }
+
+  function settleCommit(s: Session, result: EditResult, key: string): void {
+    if (!result.ok) {
+      if (KEEP_OPEN.has(result.reason)) {
+        setInvalid(s, result.reason);
+        return;
+      }
+      deps.toast(s.adapter.messages[result.reason]);
+      track('editor_inline_edit_rejected', { ...s.handle.props, inline_edit_rejection: result.reason, inline_edit_ms_open: msOpen(s) });
       restoreBase(s);
       return;
     }
     const teardown = endSession(s);
-    s.idByCode.set(r.code, r.id);
+    s.keyByCode.set(result.code, key);
     // If the SVG on screen already shows the final candidate, swap back now
-    // (same frame: SVG text appears, layer goes). Otherwise keep the layer
+    // (same frame: the label appears, the layer goes). Otherwise keep the layer
     // until the commit render lands.
-    if (s.shownCode === r.code) {
+    if (s.shownCode === result.code) {
       teardown();
-      holdUntil(s, r.code, null);
+      holdUntil(s, result.code, null);
     } else {
-      holdUntil(s, r.code, teardown);
+      holdUntil(s, result.code, teardown);
     }
-    track('editor_inline_edit_succeeded', { ...kindProps(s.target), inline_edit_ms_open: msOpen(s) });
-    deps.writeCode(r.code);
+    track('editor_inline_edit_succeeded', { ...s.handle.props, inline_edit_ms_open: msOpen(s) });
+    deps.writeCode(result.code);
   }
 
   function cancel(reason: 'escape'): void {
     const s = session;
     if (!s) return;
-    track('editor_inline_edit_cancelled', { ...kindProps(s.target), inline_edit_cancel_reason: reason, inline_edit_ms_open: msOpen(s) });
+    track('editor_inline_edit_cancelled', { ...s.handle.props, inline_edit_cancel_reason: reason, inline_edit_ms_open: msOpen(s) });
     restoreBase(s);
   }
 
@@ -843,25 +795,31 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
   const onDoubleClick = (event: MouseEvent) => {
     if (destroyed || suspended || session || closing) return;
     const code = renderedCode;
-    if (!map || !sameSource(code)) return;
     const root = svg();
-    const resolved = root ? resolveTarget(event.target, root) : null;
-    if (!root || !resolved || !EDITABLE_KINDS.sequence.includes(resolved.kind)) return;
-    const anchor: Element = resolved.anchor;
-    let target: Target;
-    if (resolved.kind === 'messageText') {
-      target = { kind: 'messageText', key: resolved.key };
-    } else {
-      const loc = map.participants.get(resolved.key);
-      if (!loc) return;
-      target = {
-        kind: 'participantLabel', baseId: resolved.key, hasAlias: loc.hasAlias,
-        copy: anchor.hasAttribute('data-et') ? 'header' : 'footer',
-      };
+    const adapter = adapterFor(root);
+    if (!root || !adapter) return;
+    const hit = adapter.hit(event.target, root);
+    if (!hit) return;
+    if (!map || mapAdapter !== adapter || !sameSource(code)) {
+      // A diagram the parser gave no map for is read-only: said once, on this user action.
+      if (adapter.unavailableOn === 'doubleClick' && code !== null && mapUnavailableFor === code && deps.getCode() === code) {
+        reportUnavailable(adapter, 'no_map');
+      }
+      return;
     }
-    const id = target.kind === 'messageText' ? String(target.key) : target.baseId;
     event.preventDefault();
-    open(target, textsOf(root, target, id), event, code as string, map);
+    const r = adapter.begin(hit, map, root, code as string);
+    if (!r) return;
+    if ('unavailable' in r) {
+      reportUnavailable(adapter, r.unavailable);
+      return;
+    }
+    if ('reject' in r) {
+      deps.toast(adapter.messages[r.reject]);
+      track('editor_inline_edit_rejected', { ...r.props, inline_edit_rejection: r.reject });
+      return;
+    }
+    open(adapter, r.open, event, code as string, map);
   };
   container.addEventListener('dblclick', onDoubleClick);
   container.addEventListener('pointerover', onPointerOver);
@@ -875,7 +833,9 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
       generation += 1;
       renderedCode = code;
       map = null;
+      mapAdapter = null;
       mapPendingFor = null;
+      mapUnavailableFor = null;
       hideHover();
       // A real render replaced the picture under the layer: close quietly.
       if (session) abort();
@@ -886,13 +846,8 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
     onCodeChanged(code) {
       if (destroyed) return;
       const next = typeof code === 'string' ? code : null;
-      if (session && next !== session.baseCode) {
-        // Typing in the code panel or an AI apply while editing: never write over it.
-        const s = session;
-        deps.toast(REJECTION_MESSAGES.stale_source);
-        track('editor_inline_edit_rejected', { ...kindProps(s.target), inline_edit_rejection: 'stale_source', inline_edit_ms_open: msOpen(s) });
-        abort();
-      }
+      // Typing in the code panel or an AI apply while editing: never write over it.
+      if (session && next !== session.baseCode) rejectStale(session);
       setAffordance();
     },
     setSuspended(value: boolean) {

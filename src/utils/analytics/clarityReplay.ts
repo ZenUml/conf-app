@@ -38,6 +38,7 @@ interface ForgeContextLike {
   cloudId?: string;
   accountId?: string;
   environmentType?: string;
+  siteUrl?: string;
   moduleKey?: string;
   extension?: {
     modal?: { macroMode?: string };
@@ -77,6 +78,31 @@ export function clarityReplaySurface(context: ForgeContextLike | undefined): "ed
   const macroMode = context?.extension?.modal?.macroMode;
   if (macroMode === "editor" || context?.extension?.macro?.isConfiguring) return "editor";
   if (macroMode === "fullscreen") return "fullscreen";
+  return undefined;
+}
+
+// Keep these patterns aligned with the Mixpanel skill's internal-domain
+// exclusions and its private override. The production app also runs on our sites.
+const INTERNAL_SITE_PATTERNS = [
+  "zenuml", "whimet", "full-stg", "lite-stg", "lite-dev", "lite-prod",
+  "dia-stg", "asyncapi-stg", "diagramly", "danshuitaihejie", "async-prd",
+];
+
+function replaySiteType({ siteUrl, environmentType }: ForgeContextLike): "internal" | "customer" | undefined {
+  if (!siteUrl) return undefined;
+  let url: URL;
+  try {
+    url = new URL(siteUrl);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== "https:" || url.username || url.password || url.port) return undefined;
+
+  // Custom domains cannot be compared reliably with the Atlassian site list.
+  const slug = /^([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\.atlassian\.net$/.exec(url.hostname)?.[1];
+  if (!slug) return undefined;
+  if (INTERNAL_SITE_PATTERNS.some(pattern => slug.includes(pattern))) return "internal";
+  if (environmentType === "PRODUCTION") return "customer";
   return undefined;
 }
 
@@ -213,6 +239,8 @@ async function run(deps: ClarityReplayDeps): Promise<ClarityReplayResult> {
       content: false,
     });
     clarity.set("surface", surface);
+    const siteType = replaySiteType(context);
+    if (siteType) clarity.set("site_type", siteType);
     if (context.moduleKey) clarity.set("moduleKey", context.moduleKey);
     const sessionId = await readSessionId(clarity);
     return { outcome: "started", sessionId };

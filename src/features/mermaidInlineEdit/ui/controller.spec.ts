@@ -16,7 +16,7 @@ import { sampleRateFor } from '@/utils/analytics/eventSampling';
 //   i2 Note   i3 B->>A: wrap:...long...   i4 A->>A: Same   i5 A->>A: Same
 const CODE_A = 'sequenceDiagram\n  participant A as Alice\n  A->>B: Hello<br/>two lines\n';
 const CODE_B = CODE_A + '  B->>A: more\n';
-const BASE_PROPS = { feature_area: 'macro', surface: 'editor', macro_type: 'mermaid' };
+const BASE_PROPS = { feature_area: 'macro', surface: 'editor', macro_type: 'mermaid', inline_edit_diagram: 'sequence' };
 
 /**
  * The fake edit functions append a marker to the code; the fake renderer
@@ -255,7 +255,7 @@ describe('gates', () => {
     dblclick(header(h, 'A'));
     expect(layer()).toBeNull();
     expect(h.deps.toast).not.toHaveBeenCalled();
-    expect(events(h, 'editor_inline_edit_unavailable')).toEqual([BASE_PROPS]);
+    expect(events(h, 'editor_inline_edit_unavailable')).toEqual([{ ...BASE_PROPS, inline_edit_unavailable_reason: 'no_map' }]);
     h.controller.destroy();
     const again = setup({ map: () => null });
     await again.render();

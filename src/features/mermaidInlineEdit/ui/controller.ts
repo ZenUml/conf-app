@@ -214,7 +214,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
     };
   }
 
-  const base = (): AnalyticsProperties => ({ feature_area: 'macro', surface: 'editor', macro_type: 'mermaid' });
+  const base = (): AnalyticsProperties => ({ feature_area: 'macro', surface: 'editor', macro_type: 'mermaid', inline_edit_diagram: 'sequence' });
   const kindProps = (t: Target): AnalyticsProperties => t.kind === 'messageText'
     ? { ...base(), inline_edit_kind: KIND_PROPERTY.messageText }
     : { ...base(), inline_edit_kind: KIND_PROPERTY.participantLabel, inline_edit_had_alias: t.hasAlias };
@@ -261,7 +261,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
         if (!result) {
           if (!unavailableSentThisSession) {
             unavailableSentThisSession = true;
-            track('editor_inline_edit_unavailable');
+            track('editor_inline_edit_unavailable', { ...base(), inline_edit_unavailable_reason: 'no_map' });
           }
           setAffordance();
           return;
@@ -276,7 +276,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
         setAffordance();
         if (unavailableSentThisSession) return;
         unavailableSentThisSession = true;
-        track('editor_inline_edit_unavailable');
+        track('editor_inline_edit_unavailable', { ...base(), inline_edit_unavailable_reason: 'no_map' });
       },
     );
   }

@@ -167,6 +167,9 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "24"
+          # package.json names pnpm, so setup-node would otherwise look for a
+          # pnpm binary to cache with. This job installs nothing.
+          package-manager-cache: false
       - name: Lint with oxlint within a 5 second budget
         run: |
           VERSION=$(node -p "require('./package.json').devDependencies.oxlint")

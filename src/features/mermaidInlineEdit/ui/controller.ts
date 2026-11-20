@@ -23,7 +23,7 @@
  * (wired in ../index.ts), so this file runs in tests with fakes.
  */
 import './inlineEdit.css';
-import { EDITABLE_KINDS, type EditRejection, type EditResult, type EditableKind, type GetSourceMap, type SequenceSourceMap } from '../types';
+import { EDITABLE_KINDS, type EditRejection, type EditResult, type EditableKind, type GetSequenceSourceMap, type SequenceSourceMap } from '../types';
 import type { AnalyticsEventName, InlineEditKind } from '@/utils/analytics/catalog';
 import type { AnalyticsProperties } from '@/utils/analytics/types';
 import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace';
@@ -37,7 +37,7 @@ import { createRenderLoop, type RenderLoop } from './renderLoop';
 export type InlineEditEventName = Extract<AnalyticsEventName, `editor_inline_edit_${string}`>;
 
 export interface InlineEditDeps {
-  getSourceMap: GetSourceMap;
+  getSourceMap: GetSequenceSourceMap;
   renameParticipant: (code: string, map: SequenceSourceMap, actorId: string, newName: string) => EditResult;
   editMessageText: (code: string, map: SequenceSourceMap, messageIndex: number, newText: string) => EditResult;
   sourceTextOf: (map: SequenceSourceMap, kind: EditableKind, key: string | number) => string | null;
@@ -150,6 +150,8 @@ const INVALID_CLASS = 'mie-invalid';
 const KIND_PROPERTY: Record<EditableKind, InlineEditKind> = {
   participantLabel: 'participant_label',
   messageText: 'message_text',
+  nodeLabel: 'node_label',
+  edgeLabel: 'edge_label',
 };
 
 // One editor session is one iframe page load (the editor modal is its own iframe).

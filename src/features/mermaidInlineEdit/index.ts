@@ -6,7 +6,7 @@
  */
 import type { Store } from 'vuex';
 import { renameParticipant, editMessageText, sourceTextOf } from './edit';
-import type { GetSourceMap } from './types';
+import type { GetSequenceSourceMap } from './types';
 import { attachInlineEdit, type InlineEditController, type InlineEditDeps, type InlineEditHost } from './ui/controller';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import { getStoreUpdateAction } from '@/model/Diagram/DiagramTypeConfig';
@@ -16,7 +16,7 @@ import { toast } from '@/utils/toast';
 // The parser is loaded on first use (the first sequence render in the editor). getSourceMap
 // runs its own Mermaid work through enqueueMermaid if it needs any; do not
 // wrap it here as well: the queue is serial, so a nested enqueue deadlocks.
-const getSourceMap: GetSourceMap = async (code) => (await import('./sourcemap')).getSourceMap(code);
+const getSourceMap: GetSequenceSourceMap = async (code) => (await import('./sourcemap')).getSourceMap(code);
 
 export function mountMermaidInlineEdit(container: HTMLElement, store: Store<any>, host: InlineEditHost): InlineEditController {
   const deps: InlineEditDeps = {

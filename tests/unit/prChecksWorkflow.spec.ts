@@ -89,6 +89,7 @@ describe('PR checks that do not touch staging', () => {
     const restore = steps.find((step: any) => step.uses?.startsWith('actions/cache/restore@'));
     expect(restore.with.key).toContain("hashFiles('pnpm-lock.yaml', 'patches/**', '.npmrc', 'pnpm-workspace.yaml')");
     expect(restore.with['restore-keys']).toBeUndefined();
+    expect(steps.find((step: any) => step.uses?.startsWith('actions/setup-node@')).with).toMatchObject({ 'package-manager-cache': false });
     expect(steps.find((step: any) => step.uses?.startsWith('actions/setup-node@')).with.cache).toBeUndefined();
     const save = steps.find((step: any) => step.uses?.startsWith('actions/cache/save@'));
     expect(save.if).toContain("cache-hit != 'true'");

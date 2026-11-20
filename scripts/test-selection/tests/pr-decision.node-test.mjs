@@ -484,7 +484,8 @@ test('a selected decision is rejected when the candidate changes API lanes or ca
     addSpec(temp);
     editFile(temp, 'tests/e2e-tests/config/categories.mjs', 'Verifies pasting a /d/ deeplink', 'Checks pasting a /d/ deeplink');
   });
-  assert.match(categories.error ?? '', /PR test decision blocked: invalid/);
+  // CATEGORY_VERSION is static, so only the category catalog fingerprint catches this.
+  assert.match(categories.error ?? '', /invalid-agent-decision/);
 });
 
 test('an embedded trusted catalog must hash to the approved fingerprint', async () => {

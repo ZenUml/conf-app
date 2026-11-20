@@ -15,10 +15,10 @@ const comment = (decision, id = 10, overrides = {}) => ({
   created_at: '2026-10-27T00:00:00Z', updated_at: '2026-10-27T00:00:00Z', html_url: `https://github.com/example/repo/pull/42#issuecomment-${id}`, ...overrides,
 });
 
-async function fixture() {
+async function fixture(files = [{ filename: 'docs/guide.md', status: 'modified', sha: 'blob' }]) {
   const state = {
-    pr: { number: 42, state: 'open', node_id: 'PR_example', draft: true, changed_files: 1, head: { sha: HEAD }, base: { sha: BASE, ref: 'main' }, merge_commit_sha: MERGE },
-    files: [{ filename: 'docs/guide.md', status: 'modified', sha: 'blob' }], comments: [], labels: [],
+    pr: { number: 42, state: 'open', node_id: 'PR_example', draft: true, changed_files: files.length, head: { sha: HEAD }, base: { sha: BASE, ref: 'main' }, merge_commit_sha: MERGE },
+    files, comments: [], labels: [],
     permissions: { maintainer: 'write', visitor: 'read' }, actor: 'maintainer', calls: [],
     commit: { parents: [{ sha: BASE }, { sha: HEAD }], tree: { sha: TREE } },
   };
@@ -380,6 +380,124 @@ test('published full approval survives a candidate product and coverage catalog 
     assert.equal(result.count, 1);
     assert.match(result.selectedError, /invalid-agent-decision/);
   } finally { rmSync(temp, {recursive:true, force:true}); }
+});
+
+
+// A candidate tree that differs from the trusted controller only by `mutate`.
+// The controller (this checkout) authorizes; the candidate resolves and plans.
+const NEW_SPEC = 'tests/e2e-tests/tests/render/additive-catalog.spec.ts';
+const SEQUENCE = 'tests/e2e-tests/tests/render/sequence.spec.ts';
+async function authorizeAdditive(filename = NEW_SPEC) {
+  const f = await fixture([{ filename, status: filename === NEW_SPEC ? 'added' : 'modified', sha: 'blob' }]);
+  const decision = { ...f.decision, scenarios: [pair], evidence: [{ ...f.decision.evidence[0], scenarios: [pair], reason: 'Adds a rendering test.' }] };
+  assert.equal((await publish(f.api, f.context, decision)).executable, true);
+  return authorize(f.api, 42);
+}
+async function runCandidate(mutate, filename) {
+  const { selection, resolved } = await authorizeAdditive(filename);
+  const temp = mkdtempSync(join(tmpdir(), 'pr-candidate-additive-'));
+  try {
+    const root = resolve('.');
+    for (const path of ['scripts/test-selection', 'scripts/e2e-select.mjs', 'tests/e2e-tests/config', 'tests/e2e-tests/tests', 'IMPACT-MAP.md']) {
+      mkdirSync(join(temp, path, '..'), {recursive:true});
+      cpSync(join(root, path), join(temp, path), {recursive:true});
+    }
+    mutate(temp);
+    const script = `
+      import { resolveSelection } from './scripts/test-selection/resolve.mjs';
+      import { scopedPlan } from './scripts/test-selection/scoped-plan.mjs';
+      import { SCENARIO_TESTS, SCENARIO_COVERAGE, API_LANES } from './tests/e2e-tests/config/scenario-coverage.mjs';
+      import { createHash } from 'node:crypto';
+      let input=''; for await (const chunk of process.stdin) input+=chunk;
+      const {selection, resolved}=JSON.parse(input), files=selection.source_paths, head=selection.head_sha, tree=selection.tested_tree;
+      const tagged=SCENARIO_TESTS.filter(t=>t.categories.length);
+      const specs=tagged.map((t,i)=>({id:'t'+i,file:t.file,line:1,title:t.title,tags:[...t.categories.map(c=>'@test:'+c),...t.variants.map(v=>'@variant:'+v),...t.scenarios.map(p=>'@scenario:'+p.feature+':'+p.interface)],tests:[{projectName:t.file.split('/')[0]}]}));
+      specs.push({id:'smoke',file:'fullscreen/example.spec.ts',line:1,title:'example',tags:['@test:sequence','@variant:lite','@smoke'],tests:[{projectName:'fullscreen'}]});
+      const discovery={config:{projects:[]},suites:[{title:'tests',specs}]};
+      const out={candidateCoverage:createHash('sha256').update(JSON.stringify({ browser: SCENARIO_COVERAGE, api: API_LANES })).digest('hex')};
+      try {
+        out.resolved=resolveSelection({selection,files,head,tree});
+        const plan=scopedPlan({discover:()=>discovery,selection,resolved,head,tree,policy:selection.policy_version,variant:'lite',scope:'all',shards:1,grep:resolved.grep,sourcePaths:files,selectionScope:'pr',requireAgentDecision:true});
+        out.planFiles=[...new Set(plan.tests.map(t=>t.file))];
+      } catch(e) { out.error=e.message; }
+      process.stdout.write(JSON.stringify(out));
+    `;
+    // Round-trip the artifacts as CI writes (pretty-printed) and reads them.
+    const input = JSON.stringify({ selection: JSON.parse(JSON.stringify(selection, null, 2)), resolved: JSON.parse(JSON.stringify(resolved, null, 2)) });
+    return { selection, controller: resolved, ...JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script], {cwd:temp, input, encoding:'utf8'})) };
+  } finally { rmSync(temp, {recursive:true, force:true}); }
+}
+const addSpec = temp => writeFileSync(join(temp, NEW_SPEC), `import { test } from '@playwright/test';\n\ntest('additive catalog check', { tag: ['@test:embed-deeplink-autoconvert', '@variant:lite', '@feature:rendering', '@interface:inline-viewer', '@scenario:rendering:inline-viewer'] }, async () => {});\n`);
+const editFile = (temp, path, from, to) => {
+  const file = join(temp, path);
+  const original = readFileSync(file, 'utf8'), changed = original.replace(from, to);
+  assert.notEqual(changed, original, `${path}: ${from}`);
+  writeFileSync(file, changed);
+};
+
+test('a selected decision stays valid when the candidate only adds scenario tests', async () => {
+  const result = await runCandidate(addSpec);
+  assert.equal(result.error, undefined);
+  assert.notEqual(result.candidateCoverage, result.selection.scenario_coverage_fingerprint);
+  // Dependencies come from the trusted catalog: the new spec's own category
+  // (embed-deeplink-autoconvert -> embed-render) does not change the grep.
+  assert.equal(result.resolved.grep, result.controller.grep);
+  assert.equal(result.resolved.agent_categories.includes('@test:embed-render'), false);
+  assert.ok(result.planFiles.includes('render/additive-catalog.spec.ts'), 'new spec runs through the direct-spec floor');
+  assert.ok(result.planFiles.includes('render/sequence.spec.ts'), 'trusted paired tests still run');
+});
+
+test('a selected decision stays valid when the candidate adds a test to an existing spec', async () => {
+  const result = await runCandidate(temp => editFile(temp, SEQUENCE, "test.describe('Sequence Diagram Tests'",
+    "test('additive sibling', { tag: ['@test:sequence-render', '@variant:lite', '@feature:rendering', '@interface:inline-viewer', '@scenario:rendering:inline-viewer'] }, async () => {});\n\ntest.describe('Sequence Diagram Tests'"), SEQUENCE);
+  assert.equal(result.error, undefined);
+  assert.equal(result.resolved.grep, result.controller.grep);
+});
+
+test('an unchanged candidate catalog resolves exactly as before', async () => {
+  const result = await runCandidate(() => {}, SEQUENCE);
+  assert.equal(result.error, undefined);
+  assert.equal(result.candidateCoverage, result.selection.scenario_coverage_fingerprint);
+  assert.equal(result.resolved.grep, result.controller.grep);
+});
+
+test('a selected decision is rejected when the candidate removes, renames or retags a trusted test', async () => {
+  const cases = {
+    removal: temp => { addSpec(temp); rmSync(join(temp, SEQUENCE)); },
+    rename: temp => { addSpec(temp); editFile(temp, SEQUENCE, "'Sequence Diagram Tests'", "'Sequence Diagram Tests (renamed)'"); },
+    'scenario retag': temp => { addSpec(temp); editFile(temp, SEQUENCE, "'@scenario:rendering:inline-viewer'", "'@scenario:rendering:inline-viewer', '@scenario:feedback-report:inline-viewer'"); },
+    'variant retag': temp => { addSpec(temp); editFile(temp, SEQUENCE, "'@variant:diagramly', ", ''); },
+  };
+  for (const [name, mutate] of Object.entries(cases)) {
+    const result = await runCandidate(mutate);
+    assert.match(result.error ?? '', /invalid-agent-decision/, name);
+  }
+});
+
+test('a selected decision is rejected when the candidate changes API lanes or categories', async () => {
+  const api = await runCandidate(temp => {
+    addSpec(temp);
+    editFile(temp, 'tests/e2e-tests/config/api-lanes.mjs', "    { feature: 'agent-authorization', interface: 'external-agent' },\n", '');
+  });
+  assert.match(api.error ?? '', /invalid-agent-decision/);
+  const categories = await runCandidate(temp => {
+    addSpec(temp);
+    editFile(temp, 'tests/e2e-tests/config/categories.mjs', 'Verifies pasting a /d/ deeplink', 'Checks pasting a /d/ deeplink');
+  });
+  assert.match(categories.error ?? '', /PR test decision blocked: invalid/);
+});
+
+test('an embedded trusted catalog must hash to the approved fingerprint', async () => {
+  const { selection } = await authorizeAdditive();
+  const { trustedScenarioCoverage } = await import('../resolve.mjs');
+  assert.ok(trustedScenarioCoverage(selection));
+  const forged = structuredClone(selection);
+  forged.scenario_coverage_fingerprint = 'f'.repeat(64);
+  assert.equal(trustedScenarioCoverage(forged), null);
+  forged.trusted_scenario_coverage.browser[0].tests = [];
+  assert.equal(trustedScenarioCoverage(forged), null);
+  delete forged.trusted_scenario_coverage;
+  assert.equal(trustedScenarioCoverage(forged), null);
 });
 
 

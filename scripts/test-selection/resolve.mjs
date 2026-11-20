@@ -1,6 +1,6 @@
 import process from 'node:process';
 import { createHash } from 'node:crypto';
-import { SCENARIO_COVERAGE, API_LANES, hasPrCoverage } from '../../tests/e2e-tests/config/scenario-coverage.mjs';
+import { SCENARIO_COVERAGE, SCENARIO_COVERAGE_FINGERPRINT, API_LANES, hasPrCoverage, scenarioCoverageFingerprint } from '../../tests/e2e-tests/config/scenario-coverage.mjs';
 import { readFileSync, appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { select, selectAgentFloor } from '../e2e-select.mjs';
@@ -30,6 +30,37 @@ const sha = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
 const fingerprint = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const structuralScenarios = value => Array.isArray(value) && value.every(pair => pair && typeof pair === 'object' && Object.keys(pair).sort().join(',') === 'feature,interface' && typeof pair.feature === 'string' && typeof pair.interface === 'string' && /^[a-z0-9-]+$/.test(pair.feature) && /^[a-z0-9-]+$/.test(pair.interface)) && new Set(value.map(scenarioKey)).size === value.length;
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
+const CATEGORY_CATALOG_FINGERPRINT = createHash('sha256').update(JSON.stringify(CATEGORIES)).digest('hex');
+
+// Returns the scenario catalog a `selected` decision is resolved against, or
+// null. Equal fingerprints use the local catalog. Otherwise the trusted
+// controller's embedded catalog applies only when it hashes to the approved
+// fingerprint and the local catalog is a pure superset of it: same categories,
+// API lanes and category catalog, and every trusted test entry unchanged
+// (removal, rename and retag all fail). Candidate-only tests add coverage only.
+export function trustedScenarioCoverage(selection) {
+  if (selection?.scenario_coverage_fingerprint === SCENARIO_COVERAGE_FINGERPRINT) return SCENARIO_COVERAGE;
+  try {
+    const trusted = selection?.trusted_scenario_coverage;
+    if (!trusted || typeof trusted !== 'object' || !Array.isArray(trusted.browser)
+        || scenarioCoverageFingerprint(trusted) !== selection.scenario_coverage_fingerprint
+        || selection.category_catalog_fingerprint !== CATEGORY_CATALOG_FINGERPRINT
+        || JSON.stringify(trusted.api) !== JSON.stringify(API_LANES)
+        || JSON.stringify(Object.keys(trusted).sort()) !== '["api","browser"]'
+        || JSON.stringify(trusted.browser.map(item => item?.category)) !== JSON.stringify(SCENARIO_COVERAGE.map(item => item.category))) return null;
+    for (const [index, item] of trusted.browser.entries()) {
+      if (!Array.isArray(item.tests) || !structuralScenarios(item.scenarios)) return null;
+      const local = new Map();
+      for (const test of SCENARIO_COVERAGE[index].tests) local.set(JSON.stringify(test), (local.get(JSON.stringify(test)) ?? 0) + 1);
+      for (const test of item.tests) {
+        const key = JSON.stringify(test), count = local.get(key) ?? 0;
+        if (!count) return null;
+        local.set(key, count - 1);
+      }
+    }
+    return trusted.browser;
+  } catch { return null; }
+}
 export function agentDecisionError(selection) {
   if (!fingerprint(selection.scenario_coverage_fingerprint) || !fingerprint(selection.product_impact_fingerprint) || selection.decision_schema_version !== 2 || !structuralScenarios(selection.scenarios)
       || selection.selection_scope !== 'pr' || selection.execution_mode !== 'enabled'
@@ -42,7 +73,7 @@ export function agentDecisionError(selection) {
       || !Array.isArray(selection.source_paths) || !selection.source_paths.length
       || selection.source_paths.some(path => !nonempty(path) || /[\r\n]/.test(path))
       || !Array.isArray(selection.removed_paths) || selection.removed_paths.some(path => !selection.source_paths.includes(path))) return 'invalid-agent-decision';
-  if (selection.mode === 'selected' && (selection.product_impact_fingerprint !== PRODUCT_IMPACT_FINGERPRINT || selection.scenario_coverage_fingerprint !== createHash('sha256').update(JSON.stringify({ browser: SCENARIO_COVERAGE, api: API_LANES })).digest('hex') || !validScenarios(selection.scenarios))) return 'invalid-agent-decision';
+  if (selection.mode === 'selected' && (selection.product_impact_fingerprint !== PRODUCT_IMPACT_FINGERPRINT || !trustedScenarioCoverage(selection) || !validScenarios(selection.scenarios))) return 'invalid-agent-decision';
   if (selection.mode === 'selected' && selection.scenarios.some(pair => !hasPrCoverage(pair))) return 'scenario-without-e2e-coverage';
   if (selection.mode === 'all' && (selection.source !== 'triage' || !nonempty(selection.full_reason))) return 'full-requires-triage';
   const categories = selection.categories;
@@ -58,7 +89,7 @@ export function resolveAgentSelection({ selection, files, head, tree }) {
   if (!Array.isArray(files) || JSON.stringify([...files].sort()) !== JSON.stringify([...selection.source_paths].sort())) throw new Error('PR test decision blocked: changed paths differ');
   const floor = selectAgentFloor(files, { removedPaths: selection.removed_paths });
   const chosen = selection.mode === 'all' ? [] : selection.scenarios.map(scenarioTag);
-  const dependencies = selection.mode === 'all' ? [] : dependencyTagsForScenarios(selection.scenarios, { directFiles: floor.direct_test_files, floorTags: floor.tags });
+  const dependencies = selection.mode === 'all' ? [] : dependencyTagsForScenarios(selection.scenarios, { directFiles: floor.direct_test_files, floorTags: floor.tags, coverage: trustedScenarioCoverage(selection) });
   const agentGrep = categoryGrep([...chosen, ...dependencies]);
   return {
     mode: selection.mode, selection_scope: 'pr', decision_source: 'agent', decision_id: selection.decision_id,

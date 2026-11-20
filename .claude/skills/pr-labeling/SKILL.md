@@ -41,6 +41,16 @@ When the user explicitly asks to try labeling an existing PR before the trusted 
 
 2. Choose `selected` only when a concrete subset covers the changed behavior. Retain smoke, directly changed E2E specs and the known dependency selectors in the reported floor. Read the relevant contracts and conditional boundaries in root [IMPACT-MAP.md](../../../IMPACT-MAP.md). Record exact `{feature, interface}` pairs from nonempty cells. A pair is AND; multiple pairs are OR. Never generate a Cartesian product from dimension labels or expand parent interfaces. Scenarios may be empty only for a justified floor-only decision. Check assertion-backed coverage, known dependencies, variants and actual PR suite applicability; a registered product relation alone is not E2E coverage. A declared pair without registered E2E coverage cannot authorize a subset. A path that reaches shared code needs its actual callers assessed; a filename alone does not establish the coverage.
 
+   A PR that changes the scenario catalog can still get `selected` when the change is additive only:
+
+   | PR change to the scenario catalog | `selected` decision |
+   | --- | --- |
+   | None | Valid |
+   | Only adds scenario-tagged tests and/or new pairs; every test entry and pair in the trusted (`main`) catalog is unchanged | Valid. Choose pairs that the trusted catalog covers (`inspect` shows them); the new spec runs through the direct-spec floor |
+   | Removes, renames or retags an existing scenario test, or changes `API_LANES`, `product-impact.mjs` (IMPACT-MAP.md) or `categories.mjs` | Invalid; choose `triage` |
+
+   A pair that only the PR's new test covers is still uncovered in the trusted catalog and cannot be selected. Details: [PR test-decision policy](../../../docs/policies/pr-test-decisions.md#activation-and-limits).
+
 3. When a product relation, test pairing, applicable variant/suite or dependency cannot be established, choose `triage`; do not invent tags or treat source-only/UI-unverified wiring as passed E2E. When full coverage appears necessary, or the diff, dependencies or evidence are incomplete, choose `triage` and explain the gap. Full coverage is always a manual triage decision. Do not invoke `pr-triage` automatically or extend an earlier full approval to a new commit.
 
 ## Publish the decision

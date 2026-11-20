@@ -87,6 +87,7 @@ const defaultDeps = {
   git: run("git"),
   classify: (baseSha, headSha) => classifyChange(buildInputFromGit(baseSha, headSha)),
   sleep: (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms),
+  now: () => new Date(),
 };
 
 const LIST_FIELDS = "number,isDraft,author,headRefOid,baseRefName,mergeable,labels,isCrossRepository,headRepository,headRepositoryOwner";
@@ -94,7 +95,7 @@ const LIST_FIELDS = "number,isDraft,author,headRefOid,baseRefName,mergeable,labe
 const msg = (e) => String(e?.stderr?.toString().trim() || e?.message || e).split("\n")[0].slice(0, 200);
 
 export function main(argv = process.argv.slice(2), env = process.env, out = process.stdout, deps = defaultDeps, err = process.stderr) {
-  const { gh, git, classify, sleep } = { ...defaultDeps, ...deps };
+  const { gh, git, classify, sleep, now } = { ...defaultDeps, ...deps };
   const dryRun = argv.includes("--dry-run") || env.AUTO_LANE_DRY_RUN === "true";
   const unknown = argv.filter((a) => a !== "--dry-run");
   if (unknown.length) {
@@ -113,7 +114,7 @@ export function main(argv = process.argv.slice(2), env = process.env, out = proc
     const repo = env.GITHUB_REPOSITORY || gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).trim();
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error("cannot determine the repository");
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = now().toISOString().slice(0, 10);
     const mergedToday = JSON.parse(
       gh(["pr", "list", "--repo", repo, "--state", "merged", "--label", LEDGER_LABEL, "--search", `merged:>=${today}`, "--json", "number", "--limit", "100"]),
     ).length;
@@ -162,7 +163,7 @@ export function main(argv = process.argv.slice(2), env = process.env, out = proc
           mergeable,
           labels: (row.labels ?? []).map((l) => l.name),
         };
-        const decision = decide({ enabled, pr, classification, checks, mergedToday, now: new Date().toISOString() });
+        const decision = decide({ enabled, pr, classification, checks, mergedToday, now: now().toISOString() });
         if (decision.action === "merge" && wouldMerge) {
           line("skip", "one-merge-per-run (would qualify)", classification?.lane);
           continue;

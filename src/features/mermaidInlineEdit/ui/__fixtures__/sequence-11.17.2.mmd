@@ -1,0 +1,10 @@
+sequenceDiagram
+  participant A as Alice
+  actor B as Bob
+  participant D@{ "type" : "database" }
+  A->>B: Hello<br/>two lines
+  A->>D: $$x^2$$
+  Note over A,D: a note
+  B->>A: wrap:this is a very long message that should wrap because it is very long indeed and keeps going on
+  A->>A: Same
+  A->>A: Same

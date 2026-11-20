@@ -1,0 +1,52 @@
+/* Mermaid sequence inline edit. Global, not scoped: the svg arrives through
+   v-html. Everything is keyed off `.mie-enabled`, which the controller sets on
+   the editor preview only while a source map exists for the code on screen. */
+
+.mie-enabled svg [data-et="participant"],
+.mie-enabled svg [data-seq-participant-for],
+.mie-enabled svg text[data-seq-for] {
+  cursor: text;
+}
+
+/* `outline` does not paint on SVG g/text in every browser; a drop shadow does.
+   The controller puts .mie-hover on every element of the hovered target. */
+.mie-enabled svg .mie-hover {
+  filter: drop-shadow(0 0 2px #0094d9);
+}
+
+/* After a successful edit: about 1 s on the element that changed. */
+@keyframes mie-flash {
+  0%, 60% { filter: drop-shadow(0 0 4px #0094d9); }
+  100% { filter: none; }
+}
+
+svg .mie-flash {
+  animation: mie-flash 1s ease-out 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  svg .mie-flash {
+    animation: none;
+    filter: drop-shadow(0 0 3px #0094d9);
+  }
+}
+
+/* The text box: fixed on document.body, outside the svg, so svg-pan-zoom,
+   Hammer and the viewport wheel handler never see it. Style follows
+   .viewer-title-input (GenericViewer.vue). */
+.mie-input {
+  position: fixed;
+  z-index: 1001;
+  box-sizing: border-box;
+  height: 28px;
+  margin: 0;
+  padding: 3px 6px;
+  background: #fff;
+  border: 1px solid #0094d9;
+  border-radius: 6px;
+  outline: none;
+  box-shadow: 0 2px 6px rgba(9, 30, 66, 0.2);
+  font: inherit;
+  font-size: 14px;
+  color: #172b4d;
+}

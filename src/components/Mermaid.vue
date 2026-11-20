@@ -36,6 +36,7 @@ import { awaitSvgTextLayout } from '@/utils/renderGate/documentLayout';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue';
 import { attachMermaidHighlights } from '../../tools/mermaid-highlights/src/mermaid-highlights.mjs';
+import { MERMAID_INLINE_EDIT_SURFACE } from '@/features/mermaidInlineEdit/ui/surface';
 
 // A wait for a measurable layout that outlasts this reports one
 // viewer_render_deferred, so a hidden macro is told apart from a broken one (#706).
@@ -49,6 +50,8 @@ export default {
     readOnly: { type: Boolean, default: false },
   },
   emits: ['highlight-ready', 'highlight-used'],
+  // True only under Workspace.vue (the editor preview). See ui/surface.ts.
+  inject: { inlineEditSurface: { from: MERMAID_INLINE_EDIT_SURFACE, default: false } },
   data() {
     return {
       svg: null,
@@ -58,6 +61,9 @@ export default {
       currentFlowchartModel: null,
       renderGeneration: 0,
       layoutWaitController: null,
+      // Mermaid sequence inline edit (src/features/mermaidInlineEdit).
+      inlineEdit: null,
+      inlineEditRenderedCode: null,
     }
   },
   computed: {
@@ -71,6 +77,10 @@ export default {
     isDisplayMode() {
       return this.$store.getters.isDisplayMode;
     },
+    inlineEditAllowed() {
+      return this.inlineEditSurface === true && !this.isDisplayMode && !this.readOnly
+        && window.forgeGlobal?.forgeContext?.extension?.modal?.openExport !== true;
+    },
     highlightSurfaceAllowed() {
       // Export-entry renders are photographed at native size, never interactive.
       return this.isDisplayMode && !this.readOnly && !this.captureMode
@@ -78,6 +88,7 @@ export default {
     },
   },
   async mounted() {
+    void this.startInlineEdit();
     const code = this.mermaidCode;
     if (!code) {
       // #113: an empty body is the wipe signal. Report the view, with the
@@ -104,6 +115,9 @@ export default {
     this.clearHighlights();
     this.layoutWaitController?.abort();
     this.layoutWaitController = null;
+    this.inlineEdit?.destroy();
+    this.inlineEdit = null;
+    this.inlineEditRenderedCode = null;
   },
   watch: {
     readOnly() {
@@ -122,6 +136,7 @@ export default {
       if (this.relationshipHighlights && this.highlightSurfaceAllowed && this.mermaidCode) this.renderAndApply(this.mermaidCode);
     },
     async mermaidCode(newVal) {
+      this.inlineEdit?.onCodeChanged(newVal);
       if (!newVal) {
         this.renderGeneration++;
         this.layoutWaitController?.abort();
@@ -138,6 +153,7 @@ export default {
     /** Synchronous capture boundary: call before ExportModal starts cloning DOM. */
     setCaptureMode(active) {
       this.captureMode = !!active;
+      this.inlineEdit?.setSuspended(this.captureMode);
       this.clearHighlights();
       if (!this.captureMode && this.relationshipHighlights && this.highlightSurfaceAllowed) {
         if (this.currentFlowchartModel) this.installHighlights();
@@ -192,6 +208,14 @@ export default {
         this.clearHighlights();
       }
     },
+    /** Editor preview only; the module (and its parser) loads only there. */
+    async startInlineEdit() {
+      if (!this.inlineEditAllowed) return;
+      const { mountMermaidInlineEdit } = await import('@/features/mermaidInlineEdit');
+      if (this.inlineEdit || !this.$el?.isConnected) return;
+      this.inlineEdit = mountMermaidInlineEdit(this.$el, this.$store);
+      if (this.svg && this.inlineEditRenderedCode === this.mermaidCode) this.inlineEdit.onRendered(this.inlineEditRenderedCode);
+    },
     /** Re-bind the pan/zoom viewport after the slotted SVG changes. */
     initializeViewport() {
       return this.$refs.viewport?.attach();
@@ -224,6 +248,8 @@ export default {
       await this.initializeViewport();
       if (generation !== this.renderGeneration || this.mermaidCode !== code) return false;
       this.installHighlights();
+      this.inlineEditRenderedCode = code;
+      this.inlineEdit?.onRendered(code);
       reportDiagramReady(this.$el, 'mermaid');
       return true;
     },

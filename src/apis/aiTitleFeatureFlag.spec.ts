@@ -43,6 +43,7 @@ import {
   isAiChatRepairEnabled,
   isAiRepairEnabled,
   isArchitectureTokensEnabled,
+  isMermaidInlineEditEnabled,
   isNoLicenseNoticeEnabled,
   resetFeatureFlagsForTests,
 } from './aiTitleFeatureFlag'
@@ -254,6 +255,39 @@ describe('isNoLicenseNoticeEnabled', () => {
     await expect(isNoLicenseNoticeEnabled()).resolves.toBe(false)
     localStorage.setItem('mockNoLicenseNoticeEnabled', 'true')
     await expect(isNoLicenseNoticeEnabled()).resolves.toBe(true)
+    expect(featureFlagsState.instances).toHaveLength(0)
+  })
+})
+
+describe('isMermaidInlineEditEnabled', () => {
+  beforeEach(() => {
+    resetFeatureFlagsForTests()
+    forgeState.isForge = true
+    forgeState.context = { cloudId: 'cloud-1', accountId: 'account-1', environmentType: 'STAGING' }
+    featureFlagsState.instances = []
+    featureFlagsState.nextValue = true
+    featureFlagsState.initializeError = undefined
+    featureFlagsState.checkError = undefined
+    localStorage.clear()
+  })
+
+  it('checks the Forge mermaid-inline-edit-enabled flag with a false default', async () => {
+    await expect(isMermaidInlineEditEnabled()).resolves.toBe(true)
+    expect(featureFlagsState.instances[0].checkFlag).toHaveBeenCalledWith('mermaid-inline-edit-enabled', false)
+  })
+
+  it('fails closed when the flag lookup fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    featureFlagsState.checkError = new Error('flag service unavailable')
+    await expect(isMermaidInlineEditEnabled()).resolves.toBe(false)
+    consoleError.mockRestore()
+  })
+
+  it('is off in standalone dev unless localStorage opts in', async () => {
+    forgeState.isForge = false
+    await expect(isMermaidInlineEditEnabled()).resolves.toBe(false)
+    localStorage.setItem('mockMermaidInlineEditEnabled', 'true')
+    await expect(isMermaidInlineEditEnabled()).resolves.toBe(true)
     expect(featureFlagsState.instances).toHaveLength(0)
   })
 })

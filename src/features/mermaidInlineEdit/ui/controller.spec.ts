@@ -228,6 +228,20 @@ describe('gates', () => {
     expect(h.deps.track).not.toHaveBeenCalled();
   });
 
+  it('a click on a link in a sequence diagram (actor link menu) is left alone', async () => {
+    const h = setup();
+    await h.render();
+    const svg = h.container.querySelector('svg')!;
+    const a = document.createElementNS('http://www.w3.org/2000/svg', 'a');
+    a.setAttribute('href', 'https://example.com/');
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    a.appendChild(t);
+    svg.appendChild(a);
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 });
+    t.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(false);
+  });
+
   it('not a sequence diagram: no map request, no cursor', async () => {
     const h = setup();
     svgOf(h).setAttribute('aria-roledescription', 'flowchart-v2');

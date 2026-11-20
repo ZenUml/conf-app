@@ -175,10 +175,42 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
 
+  # oxlint needs no project install: one pinned binary, fetched by npx. The
+  # version is read from package.json, so `pnpm lint` and CI always agree.
+  # The fetch happens before the timer starts, so the 5 s budget covers the
+  # lint run itself. Measured locally: about 1.8 s for 1,327 files.
+  lint:
+    needs: basic-scope
+    if: ${{ always() && github.event.action != 'labeled' && needs.basic-scope.outputs.run != 'false' }}
+    name: ${{ github.event.action == 'labeled' && 'Ignored label lint' || 'Lint' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      - name: Lint with oxlint within a 5 second budget
+        run: |
+          VERSION=$(node -p "require('./package.json').devDependencies.oxlint")
+          npx --yes "oxlint@$VERSION" --version
+          START=$(date +%s%N)
+          STATUS=0
+          npx --yes "oxlint@$VERSION" -c .oxlintrc.json src/ functions/ scripts/ tests/unit/ || STATUS=$?
+          ELAPSED_MS=$(( ($(date +%s%N) - START) / 1000000 ))
+          echo "oxlint $VERSION took ${ELAPSED_MS} ms (budget 5000 ms)"
+          if [ "$STATUS" -ne 0 ]; then exit "$STATUS"; fi
+          if [ "$ELAPSED_MS" -gt 5000 ]; then
+            echo "::error::oxlint took ${ELAPSED_MS} ms, over the 5000 ms budget"
+            exit 1
+          fi
+
   # One result for people and tools that look for this name.
   build:
     name: ${{ github.event.action == 'labeled' && 'Ignored label build' || 'Build and Unit Test' }}
-    needs: [basic-scope, unit, asyncapi-build, mcp-app-build]
+    needs: [basic-scope, unit, asyncapi-build, mcp-app-build, lint]
     if: ${{ always() && github.event.action != 'labeled' && needs.basic-scope.outputs.run != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -188,9 +220,10 @@ jobs:
           UNIT: ${{ needs.unit.result }}
           ASYNCAPI: ${{ needs.asyncapi-build.result }}
           MCP_APP: ${{ needs.mcp-app-build.result }}
+          LINT: ${{ needs.lint.result }}
         run: |
-          echo "Unit tests: $UNIT; AsyncAPI build: $ASYNCAPI; MCP app build and CI script tests: $MCP_APP"
-          [ "$UNIT" = success ] && [ "$ASYNCAPI" = success ] && [ "$MCP_APP" = success ]
+          echo "Unit tests: $UNIT; AsyncAPI build: $ASYNCAPI; MCP app build and CI script tests: $MCP_APP; Lint: $LINT"
+          [ "$UNIT" = success ] && [ "$ASYNCAPI" = success ] && [ "$MCP_APP" = success ] && [ "$LINT" = success ]
 
   authorize-preview:
     name: Authorize preview tests

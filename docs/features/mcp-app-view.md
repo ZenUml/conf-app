@@ -45,6 +45,10 @@ A second, public MCP endpoint, `POST /mcp` (route `functions/mcp/index.ts`, logi
 - **Route:** `/mcp` and `/mcp/render` are listed in `public/_routes.json` (without it Pages serves the SPA's HTML there). `_middleware.ts` does not authenticate it. It sits outside `/agent-link/` because the URL is public and has nothing to do with linking to Confluence; the Confluence connector stays at `/agent-link/mcp`.
 - **Analytics:** the existing `agent_link_mcp_initialized`, `agent_link_mcp_tool_called` and `agent_link_app_view_*` events, with `mcp_mode: 'render'`. `_tool_called` adds `macro_type`, `render_validation` (`valid` | `invalid` | `unvalidated`) and `render_type_source` (`given` | `detected`). There is no user, so these share Mixpanel's `unknown_user_account_id`; filter by `mcp_mode`.
 
+## Rendering on the user's machine: `tools/render-mcp-local`
+
+A remote server always receives the tool call's arguments, so `POST /mcp` sees every source it draws. `tools/render-mcp-local` is the same `render_diagram` tool, run as a stdio server on the user's machine; it shares `functions/agent-link/renderTool.ts`, the DSL guides and `oauth/mcpApps.ts` with the Worker. Its `resources/read` fetches `view.html` from `https://zenuml.com` and declares that origin in `_meta.ui.csp`, so the host loads the same view and assets, while the source stays between the host and the local process. Our servers still see the asset fetches (which reveal the diagram type) and the enum-only `/mcp/view-event` posts. See its README.
+
 ## Pieces
 
 | Piece | Role |

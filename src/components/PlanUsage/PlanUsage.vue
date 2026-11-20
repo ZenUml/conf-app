@@ -50,11 +50,7 @@
         <template v-if="overLimitSpaces.length">
           <h2 class="section-title">Spaces over the limit</h2>
           <p class="purchase-help" data-testid="plan-usage-purchase-help">Unlock one space by card. Checkout opens in a new tab<template v-if="!showBundleOffer">: ${{ ENTERPRISE_BUNDLE_ANNUAL_COST }} per space per year, plus tax where applicable</template>. No Confluence admin needed.</p>
-          <aside v-if="showBundleOffer" class="bundle-offer">
-            <strong>Black Friday · 50% off the first year</strong>
-            <p>{{ BLACK_FRIDAY_PRICE }} per space for the first year. {{ BLACK_FRIDAY_TERMS }}</p>
-            <p>{{ BLACK_FRIDAY_DEADLINE }}</p>
-          </aside>
+          <BundleBlackFridayOffer v-if="showBundleOffer" />
           <p v-if="paidLookupFailed" class="purchase-help" role="status">We couldn’t check paid access. Purchase options are unavailable for now.</p>
           <table class="space-table">
             <thead><tr><th>Space</th><th class="num">Diagrams / limit</th><th class="purchase-heading">Unlock one space</th></tr></thead>
@@ -153,9 +149,10 @@
 import { ref, onMounted, computed } from 'vue'
 import { getSpaceStatuses, type PaidStatus } from '@/apis/spaceStatuses'
 import { enterpriseBundleCheckout } from '@/utils/paywall/enterpriseBundleCheckout'
-import { BLACK_FRIDAY_OFFER, BLACK_FRIDAY_PRICE, BLACK_FRIDAY_PRICE_USD, BLACK_FRIDAY_TERMS, BLACK_FRIDAY_DEADLINE, BUNDLE_RENEWAL_PRICE, bundleOfferCheckoutUrl } from '@/utils/paywall/bundleBlackFriday'
+import { BLACK_FRIDAY_OFFER, BLACK_FRIDAY_PRICE, BLACK_FRIDAY_PRICE_USD, BUNDLE_RENEWAL_PRICE, bundleOfferCheckoutUrl } from '@/utils/paywall/bundleBlackFriday'
 import { useBundleBlackFriday } from '@/utils/paywall/useBundleBlackFriday'
 import { openBundleCheckout } from '@/utils/paywall/openBundleCheckout'
+import BundleBlackFridayOffer from '@/components/UpgradePrompt/BundleBlackFridayOffer.vue'
 import { ENTERPRISE_BUNDLE_ANNUAL_COST } from '@/components/UpgradePrompt/upgradePrompt'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 import forgeGlobal, { openUrl } from '@/model/globals/forgeGlobal'
@@ -478,9 +475,6 @@ table.space-table { width: 720px; max-width: 100%; border-collapse: collapse; ta
 }
 .space-table td { height: 60px; padding: 0; border-bottom: 0.5px solid var(--pu-hairline); font-weight: 500; }
 .space-table .num { text-align: right; }
-.bundle-offer { margin: 0 0 12px; padding: 10px 14px; border-radius: 6px; background: #f3eefd; color: #4c2981; font-size: 12px; line-height: 18px; }
-.bundle-offer strong { font-size: 14px; }
-.bundle-offer p { margin: 0; }
 .space-price small { display: block; color: var(--pu-text-low); font-size: 12px; font-weight: 400; }
 .purchase-help { color: var(--pu-text-low); margin: 0 0 12px; font-size: 12px; line-height: 16px; }
 .space-table .purchase-heading { padding-left: 32px; }

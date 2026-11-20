@@ -17,6 +17,7 @@
         <label class="recovery__label" for="recovery-note">Anything that would help us understand your use</label>
         <textarea id="recovery-note" v-model="note" rows="3" maxlength="2000" />
       </details>
+      <BundleBlackFridayOffer v-if="blackFriday" />
       <div class="recovery__actions">
         <button type="button" class="recovery__primary" :disabled="scenarios.length === 0" @click="showContact">Contact support</button>
         <button type="button" class="recovery__secondary" @click="planUsage">Plan and usage</button>
@@ -65,6 +66,7 @@
       <h1 id="recovery-title">{{ copy.expiredTitle }}</h1>
       <p class="recovery__lead">{{ copy.expiredLead(expiryText) }}</p>
       <p>{{ copy.expiredPrompt }}</p>
+      <BundleBlackFridayOffer v-if="blackFriday" />
       <div class="recovery__actions">
         <button type="button" class="recovery__primary" @click="showRequest">Continue the conversation</button>
         <button type="button" class="recovery__secondary" @click="planUsage">Plan and usage</button>
@@ -99,6 +101,8 @@ import { RECOVERY_FEATURE_DEFINITIONS } from '../../../shared/fullscreenRecovery
 import type { RecoveryFeature, RecoveryRequestInput, RecoveryResult, RecoveryScenario, RecoverySnapshot } from '../../../shared/fullscreenRecovery'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { requestFullscreenRecovery } from '@/apis/fullscreenRecovery'
+import BundleBlackFridayOffer from '@/components/UpgradePrompt/BundleBlackFridayOffer.vue'
+import { useBundleBlackFriday } from '@/utils/paywall/useBundleBlackFriday'
 import RequestSummary from './RequestSummary.vue'
 import { fullLocalDate, recoveryCopy, safeSupportMailto, scenarioLabel } from './recoveryPresentation'
 
@@ -134,6 +138,7 @@ const localSnapshot = ref(props.snapshot)
 const view = ref<View>(viewForSnapshot(props.snapshot))
 watch(() => props.snapshot, (next) => { localSnapshot.value = next; view.value = viewForSnapshot(next) })
 
+const blackFriday = useBundleBlackFriday()
 const copy = computed(() => recoveryCopy[props.feature])
 const definition = computed(() => RECOVERY_FEATURE_DEFINITIONS[props.feature])
 const scenarioCodes = computed(() => definition.value.scenarios as readonly RecoveryScenario[])

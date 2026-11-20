@@ -41,6 +41,36 @@ function large(): string {
   return lines.join('\n')
 }
 
+// Flowchart: several shapes, a bare-id node (D), pipe and inline edge labels,
+// a <br/> label.
+const FLOW = `flowchart LR
+  A[Start] -->|yes| B(Round label)
+  B -- inline text --> C{Decide}
+  C --> D
+  C ==>|thick| E([Stadium])
+  E -.-> F[[Sub routine]]
+  F --> G[(Database)]
+  G --> H[line one<br/>line two]`
+
+// Read-only mix: markdown label, shared edge label (G & H), unlabeled edge,
+// linked node. Only A, B, C and the "ok" edge are editable.
+const FLOW_READ_ONLY = `flowchart TD
+  A[Plain] -->|ok| B["\`**markdown** label\`"]
+  G[Left] & H[Right] -->|shared| C[Target]
+  C --> D[Linked]
+  click D href "https://example.com"`
+
+/** ~50 nodes in a binary tree with labelled edges, for the slow-render guard. */
+function largeFlow(n = 50): string {
+  const lines = ['flowchart TD']
+  for (let i = 0; i < n; i += 1) lines.push(`  N${i}[Node number ${i}]`)
+  for (let i = 1; i < n; i += 1) {
+    lines.push(`  N${Math.floor((i - 1) / 2)} -->|e${i}| N${i}`)
+    if (i % 5 === 0 && i > 3) lines.push(`  N${i} --> N${i - 3}`)
+  }
+  return lines.join('\n')
+}
+
 // Handle for the measurement harness and by-hand inspection.
 ;(window as any).__mieStore = store
 
@@ -63,9 +93,9 @@ const layer = () => document.querySelector('[data-testid="mermaid-inline-edit-la
 const hint = () => document.querySelector('[data-testid="mermaid-inline-edit-hint"]') as HTMLElement | null
 
 /** Wait until the preview is editable (map computed for the code on screen). */
-async function editable() {
+async function editable(roledescription = 'sequence') {
   await waitFor(() => {
-    expect(preview().querySelector('.mie-enabled svg[aria-roledescription="sequence"]')).not.toBeNull()
+    expect(preview().querySelector(`.mie-enabled svg[aria-roledescription="${roledescription}"]`)).not.toBeNull()
   }, { timeout: 15_000 })
 }
 
@@ -103,6 +133,25 @@ async function retype(text: string) {
   })
 }
 
+const svgRoot = () => preview().querySelector('.diagram-viewport-content svg') as SVGSVGElement
+
+/** A flowchart node's label element (found by node id; the svg id changes on every render). */
+function flowNode(id: string): HTMLElement {
+  const root = svgRoot()
+  const g = Array.from(root.querySelectorAll('g.node')).find(e => new RegExp(`^${root.id}-flowchart-${id}-\\d+$`).test(e.id))
+  const label = g?.querySelector('span.nodeLabel p') ?? g?.querySelector('span.nodeLabel')
+  if (!label) throw new Error(`node ${id} not rendered`)
+  return label as HTMLElement
+}
+
+/** A flowchart edge label element by its db edge id (`L_A_B_0`). */
+function flowEdge(edgeId: string): HTMLElement {
+  const g = Array.from(svgRoot().querySelectorAll('g.edgeLabel g.label[data-id]')).find(e => e.getAttribute('data-id') === edgeId)
+  const label = g?.querySelector('span.edgeLabel p') ?? g?.querySelector('span.edgeLabel')
+  if (!label) throw new Error(`edge ${edgeId} not rendered`)
+  return label as HTMLElement
+}
+
 const decorate = (source: string) => [() => {
   prepare(source)
   return { template: '<div style="height: 760px;"><story /></div>' }
@@ -129,7 +178,7 @@ const meta: Meta<typeof Workspace> = {
     docs: {
       description: {
         component:
-          'Double-click a participant label or a message text of a Mermaid sequence diagram in the editor preview and edit it where it is. The diagram re-lays out on every keystroke; the source is written once, on Enter or click away. Esc cancels.',
+          'Double-click a participant label or a message text of a Mermaid sequence diagram, or a node label or an edge label of a flowchart, in the editor preview and edit it where it is. The diagram re-lays out while you type; the source is written once, on Enter or click away. Esc cancels.',
       },
     },
   },
@@ -212,6 +261,93 @@ export const EscCancels: Story = {
     await userEvent.keyboard('{Escape}')
     await waitFor(() => expect(layer()).toBeNull())
     await waitFor(() => expect(messageText(2).textContent).toBe('Fine'))
+    expect(code()).toBe(before)
+  },
+}
+
+/** Flowchart, by hand: shapes, a bare-id node (D), pipe and inline edge labels. */
+export const FlowchartTryByHand: Story = { decorators: decorate(FLOW) }
+
+/** Read-only mix: double-clicks on the markdown label, the shared edge label and the linked node do nothing. */
+export const FlowchartReadOnlyMix: Story = {
+  decorators: decorate(FLOW_READ_ONLY),
+  play: async () => {
+    await editable('flowchart-v2')
+    const before = code()
+    for (const el of [flowNode('B'), flowNode('D'), flowEdge('L_G_C_0'), flowEdge('L_H_C_0')]) {
+      await userEvent.dblClick(el)
+      expect(layer()).toBeNull()
+    }
+    expect(code()).toBe(before)
+    // The plain node next to them is editable.
+    await userEvent.dblClick(flowNode('A'))
+    await waitFor(() => expect(layer()?.textContent).toBe('Plain'))
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => expect(layer()).toBeNull())
+  },
+}
+
+/** ~50 nodes: renders are slow enough that previews wait for a typing pause (slow-render guard). */
+export const FlowchartLarge: Story = { decorators: decorate(largeFlow()) }
+
+/** Edit a node label: live re-layout, the source is written on Enter. */
+export const FlowchartEditNode: Story = {
+  decorators: decorate(FLOW),
+  play: async () => {
+    await editable('flowchart-v2')
+    const before = code()
+    await userEvent.dblClick(flowNode('B'))
+    await waitFor(() => expect(layer()?.textContent).toBe('Round label'))
+    await retype('A much longer round label')
+    await waitFor(() => expect(flowNode('B').textContent).toBe('A much longer round label'))
+    expect(code()).toBe(before)
+    await userEvent.keyboard('{Enter}')
+    await waitFor(() => expect(code()).toBe(before.replace('B(Round label)', 'B(A much longer round label)')))
+    await waitFor(() => expect(layer()).toBeNull())
+  },
+}
+
+/** Edit an edge label: the pipe form stays. */
+export const FlowchartEditEdge: Story = {
+  decorators: decorate(FLOW),
+  play: async () => {
+    await editable('flowchart-v2')
+    const before = code()
+    await userEvent.dblClick(flowEdge('L_A_B_0'))
+    await waitFor(() => expect(layer()?.textContent).toBe('yes'))
+    await retype('yes please')
+    await userEvent.keyboard('{Enter}')
+    await waitFor(() => expect(code()).toBe(before.replace('-->|yes|', '-->|yes please|')))
+  },
+}
+
+/** A node that shows its id: the edit inserts `[text]` after it. */
+export const FlowchartBareIdNode: Story = {
+  decorators: decorate(FLOW),
+  play: async () => {
+    await editable('flowchart-v2')
+    const before = code()
+    await userEvent.dblClick(flowNode('D'))
+    await waitFor(() => expect(layer()?.textContent).toBe('D'))
+    await retype('Done')
+    await userEvent.keyboard('{Enter}')
+    await waitFor(() => expect(code()).toBe(before.replace('C --> D', 'C --> D[Done]')))
+  },
+}
+
+/** Esc leaves the source as it was and puts the stored picture back. */
+export const FlowchartEscCancels: Story = {
+  decorators: decorate(FLOW),
+  play: async () => {
+    await editable('flowchart-v2')
+    const before = code()
+    await userEvent.dblClick(flowNode('A'))
+    await waitFor(() => expect(layer()?.textContent).toBe('Start'))
+    await retype('Begin here')
+    await waitFor(() => expect(flowNode('A').textContent).toBe('Begin here'))
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => expect(layer()).toBeNull())
+    await waitFor(() => expect(flowNode('A').textContent).toBe('Start'))
     expect(code()).toBe(before)
   },
 }

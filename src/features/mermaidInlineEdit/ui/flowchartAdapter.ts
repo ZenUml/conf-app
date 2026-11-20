@@ -38,9 +38,12 @@ export interface FlowchartInlineEditDeps {
 }
 
 /**
- * Previews slower than this switch to debounced renders. Measured in
- * Storybook's Chromium (docs/features/mermaid-inline-edit.md, "Flowcharts"):
- * ~10 nodes render in well under it, ~50 nodes above it.
+ * Previews slower than this switch to debounced renders. 150 ms is about the
+ * gap between keys at ordinary typing speed (~400 characters a minute), so a
+ * slower render cannot follow the keys and only queues stale pictures.
+ * Measured in Storybook's Chromium, input to re-placed layer, median
+ * (docs/features/mermaid-inline-edit.md, "Flowcharts"): 10 nodes 32 ms,
+ * 50 nodes 113 ms, 150 nodes 329 ms.
  */
 export const FLOWCHART_SLOW_RENDER_MS = 150;
 

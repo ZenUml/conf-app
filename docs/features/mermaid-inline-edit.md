@@ -130,7 +130,7 @@ They never carry diagram text, actor ids or message indexes. Rate 1
 | `editor_inline_edit_succeeded` | The edit was written to the source | `inline_edit_kind`, `inline_edit_had_alias`, `inline_edit_ms_open` |
 | `editor_inline_edit_rejected` | The layer closed with text that cannot be used (click elsewhere), the stale check refused the commit, or the element had no source range (no layer opened). Invalid text while typing sends nothing | `inline_edit_kind`, `inline_edit_rejection`, `inline_edit_had_alias`, `inline_edit_ms_open` (absent when the layer never opened) |
 | `editor_inline_edit_cancelled` | Esc (also while the text is invalid), or closed with unchanged text | `inline_edit_kind`, `inline_edit_cancel_reason` (`escape` / `unchanged`), `inline_edit_ms_open` |
-| `editor_inline_edit_unavailable` | A sequence diagram rendered in the editor, but the parser gave no map. At most once per editor session (iframe page load) | none |
+| `editor_inline_edit_unavailable` | Sequence: a diagram rendered in the editor, but the parser gave no map; at most once per editor session (iframe page load). Flowchart: a double-click on a label that cannot be edited; at most once per editor session per reason | `inline_edit_unavailable_reason` (flowchart, and `no_map` on sequence) |
 
 `inline_edit_kind` is `participant_label` or `message_text` (sequence), or
 `node_label` or `edge_label` (flowchart, registered ahead of the flowchart UI).
@@ -179,6 +179,49 @@ ships without a flag, so exclude editor sessions that have
 - Any surface other than the editor preview, and narrow or touch layouts (the
   editor is desktop only).
 
+## Flowcharts
+
+Same session, layer, render loop, commit and events as sequence diagrams; the
+diagram-specific part is an adapter (`ui/adapter.ts`: `sequenceAdapter.ts`,
+`flowchartAdapter.ts`). The flowchart edit code and its generated parser
+(`flowchartLocParser`) are a separate chunk, loaded on the first flowchart
+render in the editor (`flowchartApi.ts`, imported from `index.ts`).
+
+| Action | Result |
+|---|---|
+| Double-click a node (anywhere on its shape) or a labelled edge | The layer opens over the label with the source text (`<br/>` as a line break; a bare-id node `C` shows `C`) |
+| Type | Each keystroke is planned synchronously (`planFlow*`) and rendered; the layer wraps at the label's 200 px max-width, scaled by zoom |
+| Shift+Enter | Line break, written as `<br/>` |
+| Enter / click elsewhere | `editFlow*` re-parses the result with Mermaid's own parser (async, outside the Mermaid queue). While it runs, keys and typing are ignored and Esc does nothing. On success one store write; a bare id becomes `C[Done]` |
+| Rejected commit | `empty`, `invalid_characters`: hint, layer stays open. `stale_source`, `position_mismatch`: toast, layer closes, picture restored |
+| Double-click a read-only label | Nothing visible; one `unavailable` event per reason per session: `markdown`, `shape_data`, `html`, `shared_edge_label` (`A & B -->|x| C`), `linked_node` (`click X href`), `unsupported`, or `no_map` |
+| Click a linked node in the editor preview | The link is not followed (it would leave the editor); the viewer is unchanged |
+
+Slow previews: when the last preview render took longer than 150 ms
+(`FLOWCHART_SLOW_RENDER_MS`), the next render waits until 250 ms after the
+last key (`SLOW_RENDER_DEBOUNCE_MS`). The layer itself is never delayed.
+Measured 2026-11-21 in Storybook Chromium, input to re-placed layer, at 100%:
+
+| Nodes (`largeFlow`) | Render ms (samples) | Median |
+|---|---|---|
+| 10 | 35, 36, 33, 32, 32, 29, 30, 48 | 32 |
+| 50 | 162, 123, 113, 113, 104, 118, 106 | 113 |
+| 150 | 381, 305, 378, 329, 322 | 329 |
+
+150 ms is about the gap between keys at 400 characters a minute; a render
+slower than that cannot follow the keys. Sequence diagrams keep the shipped
+behaviour (every coalesced frame renders).
+
+DOM keys, the test fixture and how to regenerate it:
+`ui/__fixtures__/flowchart-11.17.2.{mmd,svg}`, produced by
+`node scripts/mermaid-seq-loc/render-svg-fixture.mjs src/features/mermaidInlineEdit/ui/__fixtures__/flowchart-11.17.2.mmd --id fixture`
+(Playwright Chromium, the installed Mermaid, theme `neutral`, `securityLevel: strict`).
+Regenerate it when Mermaid is upgraded and re-run `flowchartController.spec.ts`.
+
+Alignment measured 2026-11-21 (layer text box against the hidden label, Chromium):
+dx 0 to 0.02 px, dy 0 to 0.09 px at 100%; dy up to 0.8 px at the fit zoom
+of a wide chart (0.37, 6 px type).
+
 ## Not verified
 
 - Escape inside the Forge editor modal: the layer calls `preventDefault` on
@@ -187,3 +230,5 @@ ships without a flag, so exclude editor sessions that have
 - A real OS IME (measured only with CDP `imeSetComposition`).
 - Browsers other than Chromium: alignment and the custom cursor were measured
   in Chromium only.
+- Flowcharts in the Forge editor: verified in Storybook only, not on a tunnel
+  or staging. Flowchart E2E cases are listed, not run.

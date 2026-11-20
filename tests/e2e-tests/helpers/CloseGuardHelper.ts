@@ -81,17 +81,24 @@ export async function readPersistedDraft(
   frame: FrameLocator,
 ): Promise<{ key: string; code: string } | null> {
   return frame.locator('body').evaluate(() => {
+    // Several drafts can exist at once: creating a macro leaves a `new:diagram`
+    // draft beside the `edit:<id>` one, and localStorage key order is not
+    // stable. Return the most recently saved draft, which is the one the open
+    // editor is writing.
+    let newest: { key: string; code: string; savedAt: number } | null = null;
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (!key?.startsWith('zenuml.draft.')) continue;
       try {
         const value = JSON.parse(localStorage.getItem(key) ?? 'null');
-        if (value && typeof value.code === 'string') return { key, code: value.code };
+        if (!value || typeof value.code !== 'string') continue;
+        const savedAt = typeof value.savedAt === 'number' ? value.savedAt : 0;
+        if (!newest || savedAt > newest.savedAt) newest = { key, code: value.code, savedAt };
       } catch {
         // Corrupt entry — keep scanning.
       }
     }
-    return null;
+    return newest ? { key: newest.key, code: newest.code } : null;
   });
 }
 

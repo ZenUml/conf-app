@@ -21,7 +21,7 @@ No feature flag: the editor is on for everyone in the editor preview (decided
 
 | Action | Result |
 |---|---|
-| Pointer over the diagram while editing is available | Blue arrow cursor (Figma-style, `#0052CC`); `grab`/`grabbing` while dragging the canvas |
+| Pointer over the diagram while editing is available | Blue arrow cursor (Figma-style, `#0052CC`); it stays while pressed and while dragging the canvas |
 | Pointer over a message text or participant label | Thin blue outline around all lines of the message, or around the participant copy under the pointer |
 | Double-click a participant (top box, or the bottom box when it can be mapped) | A text layer opens exactly over the label (same font, size and colour; the SVG text under it is hidden), with the word under the pointer selected |
 | Double-click a message text (any line of a multi-line label) | Same, over all its lines. The layer shows the rendered lines (`Hello<br/>two lines` reads as two lines), not the source spelling |

@@ -6,14 +6,16 @@
    A data-URI cursor cannot read a CSS variable, so the same colour is
    encoded once in the URI below (%230052CC); change both together.
    24x24 (Chrome ignores cursors above 32px); hotspot 2 2 = the arrow tip.
-   :not(:active) keeps svg-pan-zoom's `grabbing` while dragging; the edit
+   The arrow stays while pressed and while dragging (no grab hand); the edit
    layer sits outside the SVG and keeps `cursor: text`. */
 .mie-cursor {
   --mie-cursor-blue: #0052cc;
 }
 
-.mie-cursor .diagram-viewport .diagram-viewport-content svg:not(:active),
-.mie-cursor .diagram-viewport .diagram-viewport-content svg:not(:active) * {
+/* Doubled class: must outrank DiagramViewport.vue's scoped `svg:active { cursor: grabbing }`. */
+.mie-cursor.mie-cursor .diagram-viewport .diagram-viewport-content svg,
+.mie-cursor.mie-cursor .diagram-viewport .diagram-viewport-content svg:active,
+.mie-cursor.mie-cursor .diagram-viewport .diagram-viewport-content svg * {
   cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cdefs%3E%3Cfilter id='s' x='-50%25' y='-50%25' width='200%25' height='200%25'%3E%3CfeDropShadow dx='0' dy='1' stdDeviation='0.8' flood-opacity='0.3'/%3E%3C/filter%3E%3C/defs%3E%3Cpath d='M2 2 L2 18.5 L6.8 14 L13.5 13.8 Z' fill='%230052CC' stroke='%23FFFFFF' stroke-width='1.25' stroke-linejoin='round' paint-order='stroke' filter='url(%23s)'/%3E%3C/svg%3E") 2 2, default;
 }
 

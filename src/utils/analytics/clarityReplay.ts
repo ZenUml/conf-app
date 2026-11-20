@@ -213,6 +213,10 @@ async function run(deps: ClarityReplayDeps): Promise<ClarityReplayResult> {
       content: false,
     });
     clarity.set("surface", surface);
+    const environment = context.environmentType?.toLowerCase();
+    if (environment === "production" || environment === "staging" || environment === "development") {
+      clarity.set("environment", environment);
+    }
     if (context.moduleKey) clarity.set("moduleKey", context.moduleKey);
     const sessionId = await readSessionId(clarity);
     return { outcome: "started", sessionId };

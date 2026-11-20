@@ -422,6 +422,45 @@ describe('ApWrapper2', () => {
       });
     });
 
+    // A 404 on a copied page (the macro still points at the source page's
+    // custom content) could not be told from any other 404: the event had no
+    // host page. `page_id` is the page the macro is rendered on.
+    it('adds the host page id to the missing event when the Forge context has one', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).forgeContext = { extension: { content: { id: 4242 } } };
+      try {
+        vi.mocked(forgeRequest).mockResolvedValueOnce({
+          errors: [{ status: 404, code: 'NOT_FOUND', title: 'Not Found' }],
+        });
+
+        await wrapper.getCustomContentByIdV2('80');
+
+        expect(trackEvent).toHaveBeenCalledWith('80', 'load_custom_content_v2_missing', 'warning', {
+          load_status: 'not_found',
+          error_class: 'structured',
+          http_status: 404,
+          error_code: 'NOT_FOUND',
+          page_id: '4242',
+        });
+      } finally {
+        (forgeGlobalMod.default as any).forgeContext = null;
+      }
+    });
+
+    it('records the owner page of a loaded custom content for macro_viewed', async () => {
+      const renderPerf = await import('@/utils/analytics/renderPerf');
+      renderPerf._resetForTesting();
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        id: '81',
+        pageId: 9001,
+        body: { raw: { value: JSON.stringify({ diagramType: 'mermaid', mermaidCode: 'graph TD; A-->B' }) } },
+      });
+
+      await wrapper.getCustomContentByIdV2('81', { copyCheckMode: 'cross-page-only' });
+
+      expect(renderPerf.getTimings().content_page_id).toBe('9001');
+    });
+
     it('records other_error for a structured non-404 error', async () => {
       vi.mocked(forgeRequest).mockResolvedValueOnce({
         errors: [{ status: 403, code: 'PERMISSION_DENIED', title: 'Forbidden' }],

@@ -1,7 +1,7 @@
 // src/utils/analytics/renderPerf.spec.ts
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { markAppEntry, markContentSource, markLayoutWait, time, getTimings, _resetForTesting } from "./renderPerf";
+import { markAppEntry, markContentSource, markContentPageId, markLayoutWait, time, getTimings, _resetForTesting } from "./renderPerf";
 
 describe("renderPerf", () => {
   let nowSpy: ReturnType<typeof vi.spyOn>;
@@ -82,6 +82,20 @@ describe("renderPerf", () => {
     // Last-wins: a background revalidate that re-renders fresh overrides the cached label.
     markContentSource("fetch");
     expect(getTimings().content_source).toBe("fetch");
+  });
+
+  it("content_page_id is undefined until marked, then flows through getTimings as a string", () => {
+    expect(getTimings().content_page_id).toBeUndefined();
+
+    markContentPageId(12345);
+    expect(getTimings().content_page_id).toBe("12345");
+
+    // A response without an owner page leaves the last known value alone.
+    markContentPageId(undefined);
+    expect(getTimings().content_page_id).toBe("12345");
+
+    _resetForTesting();
+    expect(getTimings().content_page_id).toBeUndefined();
   });
 
   it("_resetForTesting clears a marked content_source", () => {

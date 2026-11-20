@@ -189,6 +189,8 @@ const DIRECTION_LINE = /direction(\s+(?:TB|BT|RL|LR|TD))/g;
  *   outside the plain set of its context (SAFE_BY_CONTEXT), or, for inline
  *   edge text, when it is not surrounded by whitespace in the source (the link
  *   end can then absorb a trailing `x`, `o` or `<`);
+ * - in the `text` state a leading `-` is quoted: after a `(` opening the lexer
+ *   reads `(-` as the start of an ellipse (`<*>"(-"`);
  * - in quotes a leading backtick becomes `#96;`: `` "` `` would start markdown.
  *
  * The result decodes back to the trimmed input (checked).
@@ -203,7 +205,9 @@ export function encodeFlowText(display: string, opts: FlowEncodeOptions): FlowEn
   const quoted =
     opts.quoted ||
     !lines.every((line) => SAFE_BY_CONTEXT[opts.context].test(line)) ||
-    (opts.context === 'inline' && !opts.spacedInline);
+    (opts.context === 'inline' && !opts.spacedInline) ||
+    // `<*>"(-"` starts an ellipse at a round opening: `A(-->)` is not a round node.
+    (opts.context === 'text' && text.startsWith('-'));
 
   let source = lines
     .map((line) =>

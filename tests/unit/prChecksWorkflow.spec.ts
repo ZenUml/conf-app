@@ -69,6 +69,45 @@ describe('PR checks that do not touch staging', () => {
     expect(packageJson.scripts.lint).toBe(`oxlint -c .oxlintrc.json ${paths}`);
   });
 
+  it('installs through the node_modules cache action, and exactly one PR job saves it', () => {
+    const installJobs = ['unit', 'asyncapi-build', 'mcp-app-build', 'preview-e2e'];
+    for (const name of installJobs) {
+      const steps = checks.jobs[name].steps;
+      expect(steps.filter((step: any) => step.uses === './.github/actions/install-deps')).toHaveLength(1);
+      expect(JSON.stringify(steps)).not.toContain('cache: pnpm');
+      expect(steps.map((step: any) => step.run).filter(Boolean).join('\n')).not.toMatch(/^pnpm install --frozen-lockfile --ignore-scripts$/m);
+    }
+    expect(JSON.stringify(checks.jobs.lint.steps)).not.toContain('install-deps');
+    const savers = Object.entries<any>(checks.jobs).filter(([, job]) =>
+      (job.steps ?? []).some((step: any) => step.uses === './.github/actions/install-deps' && String(step.with?.save) === 'true'));
+    expect(savers.map(([name]) => name)).toEqual(['mcp-app-build']);
+  });
+
+  it('keys node_modules on every root install input, with no partial fallback', () => {
+    const action = structure('../actions/install-deps/action') as any;
+    const steps = action.runs.steps;
+    const restore = steps.find((step: any) => step.uses?.startsWith('actions/cache/restore@'));
+    expect(restore.with.key).toContain("hashFiles('pnpm-lock.yaml', 'patches/**', '.npmrc', 'pnpm-workspace.yaml')");
+    expect(restore.with['restore-keys']).toBeUndefined();
+    expect(steps.find((step: any) => step.uses?.startsWith('actions/setup-node@')).with.cache).toBeUndefined();
+    const save = steps.find((step: any) => step.uses?.startsWith('actions/cache/save@'));
+    expect(save.if).toContain("cache-hit != 'true'");
+    expect(save.if).toContain("inputs.save == 'true'");
+    expect(save.with.key).toBe(restore.with.key);
+    expect(save.with.path).toBe(restore.with.path);
+  });
+
+  it('seeds the node_modules cache from main with read-only permissions', () => {
+    const seed = structure('seed-dependency-cache');
+    expect(seed.on.push.branches).toEqual(['main']);
+    expect(seed.on.push.paths).toEqual(expect.arrayContaining(['pnpm-lock.yaml', 'patches/**', '.npmrc', 'pnpm-workspace.yaml']));
+    expect(seed.on).toHaveProperty('workflow_dispatch');
+    expect(seed.permissions).toEqual({ contents: 'read' });
+    expect(text('seed-dependency-cache')).not.toContain('secrets.');
+    const step = seed.jobs.seed.steps.find((s: any) => s.uses === './.github/actions/install-deps');
+    expect(String(step.with.save)).toBe('true');
+  });
+
   it('splits the unit tests into four shards that all run even if one fails', () => {
     const { unit } = checks.jobs;
     expect(unit.strategy.matrix.shard).toEqual([1, 2, 3, 4]);

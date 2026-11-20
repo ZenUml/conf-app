@@ -1,0 +1,78 @@
+name: Install dependencies
+description: >
+  Restore node_modules from the cache, or run pnpm install on a miss.
+  The key hashes every input of a root install. There is no restore-keys
+  fallback, because a partial node_modules must never be used.
+inputs:
+  save:
+    description: "'true' to save node_modules after a miss. Pass it from one job only."
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v5
+    - name: Setup Node
+      uses: actions/setup-node@v5
+      with:
+        node-version: "24"
+    - name: Record start time
+      id: t0
+      shell: bash
+      run: echo "ms=$(date +%s%N | cut -b1-13)" >> "$GITHUB_OUTPUT"
+    - name: Restore node_modules
+      id: restore
+      uses: actions/cache/restore@v5
+      with:
+        # pnpm links packages into node_modules/.pnpm; each workspace package
+        # from pnpm-workspace.yaml has its own node_modules of symlinks.
+        path: |
+          node_modules
+          forge-console/node_modules
+          local-crm/node_modules
+          workers/cron-aggregate/node_modules
+          workers/agent-link/node_modules
+        key: node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('pnpm-lock.yaml', 'patches/**', '.npmrc', 'pnpm-workspace.yaml') }}
+    - name: Record restore end time
+      id: t1
+      shell: bash
+      run: echo "ms=$(date +%s%N | cut -b1-13)" >> "$GITHUB_OUTPUT"
+    - name: Install dependencies (skip post-install scripts)
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      run: pnpm install --frozen-lockfile --ignore-scripts
+      env:
+        NODE_OPTIONS: "--max-old-space-size=8192"
+    - name: Record install end time
+      id: t2
+      shell: bash
+      run: echo "ms=$(date +%s%N | cut -b1-13)" >> "$GITHUB_OUTPUT"
+    - name: Save node_modules
+      if: steps.restore.outputs.cache-hit != 'true' && inputs.save == 'true'
+      uses: actions/cache/save@v5
+      with:
+        path: |
+          node_modules
+          forge-console/node_modules
+          local-crm/node_modules
+          workers/cron-aggregate/node_modules
+          workers/agent-link/node_modules
+        key: node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('pnpm-lock.yaml', 'patches/**', '.npmrc', 'pnpm-workspace.yaml') }}
+    - name: Summarize
+      shell: bash
+      env:
+        HIT: ${{ steps.restore.outputs.cache-hit }}
+        T0: ${{ steps.t0.outputs.ms }}
+        T1: ${{ steps.t1.outputs.ms }}
+        T2: ${{ steps.t2.outputs.ms }}
+      run: |
+        NOW=$(date +%s%N | cut -b1-13)
+        RESTORE_S=$(( (T1 - T0 + 500) / 1000 ))
+        INSTALL_S=$(( (T2 - T1 + 500) / 1000 ))
+        SAVE_S=$(( (NOW - T2 + 500) / 1000 ))
+        if [ "$HIT" = "true" ]; then
+          echo "install-deps: HIT, restore ${RESTORE_S}s, install 0s (skipped)"
+        else
+          echo "install-deps: MISS, restore ${RESTORE_S}s, install ${INSTALL_S}s, save ${SAVE_S}s"
+        fi

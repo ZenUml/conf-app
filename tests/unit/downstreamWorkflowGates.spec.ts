@@ -40,7 +40,7 @@ describe('main AsyncAPI build coverage', () => {
       .map(file => load(readFileSync(`.github/workflows/${file}`, 'utf8')) as any)
       .filter(workflow => workflow.on?.pull_request);
     const steps = pullRequestWorkflows.flatMap(workflow => Object.values(workflow.jobs)).flatMap((job: any) => job.steps ?? []);
-    expect(steps.map((step: any) => step.run)).toContain('pnpm build:asyncapi');
+    expect(steps.map((step: any) => step.run)).toContain('pnpm build:asyncapi:app');
   });
 });
 

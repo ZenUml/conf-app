@@ -1,0 +1,2 @@
+120:[error] ForgeGraphViewer: GraphViewer init failed: {message: "Not a diagram file", toString: }
+121:[error] ForgeGraphViewer: GraphViewer init failed: {message: "Not a diagram file", toString: }

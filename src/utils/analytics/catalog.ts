@@ -432,6 +432,21 @@ export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
 export type InlineEditKind = "participant_label" | "message_text" | "node_label" | "edge_label";
 // Which Mermaid diagram type an editor_inline_edit_* event came from.
 export type InlineEditDiagram = "sequence" | "flowchart";
+// editor_inline_edit_unavailable: why the diagram or label is read-only.
+// `no_map`: the position parser gave no source map, so the whole diagram is
+// read-only (sequence: sent after the render; flowchart: sent on the
+// double-click). The others mirror FlowReadOnlyReason in
+// src/features/mermaidInlineEdit/types.ts (flowchart labels, sent on the
+// double-click of a read-only label).
+export type InlineEditUnavailableReason =
+  | "no_map"
+  | "markdown"
+  | "shape_data"
+  | "html"
+  | "shared_edge_label"
+  | "no_label"
+  | "linked_node"
+  | "unsupported";
 export type InlineEditRejection =
   | "stale_source"
   | "name_exists"
@@ -2016,7 +2031,10 @@ export type AnalyticsEventName =
   // while typing sends nothing); `cancelled` = Esc, or the layer closed with
   // unchanged text (`inline_edit_cancel_reason`); `unavailable` = a sequence
   // diagram rendered in the editor, but the position parser gave no map, so
-  // the diagram stays read-only (at most once per editor session).
+  // the diagram stays read-only (at most once per editor session); for a
+  // flowchart it is sent on the double-click of a label that is read-only
+  // (or of any label when there is no map), at most once per editor session
+  // per reason (`inline_edit_unavailable_reason`).
   // Properties: feature_area 'macro', surface 'editor', macro_type,
   // inline_edit_kind, inline_edit_had_alias (participant only),
   // inline_edit_ms_open, inline_edit_diagram ('sequence' | 'flowchart'; on every

@@ -265,6 +265,24 @@ describe('flowchart in-place editing (controller)', () => {
     expect(events(h, 'editor_inline_edit_started')).toEqual([NODE]);
   });
 
+  it('the layer takes the label ink, not the transparent colour that hides the label', async () => {
+    const style = document.createElement('style');
+    style.textContent = 'p { color: rgb(1, 2, 3); } svg p.mie-hidden { color: transparent !important; }';
+    document.head.appendChild(style);
+    try {
+      const h = setup();
+      await h.render();
+      dblclick(node(h, 'B'));
+      expect(node(h, 'B').classList.contains('mie-hidden')).toBe(true);
+      expect(layer()!.style.color).toBe('rgb(1, 2, 3)');
+      expect(layer()!.style.caretColor).toBe('rgb(1, 2, 3)');
+      await type(h, 'Rounder');
+      expect(layer()!.style.color).toBe('rgb(1, 2, 3)');
+    } finally {
+      style.remove();
+    }
+  });
+
   it('typing renders the planned candidate from the base, re-finds the label under the new svg id, store untouched', async () => {
     const h = setup();
     await h.render();

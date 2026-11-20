@@ -79,7 +79,10 @@ function edgeLabelGroup(svg: Element, edgeId: string): Element | null {
   return Array.from(svg.querySelectorAll('g.edgeLabel g.label[data-id]')).find((g) => g.getAttribute('data-id') === edgeId) ?? null;
 }
 
-const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** The controller's class on a label under the layer (inlineEdit.css: transparent glyphs). */
+const HIDDEN_CLASS = 'mie-hidden';
+
+const escapeRe =(s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** domId -> vertex id, per map. */
 const byDomId = new WeakMap<FlowchartSourceMap, Map<string, string>>();
@@ -219,6 +222,12 @@ export function createFlowchartAdapter(deps: FlowchartInlineEditDeps, win: Windo
     place(layer, elements, host) {
       const label = elements[0] as HTMLElement;
       const cs = win.getComputedStyle(label);
+      // The controller hides the label with a transparent colour: read the ink without it.
+      const hidden = label.classList.contains(HIDDEN_CLASS);
+      if (hidden) label.classList.remove(HIDDEN_CLASS);
+      // Not `cs.color`: a computed style is a snapshot in some engines (jsdom), live in others.
+      const ink = win.getComputedStyle(label).color;
+      if (hidden) label.classList.add(HIDDEN_CLASS);
       const rect = label.getBoundingClientRect();
       // HTML inside a foreignObject is scaled by the SVG transform: layout box vs screen box.
       const scale = label.offsetWidth > 0 && rect.width > 0 ? rect.width / label.offsetWidth : 1;
@@ -232,8 +241,8 @@ export function createFlowchartAdapter(deps: FlowchartInlineEditDeps, win: Windo
       st.fontWeight = cs.fontWeight;
       st.fontStyle = cs.fontStyle;
       st.letterSpacing = cs.letterSpacing;
-      st.color = cs.color;
-      st.caretColor = cs.color;
+      st.color = ink;
+      st.caretColor = ink;
       st.textAlign = cs.textAlign === 'start' || !cs.textAlign ? 'center' : cs.textAlign;
       st.fontSize = `${fontSize * scale}px`;
       st.lineHeight = `${lineHeight * scale}px`;

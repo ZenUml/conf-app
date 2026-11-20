@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import PlanUsage from './PlanUsage.vue'
 import { getSpaceStatuses } from '@/apis/spaceStatuses'
-import { openUrl } from '@/model/globals/forgeGlobal'
+import { openUrl, openUrlForOutcome } from '@/model/globals/forgeGlobal'
 vi.mock('@/apis/spaceStatuses', () => ({ getSpaceStatuses: vi.fn() }))
 import { getFullscreenRecovery, requestFullscreenRecovery, activateFullscreenRecovery } from '@/apis/fullscreenRecovery'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
@@ -15,6 +15,7 @@ vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
 vi.mock('@/model/globals/forgeGlobal', () => ({
   default: { zenumlRemoteBaseUrl: 'https://api.example.test', forgeContext: undefined, isForge: true },
   openUrl: vi.fn(),
+  openUrlForOutcome: vi.fn(async () => 'opened'),
 }))
 vi.mock('@/apis/fullscreenRecovery', () => ({
   getFullscreenRecovery: vi.fn(), requestFullscreenRecovery: vi.fn(), activateFullscreenRecovery: vi.fn(),
@@ -64,11 +65,36 @@ describe('PlanUsage', () => {
     expect(w.findAll('.space-purchase button')).toHaveLength(2)
     expect(w.findAll('.license-state').map(x => x.text())).toEqual(['Covered by a paid license', 'Covered by a paid license', 'License status unavailable'])
     await w.get('button[aria-label="Unlock this space: ENG"]').trigger('click')
-    expect(openUrl).toHaveBeenCalledWith('https://buy.stripe.com/cNifZifkN7hzavK12H7IY05?client_reference_id=example-tenant__ENG')
+    expect(openUrlForOutcome).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/api\.example\.test\/bundle-checkout\?ref=example-tenant__ENG&space=ENG&surface=plan_usage&click=[A-Za-z0-9-]+$/))
     await w.get('button[aria-label="Unlock this space: ~abc123"]').trigger('click')
-    expect(openUrl).toHaveBeenCalledWith('https://buy.stripe.com/cNifZifkN7hzavK12H7IY05?client_reference_id=example-tenant___abc123')
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('paywall_bundle_cta_clicked', expect.objectContaining({ surface: 'dashboard', space_key: '~abc123', macro_count: 100, macro_limit: 100, bundle_price_usd: 299, client_reference_id: 'example-tenant___abc123' }))
+    expect(openUrlForOutcome).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/api\.example\.test\/bundle-checkout\?ref=example-tenant___abc123&space=%7Eabc123&surface=plan_usage&click=[A-Za-z0-9-]+$/))
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('paywall_bundle_cta_clicked', expect.objectContaining({ surface: 'dashboard', space_key: '~abc123', macro_count: 100, macro_limit: 100, bundle_price_usd: 299, client_reference_id: 'example-tenant___abc123', checkout_click_id: expect.stringMatching(/^[A-Za-z0-9-]{8,64}$/) }))
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('plan_usage_viewed', expect.objectContaining({ purchasable_space_count: 2 }))
+  })
+
+  it('tells the buyer checkout opens in a new tab, with tax and no admin', async () => {
+    const w = await mountPage(usageBody())
+    expect(w.get('[data-testid="plan-usage-purchase-help"]').text()).toBe(
+      'Unlock one space by card. Checkout opens in a new tab: $299 per space per year, plus tax where applicable. No Confluence admin needed.')
+  })
+
+  it('shows the row as opened after the checkout page opens, and offers to open it again', async () => {
+    const w = await mountPage(usageBody({ overLimitSpaces: [{ spaceKey: 'ENG', macroCount: 143 }] }))
+    await w.get('button[aria-label="Unlock this space: ENG"]').trigger('click')
+    await flushPromises()
+    expect(w.get('[data-testid="plan-usage-checkout-opened"]').text()).toBe('Checkout opened in a new tab')
+    expect(w.get('button[aria-label="Open checkout again: ENG"]').text()).toBe('Open again')
+    await w.get('button[aria-label="Open checkout again: ENG"]').trigger('click')
+    expect(openUrlForOutcome).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the Unlock button when the checkout page did not open', async () => {
+    vi.mocked(openUrlForOutcome).mockResolvedValueOnce('declined')
+    const w = await mountPage(usageBody({ overLimitSpaces: [{ spaceKey: 'ENG', macroCount: 143 }] }))
+    await w.get('button[aria-label="Unlock this space: ENG"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="plan-usage-checkout-opened"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('bundle_checkout_open_result', expect.objectContaining({ checkout_open_outcome: 'declined', checkout_surface: 'plan_usage', surface: 'dashboard' }))
   })
 
   it('keeps counts and rows when paid lookup fails', async () => {
@@ -103,7 +129,7 @@ describe('PlanUsage', () => {
     const w = await mountPage(usageBody())
     expect(w.get('button[aria-label="Unlock this space: ENG"]').text()).toBe('Unlock this space')
     await w.get('button[aria-label="Unlock this space: ENG"]').trigger('click')
-    expect(openUrl).toHaveBeenCalledWith('https://buy.stripe.com/cNifZifkN7hzavK12H7IY05?client_reference_id=example-tenant__ENG')
+    expect(openUrlForOutcome).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/api\.example\.test\/bundle-checkout\?ref=example-tenant__ENG&space=ENG&surface=plan_usage&click=[A-Za-z0-9-]+$/))
     expect(w.get('[data-testid="plan-usage-fullscreen-context"]').text()).toContain('Discuss it with colleagues')
     expect(w.get('[data-testid="plan-usage-fullscreen-context"]').text()).not.toContain('foreign-id')
     expect(w.get('.upgrade-block h2').text()).toBe('Explore a plan for your Fullscreen use')

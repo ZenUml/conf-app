@@ -634,6 +634,18 @@ export type AnalyticsProperties = {
   // Stripe returns it verbatim on the Checkout Session, so a $299 payment
   // joins back to the exact bundle CTA click without manual reconciliation.
   client_reference_id?: string;
+  // Bundle checkout funnel join key: a random id made when the checkout link is
+  // built, sent on paywall_bundle_cta_clicked and on every bundle_checkout_* event.
+  checkout_click_id?: string;
+  // Which Bundle CTA built the checkout link.
+  checkout_surface?: 'plan_usage' | 'upgrade_prompt';
+  // bundle_checkout_redirected: whether the handoff page was served.
+  handoff_outcome?: 'served' | 'invalid_ref';
+  // bundle_checkout_continued: what sent the buyer to Stripe.
+  checkout_trigger?: 'auto' | 'button';
+  countdown_stopped?: boolean;
+  // bundle_checkout_open_result: why router.open did not open the handoff page.
+  checkout_open_outcome?: 'declined' | 'error';
   // Cohort targeting (cohorts_refreshed). `cohorts` = comma-joined cohort list
   // the refresh resolved; empty string = user in no cohort (still a successful
   // refresh). `cohort_count` = same list's length, for numeric filtering.

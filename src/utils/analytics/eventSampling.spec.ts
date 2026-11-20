@@ -113,6 +113,7 @@ describe("eventSampling", () => {
     it("keeps the complete paid conversion and Request Full funnel at current rates", () => {
       const names = [
         "paywall_banner_dismissed", "paywall_banner_shown", "paywall_bundle_cta_clicked",
+        "bundle_checkout_open_result",
         "paywall_gate_evaluated", "paywall_triggered", "paywall_continue_used",
         "paywall_continued_editing", "paywall_blocked_create", "paywall_blocked_edit",
         "paywall_attempts_exhausted",

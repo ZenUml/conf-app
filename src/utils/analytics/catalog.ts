@@ -891,6 +891,23 @@ export type AnalyticsEventName =
   // macro_count, macro_limit, bundle_price_usd and client_reference_id identify
   // the selected space and its checkout attribution.
   | "paywall_bundle_cta_clicked"
+  // Bundle checkout path (spec 2026-11-20-bundle-checkout-path-design.md).
+  // The Bundle CTA opens our own handoff page on the backend host, because
+  // router.open shows Atlassian's "Opening external page" dialog for
+  // buy.stripe.com but not for *.zenuml.com (observed 2026-11-20).
+  // `bundle_checkout_redirected` (server): the handoff page was served
+  //   (`handoff_outcome: served`) or refused a bad link (`invalid_ref`).
+  // `bundle_checkout_continued` (server): the page sent the buyer on to Stripe;
+  //   `checkout_trigger` is auto (3 s countdown) or button, and
+  //   `countdown_stopped` says whether Stop was used first.
+  // `bundle_checkout_open_result` (client): router.open did not open the page
+  //   (`checkout_open_outcome: declined | error`). Opens are not sent; the
+  //   server event counts them.
+  // All three carry `checkout_click_id`, also on paywall_bundle_cta_clicked,
+  // so the click → page → Stripe funnel joins without a user id in the URL.
+  | "bundle_checkout_redirected"
+  | "bundle_checkout_continued"
+  | "bundle_checkout_open_result"
   // The Marketplace (Full plan) rail. Separate event from the bundle rail
   // because they need different people: Marketplace requires a Confluence SITE
   // admin, the bundle requires nobody. Splitting them is how we find out which

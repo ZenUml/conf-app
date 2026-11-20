@@ -53,7 +53,9 @@
     "/api/fullscreen-recovery",
     "/api/support/fullscreen-recovery",
     "/api/support/fullscreen-recovery-mail",
-    "/api/fullscreen-recovery-webhook"
+    "/api/fullscreen-recovery-webhook",
+    "/bundle-checkout",
+    "/bundle-checkout/*"
   ],
   "exclude": []
 }

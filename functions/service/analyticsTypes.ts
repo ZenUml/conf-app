@@ -95,6 +95,10 @@ export const CANONICAL_EVENT_NAME_LIST = [
   // reads included) and one per initialize handshake (which client).
   "agent_link_mcp_tool_called",
   "agent_link_mcp_initialized",
+  // Bundle checkout handoff page (functions/bundle-checkout/*). Server-sent;
+  // see src/utils/analytics/catalog.ts for the funnel.
+  "bundle_checkout_redirected",
+  "bundle_checkout_continued",
 ] as const;
 
 export type AnalyticsEventName = typeof CANONICAL_EVENT_NAME_LIST[number];

@@ -5,7 +5,8 @@
  * - `content: false` masks all text and images, so diagram source, titles and
  *   rendered labels never leave the browser.
  * - `track: false` sets no Clarity cookies and denies ad/analytics storage.
- * - No `clarity.identify`: no Atlassian account id or site goes to Microsoft.
+ * - No `clarity.identify`: no Atlassian account ID is sent to Microsoft.
+ *   The referrer_domain custom tag contains only the Forge site hostname.
  * - Visitors in the EEA, UK and Switzerland are never recorded: the
  *   stats.zenuml.com Worker answers /clarity/allow from the visitor's country,
  *   and any failure to get a yes means no recording.
@@ -38,6 +39,7 @@ interface ForgeContextLike {
   cloudId?: string;
   accountId?: string;
   environmentType?: string;
+  siteUrl?: string;
   moduleKey?: string;
   extension?: {
     modal?: { macroMode?: string };
@@ -101,6 +103,16 @@ async function defaultFetchGeo(): Promise<boolean> {
 async function defaultLoadClarity(): Promise<ClarityLike> {
   const { clarity } = await import("clarity-js");
   return clarity as unknown as ClarityLike;
+}
+
+function siteHostname(siteUrl: string | undefined): string | undefined {
+  if (!siteUrl) return undefined;
+  try {
+    const url = new URL(siteUrl);
+    return url.protocol === "https:" ? url.hostname : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function defaultStorage(): StorageLike | null {
@@ -217,6 +229,8 @@ async function run(deps: ClarityReplayDeps): Promise<ClarityReplayResult> {
     if (environment === "production" || environment === "staging" || environment === "development") {
       clarity.set("environment", environment);
     }
+    const hostname = siteHostname(context.siteUrl);
+    if (hostname) clarity.set("referrer_domain", hostname);
     if (context.moduleKey) clarity.set("moduleKey", context.moduleKey);
     const sessionId = await readSessionId(clarity);
     return { outcome: "started", sessionId };

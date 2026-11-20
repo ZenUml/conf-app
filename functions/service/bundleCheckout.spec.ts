@@ -174,7 +174,7 @@ describe('GET /bundle-checkout/go', () => {
 describe('Black Friday offer', () => {
   const offerQuery = `${validQuery}&offer=black_friday_2026`;
   const start = Date.parse('2026-11-20T00:00:00+11:00');
-  const end = Date.parse('2026-12-01T00:00:00+11:00');
+  const end = Date.parse('2026-11-30T23:59:00+11:00');
 
   it('shows the first-year terms and forwards the prefilled code and unchanged space reference', async () => {
     const { track, events } = recorder();

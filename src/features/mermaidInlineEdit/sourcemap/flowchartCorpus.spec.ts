@@ -15,11 +15,18 @@ import { getFlowchartSourceMap } from './getFlowchartSourceMap';
 import { expectFlowMap } from './flowchartSourceMapInvariants';
 
 /** Whether this source must get a map: Mermaid parses it as a flowchart with HTML labels and without ELK. */
-async function mustMap(code: string): Promise<boolean> {
+const mustMapCache = new Map<string, Promise<boolean>>();
+function mustMap(code: string): Promise<boolean> {
+  let answer = mustMapCache.get(code);
+  if (!answer) mustMapCache.set(code, (answer = officialMustMap(code)));
+  return answer;
+}
+
+async function officialMustMap(code: string): Promise<boolean> {
   const { loadMermaid } = await import('@/utils/mermaid/loadMermaid');
   await loadMermaid();
   try {
-    await mermaid.parse(code);
+    // getDiagramFromText runs the same parse as mermaid.parse and throws on the same errors.
     const diagram: any = await mermaid.mermaidAPI.getDiagramFromText(code);
     const config: any = mermaid.mermaidAPI.getConfig();
     if (!['flowchart-v2', 'flowchart'].includes(diagram.type)) return false;

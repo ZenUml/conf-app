@@ -19,8 +19,12 @@ import {
   verifyFlowEdit,
 } from './flowchart';
 
+/** getFlowchartSourceMap is a pure function of the code: one parse per distinct code in this file. */
+const maps = new Map<string, Promise<FlowchartSourceMap | null>>();
 async function mapOf(code: string): Promise<FlowchartSourceMap> {
-  const map = await getFlowchartSourceMap(code);
+  let pending = maps.get(code);
+  if (!pending) maps.set(code, (pending = getFlowchartSourceMap(code)));
+  const map = await pending;
   expect(map, 'fixture must map').not.toBeNull();
   return map!;
 }
@@ -39,7 +43,9 @@ type Target = { kind: 'node' | 'edge'; key: string };
  * and the target's label decodes to the typed text.
  */
 async function expectOnlyTargetChanged(before: string, after: string, target: Target, typed: string): Promise<void> {
-  const [a, b] = [await recordsFor(before), await recordsFor(after)];
+  // The map of `after` checked against a fresh official parse; its records are what the gate reads.
+  const map = await expectFlowMap(after);
+  const [a, b] = [await recordsFor(before), flowchartRecordsOf(map)!];
   expect(b.vertices.map((v) => [v.id, v.domId])).toEqual(a.vertices.map((v) => [v.id, v.domId]));
   expect(b.edges.map((e) => [e.id, e.start, e.end])).toEqual(a.edges.map((e) => [e.id, e.start, e.end]));
   expect(b.subgraphs).toEqual(a.subgraphs);
@@ -51,7 +57,6 @@ async function expectOnlyTargetChanged(before: string, after: string, target: Ta
     if (target.kind === 'edge' && e.id === target.key) return;
     expect(b.edges[i]).toEqual(e);
   });
-  const map = await expectFlowMap(after);
   const loc = target.kind === 'node' ? map.nodes.get(target.key)! : map.edges.get(target.key)!;
   const range = 'labelRange' in loc ? loc.labelRange : loc.textRange;
   expect(range).not.toBeNull();

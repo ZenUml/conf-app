@@ -1,29 +1,41 @@
 # Mermaid sequence inline edit
 
 In the editor preview, an author double-clicks a participant name or a message
-text of a Mermaid sequence diagram, types, and presses Enter. The change is
-written to the Mermaid source, and the preview renders again. The diagram
-stays text-first: the source is the only state, and every edit is a source
-edit that CodeMirror undo can reverse.
+text of a Mermaid sequence diagram and types where the text is, Figma-style.
+The diagram re-lays out on every keystroke; the Mermaid source is written once,
+when the edit is committed, and the preview keeps its zoom and position. The
+diagram stays text-first: the source is the only state, and every edit is a
+source edit that CodeMirror undo can reverse.
 
 Code: `src/features/mermaidInlineEdit/` (`types.ts` contract, `sourcemap/`
-position parser, `edit/` pure edit functions, `ui/` interaction layer,
-`index.ts` wiring). Flag: `mermaid-inline-edit-enabled`.
+position parser, `edit/` pure edit functions, `codec/` display-text codec,
+`ui/` interaction layer, `index.ts` wiring). Host side: `Mermaid.vue`
+(`renderPreview`, the view keeper) and `DiagramViewport.vue` (`holdView`,
+`setRealZoom`, `panByScreen`, `flushView`).
+
+No feature flag: the editor is on for everyone in the editor preview (decided
+2026-11-20). To turn it off, remove the `mountMermaidInlineEdit` call in
+`Mermaid.vue` `startInlineEdit` (revert that mount); nothing else depends on it.
 
 ## Behaviour
 
 | Action | Result |
 |---|---|
-| Double-click a participant (top box, or bottom box when it can be mapped) | Text box opens over it, prefilled with the alias, or with the id when there is no alias, all text selected |
-| Double-click a message text (any line of a multi-line or wrapped label) | Text box opens, prefilled with the source text, for example `Hello<br/>two lines`, not the rendered lines |
-| Enter, or click elsewhere (blur) | Commit |
-| Esc | Cancel: no write |
-| Commit with unchanged text | Box closes: no write, no toast |
-| Commit accepted | Source updated through the store (same write as AI chat apply); the element flashes for about 1 s after the re-render (static highlight with `prefers-reduced-motion`) |
-| Commit refused | Box closes, toast for 4 s (table below) |
-| Source changes while the box is open (typing in the code, AI apply) | Box closes without a write, toast "The diagram changed while you were editing. Try again." |
+| Pointer over the diagram while editing is available | Blue arrow cursor (Figma-style, `#0052CC`); `grab`/`grabbing` while dragging the canvas |
+| Pointer over a message text or participant label | Thin blue outline around all lines of the message, or around the participant copy under the pointer |
+| Double-click a participant (top box, or the bottom box when it can be mapped) | A text layer opens exactly over the label (same font, size and colour; the SVG text under it is hidden), with the word under the pointer selected |
+| Double-click a message text (any line of a multi-line label) | Same, over all its lines. The layer shows the rendered lines (`Hello<br/>two lines` reads as two lines), not the source spelling |
+| Type | The preview re-renders the candidate (built from the source as it was when the layer opened) on every keystroke, latest wins. The store, CodeMirror and the draft are not touched. The zoom stays, and the edited text keeps its screen position |
+| Shift+Enter | New line in a message or alias (written as the source's own `<br>` spelling); refused in a participant id |
+| Enter, or click elsewhere (pointer down outside the layer, or blur while the page has focus) | Commit: one store write (same write as AI chat apply), the layer goes when the commit render lands |
+| Esc | Cancel: no write; the stored picture comes back |
+| Commit with unchanged text (also typed and typed back, or only trimmed whitespace) | Layer closes: no write, no toast |
+| Text that cannot be used (a participant name that exists, an empty name, characters Mermaid can't use) | Red outline (`#DE350B`) and a hint under the text; nothing is rendered and the last valid picture stays. Enter keeps editing; Esc restores; click elsewhere restores and shows the hint as a toast for 4 s |
+| Source changes while the layer is open (typing in the code, AI apply) | Layer closes without a write, toast "The diagram changed while you were editing. Try again." |
+| A real re-render of the same source while editing, or export capture | Layer closes quietly; export capture first puts the stored picture back |
+| Composing with an IME | No render while composing; one render when the composition ends; Enter that confirms a composition does not commit |
 
-| Rejection | Toast |
+| Rejection | Hint / toast |
 |---|---|
 | `stale_source` | The diagram changed while you were editing. Try again. |
 | `name_exists` | A participant with that name already exists. |
@@ -31,26 +43,42 @@ position parser, `edit/` pure edit functions, `ui/` interaction layer,
 | `empty` | A name can't be empty. |
 | `position_mismatch` | Couldn't edit this element. Edit it in the code instead. |
 
-Only one box is open at a time. While it has focus, key, copy, cut and paste
+A participant without an alias is renamed by its id, so the id changes on
+every keystroke; the layer finds the element again by `data-id` = the
+candidate's id, never by its text. With an alias, the id stays and the alias
+changes. Both the top and the bottom copy show the new text; the layer covers
+the copy that was clicked.
+
+Only one layer is open at a time. While it has focus, key, copy, cut and paste
 events stop at a window capture listener, so they do not reach CodeMirror, the
 viewport or document listeners, such as GenericViewer's capture Escape
-handler. Pointer and wheel events on the box do not reach the pan/zoom
-viewport. The box is fixed on `document.body`, outside the svg.
+handler. Pointer and wheel events on the layer do not reach the pan/zoom
+viewport. The layer lives in the viewport element, outside the v-html svg, so
+a re-render never destroys it. A wheel zoom or pan during the edit moves the
+layer with the text.
+
+How the view is kept: while a layer is open, `DiagramViewport.holdView(true)`
+stops `attach()` from refitting a new svg. Mermaid.vue calls the controller's
+view keeper right after each attach, in the same task as the svg swap; the
+keeper sets the zoom back, pans the edited text's first-line centre to its old
+screen point and re-places the layer. `flushView()` writes svg-pan-zoom's
+matrix at once, because the library applies it only on the next animation
+frame.
 
 ## Gate
 
-All must hold. Otherwise the feature is inert: no affordance, no box, no
-toast.
+All must hold. Otherwise the feature is inert: no cursor, no outline, no
+layer, no toast.
 
 | # | Condition | Where |
 |---|---|---|
-| 1 | Flag `mermaid-inline-edit-enabled` is on (fail closed; standalone/Storybook: `localStorage.mockMermaidInlineEditEnabled = 'true'`) | `isMermaidInlineEditEnabled` in `src/apis/aiTitleFeatureFlag.ts` |
-| 2 | Editor surface: `Workspace.vue` provides `mermaidInlineEditSurface`, the store is not in display mode, `readOnly` is false, not the Export PNG host (`modal.openExport`) | `Mermaid.vue` `inlineEditAllowed` |
-| 3 | Not during export capture (`setCaptureMode(true)` suspends) | `Mermaid.vue` |
-| 4 | The rendered svg says `aria-roledescription="sequence"` | controller |
-| 5 | The source has no U+00A0 (see below) | controller |
-| 6 | `getSourceMap(code)` returned a map | controller |
-| 7 | Three-way equality: the code the svg on screen was rendered from = `map.code` = the store's current `mermaidCode`. Checked when the map arrives, on double-click, and on commit (`stale_source` there) | controller |
+| 1 | Editor surface: `Workspace.vue` provides `mermaidInlineEditSurface`, the store is not in display mode, `readOnly` is false, not the Export PNG host (`modal.openExport`) | `Mermaid.vue` `inlineEditAllowed` |
+| 2 | Not during export capture (`setCaptureMode(true)` suspends) | `Mermaid.vue` |
+| 3 | The rendered svg says `aria-roledescription="sequence"` | controller |
+| 4 | The source has no U+00A0 (see below) | controller |
+| 5 | `getSourceMap(code)` returned a map | controller |
+| 6 | Three-way equality: the code the svg on screen was rendered from = `map.code` = the store's current `mermaidCode`. Checked when the map arrives, on double-click, and on commit (`stale_source` there) | controller |
+| 7 | Render parity: the drawn lines of the element equal its source text decoded (`codec/renderParity`). Otherwise that element is inert | controller |
 
 Page viewer, Fullscreen, export, byline preview, title draft, Markdown and the
 MCP view do not mount `Workspace`, so they never get the surface key, and the
@@ -59,9 +87,6 @@ feature module is never downloaded there (it is a dynamic import).
 editor modal (`macroMode: 'editor'`) and the native macro config surface
 (`extension.macro.isConfiguring`). Both are the same editor, so the feature is
 on in both.
-
-Hover marks every element of the target: all lines of a message, and both the
-top and bottom box of a participant.
 
 ## DOM mapping rule
 
@@ -76,7 +101,7 @@ passed DOMPurify, and `data-et` / `data-id` survive). Fixture:
 | Participant, bottom (mirror) | No `data-et`. `.actor-bottom[name=<actor id>]`: a `rect` inside an unclassed `g` (participant) or the `g.actor-man` itself (actor) | We tag the group `data-seq-participant-for=<id>` when exactly one top participant has that id |
 | Typed participant bottom (for example `@{ "type": "database" }`) | `g.actor-bottom` with no `name` | Inert |
 | Message | `line\|path[data-et="message"][data-id="i<N>"]`; the label is one `text.messageText` per line (`<br>`, and the lines `wrap:` makes), appended just before the line in the same parent | Every `text.messageText` in the contiguous run of previous siblings gets `data-seq-for="i<N>"`. N = source-map message index |
-| Empty message label | One `text.messageText` holding U+200B | Tagged; the box opens empty |
+| Empty message label | One `text.messageText` holding U+200B | Tagged, but its box is 0 px wide, so a real double-click cannot hit it (see Known inert cases) |
 | KaTeX message label (`$$...$$`) | `foreignObject`, no class | Run is empty, untagged, inert |
 
 Two identical messages get different tags because the tag comes from the
@@ -101,21 +126,23 @@ They never carry diagram text, actor ids or message indexes. Rate 1
 
 | Event | When | Extra properties |
 |---|---|---|
-| `editor_inline_edit_started` | The box opened | `inline_edit_kind`, `inline_edit_had_alias` (participant) |
+| `editor_inline_edit_started` | The layer opened | `inline_edit_kind`, `inline_edit_had_alias` (participant) |
 | `editor_inline_edit_succeeded` | The edit was written to the source | `inline_edit_kind`, `inline_edit_had_alias`, `inline_edit_ms_open` |
-| `editor_inline_edit_rejected` | The edit function, the stale check, or a missing source range refused it | `inline_edit_kind`, `inline_edit_rejection`, `inline_edit_had_alias`, `inline_edit_ms_open` (absent when the box never opened) |
-| `editor_inline_edit_cancelled` | Esc, or closed with unchanged text | `inline_edit_kind`, `inline_edit_cancel_reason` (`escape` / `unchanged`), `inline_edit_ms_open` |
-| `editor_inline_edit_unavailable` | Flag on, a sequence diagram rendered, but the parser gave no map. At most once per editor session (iframe page load) | none |
+| `editor_inline_edit_rejected` | The layer closed with text that cannot be used (click elsewhere), the stale check refused the commit, or the element had no source range (no layer opened). Invalid text while typing sends nothing | `inline_edit_kind`, `inline_edit_rejection`, `inline_edit_had_alias`, `inline_edit_ms_open` (absent when the layer never opened) |
+| `editor_inline_edit_cancelled` | Esc (also while the text is invalid), or closed with unchanged text | `inline_edit_kind`, `inline_edit_cancel_reason` (`escape` / `unchanged`), `inline_edit_ms_open` |
+| `editor_inline_edit_unavailable` | A sequence diagram rendered in the editor, but the parser gave no map. At most once per editor session (iframe page load) | none |
 
-`inline_edit_kind` is `participant_label` or `message_text`.
+`inline_edit_kind` is `participant_label` or `message_text`. One event per
+session step (open, close), never one per keystroke.
 
 Volume: these are user actions in the editor preview of Mermaid sequence
 diagrams only. Mermaid and PlantUML editor sessions together are about 13k a
 month (estimate in `docs/features/editor-preview-click.md`); sequence diagrams
 are a part of the Mermaid share. If every one of those sessions opened and
 committed five edits, that is about 130k events a month (13% of the 1M cap),
-an upper bound; the expected volume is a small fraction of it. Not measured
-with `mp_quota.py` in this change. `unavailable` is at most one per
+an upper bound; the expected volume is a small fraction of it. With no flag the
+upper bound applies from the first release. Not measured with `mp_quota.py` in
+this change. `unavailable` is at most one per
 editor session.
 
 ## Interaction with the P6 click count
@@ -124,9 +151,9 @@ editor session.
 counts presses and double-clicks on preview elements, and
 `preview_source_changed_in_window` turns true on any store write. Every inline
 edit therefore also produces a P6 event with a source change, which inflates
-its read-out rules 1 and 3. The P6 100% window runs to 2026-12-23. If this flag
-is turned on for any site before the P6 read-out, exclude editor sessions that
-have `editor_inline_edit_started` from that read-out.
+its read-out rules 1 and 3. The P6 100% window runs to 2026-12-23. The editor
+ships without a flag, so exclude editor sessions that have
+`editor_inline_edit_started` from that read-out.
 
 ## Known inert cases
 
@@ -134,7 +161,13 @@ have `editor_inline_edit_started` from that read-out.
 - Bottom boxes of typed participants (database, queue and the other `@{ type }`
   shapes): no `name` attribute. Their top box works.
 - Notes, loop/alt labels, activation boxes and arrows: not editable kinds.
+- An empty message label (`A->>B:`). It is tagged, but Mermaid draws it as one
+  U+200B, a 0 px wide box that a pointer cannot hit. Emptying a message in the
+  layer is allowed and writes `A->>B:`; after that, the text is edited in the
+  code panel. Measured in Chromium 2026-11-20.
 - A source with U+00A0.
+- An element whose drawn lines differ from its decoded source text (render
+  parity), for example text Mermaid rewrites when it draws it.
 - A diagram the position parser does not accept, or disagrees on with the
   official parser (`getSourceMap` returns null; one `unavailable` event).
 - While the code on screen and the store disagree, for example while a new
@@ -145,9 +178,9 @@ have `editor_inline_edit_started` from that read-out.
 
 ## Not verified
 
-- Escape inside the Forge editor modal: the box calls `preventDefault` on Esc
-  and stops it at window capture, but whether the Confluence host still closes
-  the modal has not been checked on a tunnel.
-- The hover affordance and the flash were not checked by eye in all browsers;
-  they use `filter: drop-shadow` because `outline` does not paint on SVG `g`
-  and `text` everywhere.
+- Escape inside the Forge editor modal: the layer calls `preventDefault` on
+  Esc and stops it at window capture, but whether the Confluence host still
+  closes the modal has not been checked on a tunnel.
+- A real OS IME (measured only with CDP `imeSetComposition`).
+- Browsers other than Chromium: alignment and the custom cursor were measured
+  in Chromium only.

@@ -8,7 +8,6 @@ const ARCHITECTURE_TOKENS_FLAG_ID = 'architecture-tokens-enabled'
 const CREATE_GUIDE_FLAG_ID = 'create-guide-enabled'
 const TITLE_DRAFT_FLAG_ID = 'title-draft-enabled'
 const NO_LICENSE_NOTICE_FLAG_ID = 'no-license-notice-enabled'
-const MERMAID_INLINE_EDIT_FLAG_ID = 'mermaid-inline-edit-enabled'
 
 let featureFlags: FeatureFlags | undefined
 let initializePromise: Promise<FeatureFlags> | undefined
@@ -42,16 +41,6 @@ function standaloneAiChatRepairEnabled(): boolean {
 function standaloneNoLicenseNoticeEnabled(): boolean {
   try {
     return localStorage.getItem('mockNoLicenseNoticeEnabled') === 'true'
-  } catch {
-    return false
-  }
-}
-
-// Defaults OFF: Storybook and standalone dev opt in with
-// localStorage.setItem('mockMermaidInlineEditEnabled', 'true').
-function standaloneMermaidInlineEditEnabled(): boolean {
-  try {
-    return localStorage.getItem('mockMermaidInlineEditEnabled') === 'true'
   } catch {
     return false
   }
@@ -186,23 +175,6 @@ export async function isNoLicenseNoticeEnabled(): Promise<boolean> {
     return await client.checkFlag(NO_LICENSE_NOTICE_FLAG_ID, false)
   } catch (error) {
     console.error('Failed to load no-license notice feature flag:', error)
-    return false
-  }
-}
-
-/**
- * Editing a Mermaid sequence diagram on the editor preview canvas
- * (src/features/mermaidInlineEdit). Fail-closed: a missing flag or a lookup
- * error keeps the preview read-only.
- */
-export async function isMermaidInlineEditEnabled(): Promise<boolean> {
-  if (!forgeGlobal.isForge) return standaloneMermaidInlineEditEnabled()
-
-  try {
-    const client = await getFeatureFlagsClient()
-    return await client.checkFlag(MERMAID_INLINE_EDIT_FLAG_ID, false)
-  } catch (error) {
-    console.error('Failed to load Mermaid inline edit feature flag:', error)
     return false
   }
 }

@@ -2001,15 +2001,17 @@ export type AnalyticsEventName =
   // look at (focus or press in the code pane) or change the source". Read-out rule:
   // docs/features/editor-preview-click.md.
   | "editor_preview_element_clicked"
-  // Mermaid sequence inline edit (2026-11-20, flag `mermaid-inline-edit-enabled`).
+  // Mermaid sequence inline edit (2026-11-20; no flag, on in the editor).
   // Editor preview only: a double-click on a participant label or a message
-  // text of a Mermaid sequence diagram opens a text box over it, and the commit
-  // rewrites the source. `started` = the box opened (the denominator);
+  // text of a Mermaid sequence diagram opens an in-place text layer over it
+  // (the preview re-lays out live, the store is not written), and the commit
+  // rewrites the source once. `started` = the layer opened (the denominator);
   // `succeeded` = the edit was written to the source (unchanged text sends
   // nothing here); `rejected` = the edit function or the stale-source check
-  // refused it (`inline_edit_rejection`); `cancelled` = Esc, or the box closed
-  // with unchanged text (`inline_edit_cancel_reason`); `unavailable` = flag on
-  // and a sequence diagram rendered, but the position parser gave no map, so
+  // refused it when the layer closed (`inline_edit_rejection`; an invalid text
+  // while typing sends nothing); `cancelled` = Esc, or the layer closed with
+  // unchanged text (`inline_edit_cancel_reason`); `unavailable` = a sequence
+  // diagram rendered in the editor, but the position parser gave no map, so
   // the diagram stays read-only (at most once per editor session).
   // Properties: feature_area 'macro', surface 'editor', macro_type,
   // inline_edit_kind, inline_edit_had_alias (participant only),

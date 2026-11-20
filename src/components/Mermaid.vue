@@ -64,6 +64,7 @@ export default {
       // Mermaid sequence inline edit (src/features/mermaidInlineEdit).
       inlineEdit: null,
       inlineEditRenderedCode: null,
+      inlineEditViewKeeper: null,
     }
   },
   computed: {
@@ -213,7 +214,11 @@ export default {
       if (!this.inlineEditAllowed) return;
       const { mountMermaidInlineEdit } = await import('@/features/mermaidInlineEdit');
       if (this.inlineEdit || !this.$el?.isConnected) return;
-      this.inlineEdit = mountMermaidInlineEdit(this.$el, this.$store);
+      this.inlineEdit = mountMermaidInlineEdit(this.$el, this.$store, {
+        renderPreview: (code) => this.renderPreview(code),
+        setViewKeeper: (fn) => { this.inlineEditViewKeeper = fn; },
+        viewport: () => this.$refs.viewport ?? null,
+      });
       if (this.svg && this.inlineEditRenderedCode === this.mermaidCode) this.inlineEdit.onRendered(this.inlineEditRenderedCode);
     },
     /** Re-bind the pan/zoom viewport after the slotted SVG changes. */
@@ -247,10 +252,37 @@ export default {
       }
       await this.initializeViewport();
       if (generation !== this.renderGeneration || this.mermaidCode !== code) return false;
+      // Inline edit: puts zoom and pan back in the same task as the swap.
+      this.inlineEditViewKeeper?.(code);
       this.installHighlights();
       this.inlineEditRenderedCode = code;
       this.inlineEdit?.onRendered(code);
       reportDiagramReady(this.$el, 'mermaid');
+      return true;
+    },
+    /**
+     * Inline edit: render a candidate source WITHOUT writing the store.
+     * Latest-wins with renderAndApply (shared renderGeneration). No crash or
+     * layout-wait telemetry, no ready receipt, no highlights, no onRendered:
+     * a candidate that fails to render is simply not shown. Resolves true when
+     * the candidate's SVG is in the DOM and the viewport is re-attached.
+     */
+    async renderPreview(code) {
+      if (!this.mermaidCode) return false;
+      const generation = ++this.renderGeneration;
+      let svg;
+      try {
+        svg = await this.runMermaid(code);
+      } catch {
+        return false;
+      }
+      if (!svg || generation !== this.renderGeneration || !this.mermaidCode) return false;
+      this.svg = typeof svg === 'string' ? svg : svg.svg;
+      await this.$nextTick();
+      if (generation !== this.renderGeneration) return false;
+      await this.initializeViewport();
+      if (generation !== this.renderGeneration) return false;
+      this.inlineEditViewKeeper?.(code);
       return true;
     },
     async runMermaid(code) {

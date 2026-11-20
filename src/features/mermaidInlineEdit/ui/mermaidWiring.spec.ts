@@ -43,7 +43,9 @@ describe('Mermaid.vue inline edit gate', () => {
   it('attaches on the editor preview and passes the exact store string of each render', async () => {
     const wrapper = mountWith({ [MERMAID_INLINE_EDIT_SURFACE]: true });
     await vi.waitFor(() => expect(controller.onRendered).toHaveBeenCalledWith(CODE));
-    expect(mountMock).toHaveBeenCalledWith(wrapper.vm.$el, expect.anything());
+    expect(mountMock).toHaveBeenCalledWith(wrapper.vm.$el, expect.anything(), expect.objectContaining({
+      renderPreview: expect.any(Function), setViewKeeper: expect.any(Function), viewport: expect.any(Function),
+    }));
 
     const next = `${CODE}\n  B->>A: back`;
     store.state.diagram.mermaidCode = next;

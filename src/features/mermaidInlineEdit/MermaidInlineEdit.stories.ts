@@ -7,23 +7,46 @@ import { DiagramType } from '@/model/Diagram/Diagram'
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { REJECTION_MESSAGES } from './ui/copy'
 
-// Mermaid sequence inline edit, on the real editor preview: full Workspace,
-// real Mermaid render, real position parser, flag on through the standalone
-// localStorage mock (mockMermaidInlineEditEnabled).
+// Mermaid sequence inline edit on the real editor preview: full Workspace,
+// real Mermaid render, real position parser. Double-click a message text or a
+// participant label (top box or bottom mirror) and type where it is: the
+// diagram re-lays out live, the code panel changes only on Enter or click
+// away. Shift+Enter adds a line, Esc cancels. Invalid text (a name that
+// exists, empty, characters Mermaid can't use) turns the outline red with a
+// hint, and the last valid picture stays.
 setup((app: App) => {
   app.use(store)
 })
 
-const SEQUENCE = `sequenceDiagram
+// Participants: A (aliased "Alice"), Bob (no alias: the id is the label),
+// Carol (aliased), Bo (no alias; type "b" to make it "Bob" and collide).
+const SMALL = `sequenceDiagram
   participant A as Alice
   participant Bob
-  A->>Bob: Hello<br/>two lines
-  Bob-->>A: Fine`
+  participant C as Carol
+  participant Bo
+  A->>Bob: Hi
+  Bob->>C: Hello<br/>two lines
+  C-->>A: Fine
+  Bo->>A: Ping`
+
+function large(): string {
+  const names = ['Alice', 'Bob', 'Carol', 'Dave', 'Erin', 'Frank', 'Grace', 'Heidi', 'Ivan', 'Judy']
+  const lines = ['sequenceDiagram', ...names.map((n) => `  participant ${n}`)]
+  for (let i = 0; i < 50; i += 1) {
+    const from = names[i % names.length]
+    const to = names[(i * 3 + 1) % names.length]
+    lines.push(`  ${from}->>${to === from ? names[(i + 1) % names.length] : to}: message ${i + 1}`)
+  }
+  return lines.join('\n')
+}
+
+// Handle for the measurement harness and by-hand inspection.
+;(window as any).__mieStore = store
 
 function prepare(code: string) {
   forgeGlobal.isForge = false
   forgeGlobal.zenumlRemoteBaseUrl = 'https://storybook.example.com'
-  localStorage.setItem('mockMermaidInlineEditEnabled', 'true')
   for (const t of [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml]) {
     localStorage.setItem(`zenuml.starterGalleryAutoOpened.unknown-cloud.${t}`, '1')
   }
@@ -36,7 +59,8 @@ function prepare(code: string) {
 
 const preview = () => document.querySelector('#workspace-right') as HTMLElement
 const code = () => (store.state as any).diagram.mermaidCode as string
-const input = () => document.querySelector('[data-testid="mermaid-inline-edit-input"]') as HTMLInputElement | null
+const layer = () => document.querySelector('[data-testid="mermaid-inline-edit-layer"]') as HTMLElement | null
+const hint = () => document.querySelector('[data-testid="mermaid-inline-edit-hint"]') as HTMLElement | null
 
 /** Wait until the preview is editable (map computed for the code on screen). */
 async function editable() {
@@ -45,10 +69,10 @@ async function editable() {
   }, { timeout: 15_000 })
 }
 
-function participant(id: string): Element {
+function headerText(id: string): Element {
   const el = Array.from(preview().querySelectorAll('svg [data-et="participant"]')).find(e => e.getAttribute('data-id') === id)
   if (!el) throw new Error(`participant ${id} not rendered`)
-  return el
+  return el.querySelector('text') ?? el
 }
 
 function messageText(index: number): Element {
@@ -57,8 +81,30 @@ function messageText(index: number): Element {
   return el
 }
 
-const decorators = [() => {
-  prepare(SEQUENCE)
+/**
+ * Replace the layer's whole text: select all, then insert through the
+ * browser's own editing commands, which fire the same input event a keystroke
+ * does. userEvent.keyboard typing did not change this contenteditable layer
+ * here, so it is not used for text. A "\n" becomes insertLineBreak, the
+ * command Shift+Enter runs natively. Real keystrokes are covered by the unit
+ * tests and the Playwright harness.
+ */
+async function retype(text: string) {
+  const el = layer()!
+  el.focus()
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  const sel = window.getSelection()!
+  sel.removeAllRanges()
+  sel.addRange(range)
+  text.split('\n').forEach((part, i) => {
+    if (i > 0) document.execCommand('insertLineBreak')
+    if (part) document.execCommand('insertText', false, part)
+  })
+}
+
+const decorate = (source: string) => [() => {
+  prepare(source)
   return { template: '<div style="height: 760px;"><story /></div>' }
 }]
 
@@ -69,14 +115,13 @@ const meta: Meta<typeof Workspace> = {
   // modal says macroMode 'editor', and the inline-edit gate requires it.
   // Restored afterwards so later stories in the same preview are unaffected.
   // Note: the store's isDisplayMode getter caches its first value per page
-  // load, so open this story on a fresh load (or reload) if a viewer story ran first.
+  // load, so open these stories on a fresh load if a viewer story ran first.
   beforeEach: () => {
     const previous = forgeGlobal.forgeContext
     const context = (previous ?? {}) as any
     forgeGlobal.forgeContext = { ...context, extension: { ...context.extension, modal: { macroMode: 'editor' } } } as any
     return () => {
       forgeGlobal.forgeContext = previous
-      localStorage.removeItem('mockMermaidInlineEditEnabled')
     }
   },
   parameters: {
@@ -84,7 +129,7 @@ const meta: Meta<typeof Workspace> = {
     docs: {
       description: {
         component:
-          'Double-click a participant name or a message text of a Mermaid sequence diagram in the editor preview to edit it in place. Enter or blur saves, Esc cancels. Flag: mermaid-inline-edit-enabled.',
+          'Double-click a participant label or a message text of a Mermaid sequence diagram in the editor preview and edit it where it is. The diagram re-lays out on every keystroke; the source is written once, on Enter or click away. Esc cancels.',
       },
     },
   },
@@ -93,61 +138,80 @@ export default meta
 
 type Story = StoryObj<typeof Workspace>
 
-/** Rename an aliased participant: the alias changes in the source. */
+/** No play function: try it by hand. */
+export const TryByHand: Story = { decorators: decorate(SMALL) }
+
+/** 10 participants, 50 messages: live re-layout on a larger diagram. */
+export const LargeDiagram: Story = { decorators: decorate(large()) }
+
+/** Rename a participant without alias: the id changes everywhere, live, then once in the source. */
 export const RenameParticipant: Story = {
-  decorators,
-  play: async () => {
-    await editable()
-    await userEvent.dblClick(participant('A').querySelector('text') ?? participant('A'))
-    await waitFor(() => expect(input()?.value).toBe('Alice'))
-    await userEvent.clear(input()!)
-    await userEvent.type(input()!, 'Alicia{Enter}')
-    await waitFor(() => expect(code()).toContain('participant A as Alicia'))
-    expect(input()).toBeNull()
-  },
-}
-
-/** A message with <br/> shows its SOURCE text in the box, not the rendered lines. */
-export const EditMessageWithLineBreak: Story = {
-  decorators,
-  play: async () => {
-    await editable()
-    await userEvent.dblClick(messageText(0))
-    await waitFor(() => expect(input()?.value).toBe('Hello<br/>two lines'))
-    await userEvent.clear(input()!)
-    await userEvent.type(input()!, 'Hi there{Enter}')
-    await waitFor(() => expect(code()).toContain('A->>Bob: Hi there'))
-  },
-}
-
-/** Renaming to a name that is already used is refused with a toast. */
-export const DuplicateNameToast: Story = {
-  decorators,
+  decorators: decorate(SMALL),
   play: async () => {
     await editable()
     const before = code()
-    await userEvent.dblClick(participant('Bob'))
-    await waitFor(() => expect(input()).not.toBeNull())
-    await userEvent.clear(input()!)
-    await userEvent.type(input()!, 'A{Enter}')
+    await userEvent.dblClick(headerText('Bob'))
+    await waitFor(() => expect(layer()?.textContent).toBe('Bob'))
+    await retype('Robert')
+    await waitFor(() => expect(preview().querySelector('svg [data-et="participant"][data-id="Robert"]')).not.toBeNull())
+    expect(code()).toBe(before)
+    await userEvent.keyboard('{Enter}')
+    await waitFor(() => expect(code()).toContain('participant Robert'))
+    expect(code()).toContain('A->>Robert: Hi')
+    await waitFor(() => expect(layer()).toBeNull())
+  },
+}
+
+/**
+ * A message with <br/> shows its lines in the layer; a line break (what
+ * Shift+Enter inserts) becomes <br/> in the source.
+ */
+export const EditMessageWithLineBreak: Story = {
+  decorators: decorate(SMALL),
+  play: async () => {
+    await editable()
+    await userEvent.dblClick(messageText(1))
+    await waitFor(() => expect(layer()?.textContent).toBe('Hello\ntwo lines'))
+    await retype('Hi\nthere')
     await waitFor(() => {
-      const toast = document.querySelector('[data-testid="toast"]')
-      expect(toast?.textContent).toBe(REJECTION_MESSAGES.name_exists)
+      const lines = Array.from(preview().querySelectorAll('svg [data-seq-for="i1"]')).map(e => e.textContent)
+      expect(lines).toEqual(['Hi', 'there'])
     })
+    await userEvent.keyboard('{Enter}')
+    await waitFor(() => expect(code()).toContain('Bob->>C: Hi<br/>there'))
+  },
+}
+
+/** A name that is already used: red outline and hint, Enter stays in edit, nothing written. */
+export const DuplicateNameInvalid: Story = {
+  decorators: decorate(SMALL),
+  play: async () => {
+    await editable()
+    const before = code()
+    await userEvent.dblClick(headerText('Bo'))
+    await waitFor(() => expect(layer()?.textContent).toBe('Bo'))
+    await retype('Bob')
+    await waitFor(() => expect(hint()?.textContent).toBe(REJECTION_MESSAGES.name_exists))
+    expect(layer()!.classList.contains('mie-invalid')).toBe(true)
+    await userEvent.keyboard('{Enter}')
+    expect(layer()).not.toBeNull()
     expect(code()).toBe(before)
   },
 }
 
-/** Esc closes the box and leaves the source as it was. */
+/** Esc closes the layer, puts the stored picture back and leaves the source as it was. */
 export const EscCancels: Story = {
-  decorators,
+  decorators: decorate(SMALL),
   play: async () => {
     await editable()
     const before = code()
-    await userEvent.dblClick(messageText(1))
-    await waitFor(() => expect(input()?.value).toBe('Fine'))
-    await userEvent.type(input()!, ' and more{Escape}')
-    await waitFor(() => expect(input()).toBeNull())
+    await userEvent.dblClick(messageText(2))
+    await waitFor(() => expect(layer()?.textContent).toBe('Fine'))
+    await retype('Fine and more')
+    await waitFor(() => expect(messageText(2).textContent).toBe('Fine and more'))
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => expect(layer()).toBeNull())
+    await waitFor(() => expect(messageText(2).textContent).toBe('Fine'))
     expect(code()).toBe(before)
   },
 }

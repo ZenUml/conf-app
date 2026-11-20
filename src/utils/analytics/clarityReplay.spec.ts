@@ -79,6 +79,38 @@ describe("startClarityReplay", () => {
     expect(clarity.set).toHaveBeenCalledWith("surface", "editor");
   });
 
+  it.each([
+    ["https://ZenUml.atlassian.net/wiki", "PRODUCTION", "internal"],
+    ["https://lite-prod.atlassian.net", "PRODUCTION", "internal"],
+    ["https://whimet4.atlassian.net", "DEVELOPMENT", "internal"],
+    ["https://lite-stg.atlassian.net", "STAGING", "internal"],
+    ["https://example-tenant.atlassian.net/wiki", "PRODUCTION", "customer"],
+    ["https://example-tenant.atlassian.net", "STAGING", undefined],
+    ["https://example-tenant.atlassian.net", undefined, undefined],
+    ["https://wiki.example.com", "PRODUCTION", undefined],
+    ["https://example-tenant.atlassian.net.example.com", "PRODUCTION", undefined],
+    ["http://example-tenant.atlassian.net", "PRODUCTION", undefined],
+    ["example-tenant.atlassian.net", "PRODUCTION", undefined],
+    [undefined, "PRODUCTION", undefined],
+  ])("classifies %s in %s as %s", async (siteUrl, environmentType, siteType) => {
+    const clarity = fakeClarity();
+    const result = await startClarityReplay({
+      getForgeContext: async () => ({ ...editorContext, siteUrl, environmentType }),
+      createFlagClient: async () => flagClient(true),
+      fetchGeo: async () => true,
+      loadClarity: async () => clarity,
+      storage: memoryStorage(),
+    });
+
+    expect(result.outcome).toBe("started");
+    expect(clarity.set.mock.calls).toEqual([
+      ["surface", "editor"],
+      ...(siteType ? [["site_type", siteType]] : []),
+      ["moduleKey", editorContext.moduleKey],
+    ]);
+    expect(clarity.identify).not.toHaveBeenCalled();
+  });
+
   it("skips an inline viewer without checking the flag", async () => {
     const client = flagClient(true);
     const result = await startClarityReplay({

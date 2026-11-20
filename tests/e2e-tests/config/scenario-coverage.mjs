@@ -2,6 +2,7 @@
 // On the privileged controller these are trusted default-branch files. The
 // candidate planner must agree with this inventory before narrowing a plan.
 import { readFileSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDefaultPrSpec } from './test-discovery-policy.mjs';
@@ -38,6 +39,10 @@ export const SCENARIO_COVERAGE = CATEGORIES.map(({id}) => {
   const pairs = new Map(tests.flatMap(test=>test.scenarios).map(pair=>[scenarioKey(pair),pair]));
   return {category:id,scenarios:[...pairs.values()].sort((a,b)=>scenarioKey(a).localeCompare(scenarioKey(b))),tests};
 });
+// The decision fingerprint. The trusted controller also hands this exact
+// preimage to the candidate so an additive candidate can prove it is a superset.
+export const scenarioCoverageFingerprint = coverage => createHash('sha256').update(JSON.stringify(coverage)).digest('hex');
+export const SCENARIO_COVERAGE_FINGERPRINT = scenarioCoverageFingerprint({ browser: SCENARIO_COVERAGE, api: API_LANES });
 
 // Current PR browser lanes run Lite regression + render. A pair covered only
 // in another variant/project cannot authorize a silently empty PR selection.

@@ -1,6 +1,6 @@
 /**
  * Interaction layer for "edit Mermaid diagrams on the canvas": the in-place
- * (Figma-style) text editor.
+ * (Figma-style) text editor, for sequence diagrams and flowcharts.
  *
  * A transparent contenteditable layer lives in the DiagramViewport element,
  * outside the v-html SVG, so a re-render never destroys it. It copies the font
@@ -30,13 +30,17 @@ import type { AnalyticsProperties } from '@/utils/analytics/types';
 import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace';
 import { baseProps, unionRect, type EditHandle, type InlineEditAdapter, type Point } from './adapter';
 import { createSequenceAdapter, glyphColour, type SequenceAdapterDeps } from './sequenceAdapter';
+import { createFlowchartAdapter, type FlowchartInlineEditDeps } from './flowchartAdapter';
 import { createRenderLoop, type RenderLoop } from './renderLoop';
 
 export { glyphColour };
+export type { FlowchartInlineEditDeps };
 
 export type InlineEditEventName = Extract<AnalyticsEventName, `editor_inline_edit_${string}`>;
 
 export interface InlineEditDeps extends SequenceAdapterDeps {
+  /** Flowchart editing. Absent: flowcharts stay inert (no map request, no cursor). */
+  flowchart?: FlowchartInlineEditDeps;
   /** The store's current Mermaid source (`store.state.diagram.mermaidCode`). */
   getCode: () => string;
   /** The one correct write: clears the error and dispatches the store update. */
@@ -176,6 +180,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
   const clearTimer = deps.clearTimer ?? ((handle: unknown) => win.clearTimeout(handle as number));
 
   const adapters: InlineEditAdapter[] = [createSequenceAdapter(deps, win) as unknown as InlineEditAdapter];
+  if (deps.flowchart) adapters.push(createFlowchartAdapter(deps.flowchart, win) as unknown as InlineEditAdapter);
   const adapterFor = (root: Element | null) => adapters.find((a) => a.accepts(root)) ?? null;
 
   let destroyed = false;

@@ -2,10 +2,15 @@
  * The one wiring file: the only place that imports sourcemap/ and edit/ and
  * hands them, with the store and the toast, to the interaction layer. Mermaid.vue
  * loads this module with a dynamic import, and only on the editor preview, so
- * the page viewer never downloads it.
+ * the page viewer never downloads it. The flowchart half (flowchartApi.ts) is
+ * a further dynamic import, made on the first flowchart render.
  */
 import type { Store } from 'vuex';
-import { renameParticipant, editMessageText, sourceTextOf } from './edit';
+// Direct files, not './edit': its index also re-exports the flowchart edit
+// code, which must stay in the flowchart chunk.
+import { renameParticipant } from './edit/renameParticipant';
+import { editMessageText } from './edit/editMessageText';
+import { sourceTextOf } from './edit/sourceTextOf';
 import type { GetSequenceSourceMap } from './types';
 import { attachInlineEdit, type InlineEditController, type InlineEditDeps, type InlineEditHost } from './ui/controller';
 import { DiagramType } from '@/model/Diagram/Diagram';
@@ -24,6 +29,7 @@ export function mountMermaidInlineEdit(container: HTMLElement, store: Store<any>
     renameParticipant,
     editMessageText,
     sourceTextOf,
+    flowchart: { load: async () => (await import('./flowchartApi')).flowchartEditApi },
     getCode: () => store.state.diagram.mermaidCode ?? '',
     writeCode: (code) => {
       // Same write as Workspace.applyAIChatCode: CodeMirror, re-render, draft

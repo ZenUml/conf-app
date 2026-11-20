@@ -49,7 +49,12 @@
 
         <template v-if="overLimitSpaces.length">
           <h2 class="section-title">Spaces over the limit</h2>
-          <p class="purchase-help" data-testid="plan-usage-purchase-help">Unlock one space by card. Checkout opens in a new tab: ${{ ENTERPRISE_BUNDLE_ANNUAL_COST }} per space per year, plus tax where applicable. No Confluence admin needed.</p>
+          <p class="purchase-help" data-testid="plan-usage-purchase-help">Unlock one space by card. Checkout opens in a new tab<template v-if="!showBundleOffer">: ${{ ENTERPRISE_BUNDLE_ANNUAL_COST }} per space per year, plus tax where applicable</template>. No Confluence admin needed.</p>
+          <aside v-if="showBundleOffer" class="bundle-offer">
+            <strong>Black Friday · 50% off the first year</strong>
+            <p>{{ BLACK_FRIDAY_PRICE }} per space for the first year. {{ BLACK_FRIDAY_TERMS }}</p>
+            <p>{{ BLACK_FRIDAY_DEADLINE }}</p>
+          </aside>
           <p v-if="paidLookupFailed" class="purchase-help" role="status">We couldn’t check paid access. Purchase options are unavailable for now.</p>
           <table class="space-table">
             <thead><tr><th>Space</th><th class="num">Diagrams / limit</th><th class="purchase-heading">Unlock one space</th></tr></thead>
@@ -64,7 +69,8 @@
                     <button type="button" class="btn btn-secondary" :aria-label="`Open checkout again: ${s.spaceKey}`" @click="purchaseSpace(s)">Open again</button>
                   </template>
                   <template v-else-if="canPurchase(s.spaceKey)">
-                    <span class="space-price">${{ ENTERPRISE_BUNDLE_ANNUAL_COST }}/yr/space</span>
+                    <span v-if="showBundleOffer" class="space-price">{{ BLACK_FRIDAY_PRICE }} first year<small>Then {{ BUNDLE_RENEWAL_PRICE }}</small></span>
+                    <span v-else class="space-price">${{ ENTERPRISE_BUNDLE_ANNUAL_COST }}/yr/space</span>
                     <button type="button" class="btn btn-secondary" :aria-label="`Unlock this space: ${s.spaceKey}`" @click="purchaseSpace(s)">Unlock this space</button>
                   </template>
                   <span v-else class="license-state">{{ paidLoading ? 'Checking license…' : paidStatuses[s.spaceKey]?.isPaid === true ? 'Covered by a paid license' : 'License status unavailable' }}</span>
@@ -147,6 +153,8 @@
 import { ref, onMounted, computed } from 'vue'
 import { getSpaceStatuses, type PaidStatus } from '@/apis/spaceStatuses'
 import { enterpriseBundleCheckout } from '@/utils/paywall/enterpriseBundleCheckout'
+import { BLACK_FRIDAY_OFFER, BLACK_FRIDAY_PRICE, BLACK_FRIDAY_PRICE_USD, BLACK_FRIDAY_TERMS, BLACK_FRIDAY_DEADLINE, BUNDLE_RENEWAL_PRICE, bundleOfferCheckoutUrl } from '@/utils/paywall/bundleBlackFriday'
+import { useBundleBlackFriday } from '@/utils/paywall/useBundleBlackFriday'
 import { openBundleCheckout } from '@/utils/paywall/openBundleCheckout'
 import { ENTERPRISE_BUNDLE_ANNUAL_COST } from '@/components/UpgradePrompt/upgradePrompt'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
@@ -209,11 +217,15 @@ async function loadPaidStatuses() {
 /** Rows whose checkout page opened in this visit; shows the row as opened. */
 const checkoutOpened = ref<Record<string, boolean>>({})
 
+const blackFriday = useBundleBlackFriday()
+const showBundleOffer = computed(() => blackFriday.value && overLimitSpaces.value.some(s => canPurchase(s.spaceKey)))
+
 async function purchaseSpace(space: { spaceKey: string; macroCount: number }) {
   if (!canPurchase(space.spaceKey)) return
   const checkout = enterpriseBundleCheckout(domain.value, space.spaceKey, { surface: 'plan_usage' })
-  trackAnalyticsEvent('paywall_bundle_cta_clicked', { feature_area: 'upgrade', surface: 'dashboard', space_key: space.spaceKey, macro_count: space.macroCount, macro_limit: macrosLimit.value, bundle_price_usd: ENTERPRISE_BUNDLE_ANNUAL_COST, client_reference_id: checkout.clientReferenceId, checkout_click_id: checkout.clickId })
-  const outcome = await openBundleCheckout(checkout.url, { surface: 'dashboard', checkoutSurface: 'plan_usage' })
+  trackAnalyticsEvent('paywall_bundle_cta_clicked', { feature_area: 'upgrade', surface: 'dashboard', space_key: space.spaceKey, macro_count: space.macroCount, macro_limit: macrosLimit.value, bundle_price_usd: blackFriday.value ? BLACK_FRIDAY_PRICE_USD : ENTERPRISE_BUNDLE_ANNUAL_COST, ...(blackFriday.value ? { bundle_offer: BLACK_FRIDAY_OFFER } : {}), client_reference_id: checkout.clientReferenceId, checkout_click_id: checkout.clickId })
+  const url = blackFriday.value ? bundleOfferCheckoutUrl(checkout.url) : checkout.url
+  const outcome = await openBundleCheckout(url, { surface: 'dashboard', checkoutSurface: 'plan_usage' })
   if (outcome === 'opened') checkoutOpened.value = { ...checkoutOpened.value, [space.spaceKey]: true }
 }
 
@@ -466,6 +478,10 @@ table.space-table { width: 720px; max-width: 100%; border-collapse: collapse; ta
 }
 .space-table td { height: 60px; padding: 0; border-bottom: 0.5px solid var(--pu-hairline); font-weight: 500; }
 .space-table .num { text-align: right; }
+.bundle-offer { margin: 0 0 12px; padding: 10px 14px; border-radius: 6px; background: #f3eefd; color: #4c2981; font-size: 12px; line-height: 18px; }
+.bundle-offer strong { font-size: 14px; }
+.bundle-offer p { margin: 0; }
+.space-price small { display: block; color: var(--pu-text-low); font-size: 12px; font-weight: 400; }
 .purchase-help { color: var(--pu-text-low); margin: 0 0 12px; font-size: 12px; line-height: 16px; }
 .space-table .purchase-heading { padding-left: 32px; }
 .space-table .space-purchase { padding: 0 0 0 32px; }

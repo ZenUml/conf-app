@@ -29,20 +29,27 @@
              them: the bundle needs nobody, Marketplace needs a site admin. -->
         <div class="px-4 pb-3">
           <div class="rounded-md border border-gray-200 bg-white px-3 py-2.5">
-            <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center justify-between gap-3" :class="{ 'flex-col !items-stretch': blackFriday }">
               <div class="min-w-0">
                 <p class="text-xs font-medium text-gray-900 leading-5">
                   Unlock this space for your whole team
                 </p>
                 <p class="text-[11px] text-gray-600 leading-4">
-                  {{ ENTERPRISE_BUNDLE_PRICE }} · pay by card, no Confluence admin needed
+                  <template v-if="blackFriday">Pay by card, no Confluence admin needed</template>
+                  <template v-else>{{ ENTERPRISE_BUNDLE_PRICE }} · pay by card, no Confluence admin needed</template>
                 </p>
+              </div>
+              <div v-if="blackFriday" class="rounded bg-violet-50 px-3 py-2 text-xs text-violet-900">
+                <p class="font-semibold">Black Friday · 50% off the first year</p>
+                <p class="mt-1 font-semibold">{{ BLACK_FRIDAY_PRICE }} first year</p>
+                <p>{{ BLACK_FRIDAY_TERMS }}</p>
+                <p>{{ BLACK_FRIDAY_DEADLINE }}</p>
               </div>
               <button
                 data-testid="unlock-space-btn"
                 class="shrink-0 rounded bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-800 focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_#fff,0_0_0_4px_#0C66E4] motion-safe:enabled:active:scale-95 transition-transform duration-fast ease-snap"
                 @click="onUnlockSpace"
-              >Unlock this space — {{ ENTERPRISE_BUNDLE_PRICE }}</button>
+              >Unlock this space — {{ blackFriday ? BLACK_FRIDAY_PRICE : ENTERPRISE_BUNDLE_PRICE }}</button>
             </div>
             <p class="mt-1.5 border-t border-gray-100 pt-1.5 text-[11px] text-gray-600 leading-4">
               Have more than one space over the limit?
@@ -147,6 +154,8 @@ import DraftCard from './DraftCard.vue'
 import AdvocacyButton from './AdvocacyButton.vue'
 import { useUpgradeTracking } from './useUpgradeTracking'
 import { trackUpgradeEvent, UpgradeEventName, UIComponent, bundleClientReferenceId, bundleCheckoutClickId } from '@/utils/upgradeTracking'
+import { BLACK_FRIDAY_OFFER, BLACK_FRIDAY_PRICE, BLACK_FRIDAY_PRICE_USD, BLACK_FRIDAY_TERMS, BLACK_FRIDAY_DEADLINE, bundleOfferCheckoutUrl } from '@/utils/paywall/bundleBlackFriday'
+import { useBundleBlackFriday } from '@/utils/paywall/useBundleBlackFriday'
 import { openBundleCheckout } from '@/utils/paywall/openBundleCheckout'
 import type { PaywallActionType } from '@/utils/paywall/mountPaywallGate'
 import { CONTINUE_ATTEMPTS_STORAGE_SOURCE } from '@/utils/paywall/continueAttempts'
@@ -164,6 +173,7 @@ import {
 import { ENTERPRISE_BUNDLE_ANNUAL_COST } from './upgradePrompt'
 import { openUrl } from '@/model/globals/forgeGlobal'
 
+const blackFriday = useBundleBlackFriday()
 const ENTERPRISE_BUNDLE_PRICE = `$${ENTERPRISE_BUNDLE_ANNUAL_COST}/yr/space`
 
 const props = withDefaults(
@@ -297,12 +307,14 @@ async function onUnlockSpace() {
   const reference = bundleClientReferenceId(props.enterpriseBundleUrl)
   const clickId = bundleCheckoutClickId(props.enterpriseBundleUrl)
   trackUpgradeEvent(UpgradeEventName.PAYWALL_BUNDLE_CTA_CLICKED, {
-    bundle_price_usd: ENTERPRISE_BUNDLE_ANNUAL_COST,
+    bundle_price_usd: blackFriday.value ? BLACK_FRIDAY_PRICE_USD : ENTERPRISE_BUNDLE_ANNUAL_COST,
+    ...(blackFriday.value ? { bundle_offer: BLACK_FRIDAY_OFFER } : {}),
     ...(reference !== undefined ? { client_reference_id: reference } : {}),
     ...(clickId !== undefined ? { checkout_click_id: clickId } : {}),
     ...purchaseContext(),
   })
-  await openBundleCheckout(props.enterpriseBundleUrl, { surface: 'modal', checkoutSurface: 'upgrade_prompt' })
+  const url = blackFriday.value ? bundleOfferCheckoutUrl(props.enterpriseBundleUrl) : props.enterpriseBundleUrl
+  await openBundleCheckout(url, { surface: 'modal', checkoutSurface: 'upgrade_prompt' })
 }
 
 /** Marketplace (Full plan) rail — covers every space, but only a Confluence

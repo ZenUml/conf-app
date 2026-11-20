@@ -424,10 +424,14 @@ export type GalleryOpenTrigger = "auto_first_open" | "manual";
 // so pairing the two values into a funnel would be lopsided by construction.
 export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
 
-// Mermaid sequence inline edit (editor_inline_edit_*). Mirrors EditableKind
+// Mermaid inline edit (editor_inline_edit_*). Mirrors EditableKind
 // and EditRejection in src/features/mermaidInlineEdit/types.ts, in snake case
 // for Mixpanel; kept as literals so the catalog has no feature import.
-export type InlineEditKind = "participant_label" | "message_text";
+// `participant_label` / `message_text`: sequence diagrams; `node_label` /
+// `edge_label`: flowcharts (2026-11-21, registered ahead of the flowchart UI).
+export type InlineEditKind = "participant_label" | "message_text" | "node_label" | "edge_label";
+// Which Mermaid diagram type an editor_inline_edit_* event came from.
+export type InlineEditDiagram = "sequence" | "flowchart";
 export type InlineEditRejection =
   | "stale_source"
   | "name_exists"
@@ -2015,7 +2019,10 @@ export type AnalyticsEventName =
   // the diagram stays read-only (at most once per editor session).
   // Properties: feature_area 'macro', surface 'editor', macro_type,
   // inline_edit_kind, inline_edit_had_alias (participant only),
-  // inline_edit_ms_open. Never diagram text or ids. docs/features/mermaid-inline-edit.md.
+  // inline_edit_ms_open, inline_edit_diagram ('sequence' | 'flowchart'; on every
+  // editor_inline_edit_* event once flowchart inline edit ships, absent on events
+  // sent before it). Flowchart labels use inline_edit_kind 'node_label' /
+  // 'edge_label'. Never diagram text or ids. docs/features/mermaid-inline-edit.md.
   | "editor_inline_edit_started"
   | "editor_inline_edit_succeeded"
   | "editor_inline_edit_rejected"

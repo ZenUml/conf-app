@@ -132,7 +132,10 @@ They never carry diagram text, actor ids or message indexes. Rate 1
 | `editor_inline_edit_cancelled` | Esc (also while the text is invalid), or closed with unchanged text | `inline_edit_kind`, `inline_edit_cancel_reason` (`escape` / `unchanged`), `inline_edit_ms_open` |
 | `editor_inline_edit_unavailable` | A sequence diagram rendered in the editor, but the parser gave no map. At most once per editor session (iframe page load) | none |
 
-`inline_edit_kind` is `participant_label` or `message_text`. One event per
+`inline_edit_kind` is `participant_label` or `message_text` (sequence), or
+`node_label` or `edge_label` (flowchart, registered ahead of the flowchart UI).
+`inline_edit_diagram` (`sequence` / `flowchart`) is optional on every
+`editor_inline_edit_*` event; events without it are sequence events. One event per
 session step (open, close), never one per keystroke.
 
 Volume: these are user actions in the editor preview of Mermaid sequence

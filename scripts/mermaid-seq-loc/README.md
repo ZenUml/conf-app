@@ -14,7 +14,8 @@ This folder holds only the build inputs and tools. The runtime code is in `src/f
 | Path | Role |
 |---|---|
 | `upstream/sequenceDiagram.<version>.jison` | Pristine upstream grammar, vendored. Never edit it. |
-| `loc.patch` | Our change: attach token offsets. Applied with `patch --fuzz=0`. |
+| `loc.patch` | Our change: attach token offsets. Applied with `patch --fuzz=0`. Fits the pinned Mermaid. |
+| `loc.<version>.patch` | Optional. The same change cut from a newer upstream grammar whose context lines differ (today `loc.12.3.0.patch`). See "Patch selection" below. |
 | `build.mjs` | Applies the patch and compiles with jison. Modes: build, `--check`, `--fetch <version>`. |
 | `extract-corpus.mjs` | Extracts the sequence sources from Mermaid's own test file into a fixture. |
 | `src/features/mermaidInlineEdit/sourcemap/generated/sequenceLocParser.js` | Build output, checked in. Do not edit. |
@@ -33,6 +34,19 @@ This folder holds only the build inputs and tools. The runtime code is in `src/f
 
 `build.mjs` needs GNU or BSD `patch` on the PATH. The environment variable `MERMAID_SEQ_LOC_VERSION` overrides the version constant in `build.mjs`. Only the sync workflow uses it.
 
+### Patch selection
+
+One patch cannot fit two grammars when upstream changes a line the patch edits: `--fuzz=0` needs exact context. So a newer grammar gets its own patch file, and the pinned build keeps `loc.patch`.
+
+| Target version | Patch used |
+|---|---|
+| Lower than every `loc.<v>.patch` (the pinned 11.17.2 today) | `loc.patch` |
+| Equal to or higher than some `loc.<v>.patch` (12.3.0, 12.3.1, 13.x today) | The highest such `loc.<v>.patch` |
+
+The generated file names the patch it was built from in its header. A future grammar that breaks the selected patch still fails loudly.
+
+What `loc.12.3.0.patch` changes compared with `loc.patch`: only the `actor` hunk. Mermaid 12.3.0 turned `actor: ACTOR {...};` into a two-alternative rule (`ACTOR` or the `'link'` keyword token, because `link`, `links`, `properties` and `details` are now keywords only when followed by whitespace and a name). Both alternatives record `idLoc`.
+
 ## Upgrading Mermaid in conf-app
 
 Do these in one PR together with the `mermaid` bump in `package.json`.
@@ -40,8 +54,9 @@ Do these in one PR together with the `mermaid` bump in `package.json`.
 1. Fetch the new grammar: `node scripts/mermaid-seq-loc/build.mjs --fetch <new>`. A 404 means upstream moved or removed the file (see Langium below).
 2. Set `MERMAID_VERSION` in `build.mjs` to `<new>`.
 3. Build: `node scripts/mermaid-seq-loc/build.mjs`.
-   - If it prints `loc.patch does not apply`, repair the patch: diff `upstream/sequenceDiagram.<old>.jison` against `<new>`, re-apply the same changes by hand to a copy of the new grammar, then regenerate `loc.patch` with `diff -u` (paths and headers as in the current file). Keep the context lines exact: `--fuzz=0` is deliberate, so a silent wrong placement cannot happen.
-4. Install the new Mermaid (`pnpm add mermaid@<new>`), so `build.spec.ts` can compare versions.
+   - Before you build: if a `loc.<v>.patch` with `<v>` <= `<new>` exists, rename it to `loc.patch` (replacing the old one) and delete any other `loc.<v>.patch` that is now unused.
+   - If it prints `... does not apply`, repair the patch: diff `upstream/sequenceDiagram.<old>.jison` against `<new>`, re-apply the same changes by hand to a copy of the new grammar, then regenerate `loc.patch` with `diff -u` (paths and headers as in the current file). Keep the context lines exact: `--fuzz=0` is deliberate, so a silent wrong placement cannot happen.
+4. Install the new Mermaid (`pnpm add -w mermaid@<new>`; `-w` because the repo is a pnpm workspace), so `build.spec.ts` can compare versions.
 5. Regenerate the corpus: `node scripts/mermaid-seq-loc/extract-corpus.mjs <new>`. Update the fixture import in `sourcemap/corpus.spec.ts` to the new file name and delete the old fixture and old `.jison`.
 6. Run the tests (command above).
 7. Delete `upstream/sequenceDiagram.<old>.jison`.

@@ -88,7 +88,8 @@ jobs:
       - name: Install the latest mermaid (this job only, not committed)
         id: install_latest
         if: steps.versions.outputs.skip != 'true'
-        run: pnpm add "mermaid@${{ steps.versions.outputs.latest }}" --ignore-scripts
+        # -w: the repo is a pnpm workspace; without it pnpm refuses with ERR_PNPM_ADDING_TO_ROOT.
+        run: pnpm add -w "mermaid@${{ steps.versions.outputs.latest }}" --ignore-scripts
       - name: Sourcemap tests against the latest mermaid
         id: tests
         if: steps.versions.outputs.skip != 'true'

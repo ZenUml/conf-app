@@ -66,6 +66,9 @@ describe('targeted survey page banner', () => {
       ? Promise.resolve({ claimed: true, claimToken: '8cf98cab-47a4-44cf-afce-b8f969a29b10', leaseMs: 15000 })
       : new Promise((resolve) => { confirm = resolve; }));
     const wrapper = show(); await tick();
+    await vi.waitFor(() => expect(remote).toHaveBeenCalledWith(
+      '/api/targeted-survey', 'PATCH', expect.objectContaining({ action: 'shown' }),
+    ));
     wrapper.unmount(); confirm({ ok: true }); await flushPromises();
     expect(track).not.toHaveBeenCalledWith('targeted_survey_shown', expect.anything());
   });
@@ -100,6 +103,7 @@ describe('targeted survey page banner', () => {
       return { ok: true };
     });
     const wrapper = show(); await tick();
+    await vi.waitFor(() => expect((wrapper.get('button.primary').element as HTMLButtonElement).disabled).toBe(false));
     await wrapper.get('button.primary').trigger('click');
     await wrapper.get('input[value="editing"]').setValue(true);
     await wrapper.get('textarea').setValue('The editor lost my position.');

@@ -1,5 +1,5 @@
 import { Page, APIRequestContext, expect } from '@playwright/test';
-import { ConfluenceEditorPage } from '../../pages/EditorPage.js';
+import { ConfluenceEditorPage, type EditorPageTarget } from '../../pages/EditorPage.js';
 import { MacroPage } from '../../pages/MacroPage.js';
 import { testConfig, TIMEOUTS } from '../../config/test-config.js';
 import { expectVisibleOrFailOnLogin } from '../../helpers/authGuard.js';
@@ -8,8 +8,12 @@ import { expectVisibleOrFailOnLogin } from '../../helpers/authGuard.js';
  * Creates a child page in Confluence and types a smoke-test title.
  * Returns the EditorPage instance for further macro insertion.
  */
-export async function createPageAndSetup(page: Page, variantLabel: string): Promise<ConfluenceEditorPage> {
-  const editorPage = new ConfluenceEditorPage(page);
+export async function createPageAndSetup(
+  page: Page,
+  variantLabel: string,
+  target?: EditorPageTarget,
+): Promise<ConfluenceEditorPage> {
+  const editorPage = new ConfluenceEditorPage(page, target);
 
   await editorPage.navigateToParentPage();
   console.log(`  ✓ Parent page loaded`);

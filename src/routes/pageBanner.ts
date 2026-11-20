@@ -1,5 +1,6 @@
 import { createApp } from 'vue';
 import globals from '@/model/globals';
+import { deriveWarningBannerIdentity, readTargetingMarker } from '@/utils/paywall/warningBanner';
 import { deriveUnplacedIdentity, isUnplacedBannerCandidate } from '@/utils/byline/unplacedMarker';
 import { higherPriorityBannerPending } from '@/utils/banners/priority';
 import { whatsNewCandidate } from '@/utils/whatsNew/state';
@@ -41,6 +42,7 @@ import type { TargetedSurveyCandidate } from '@/features/targetedSurvey/survey';
 export type PageBannerChoice =
   | 'paywall'
   | 'paywall-admin'
+  | 'template-offer'
   | 'csat'
   /** From the shared host, off the localStorage fallback marker. */
   | 'unplaced'
@@ -87,6 +89,11 @@ export async function handlePageBannerRoute(
   now: number = Date.now(),
 ): Promise<PageBannerChoice> {
   const effective = choice;
+  // Keep the count that admitted the offer. A macro iframe can refresh the
+  // shared targeting marker while the component loads.
+  const templateOfferMacroCount = choice === 'template-offer'
+    ? readTargetingMarker(deriveWarningBannerIdentity())?.macroCount ?? 0
+    : 0;
 
   const container = document.getElementById('app');
   if (!container) {
@@ -104,6 +111,10 @@ export async function handlePageBannerRoute(
     'paywall-admin': async () => ({
       component: (await import('@/components/UpgradePrompt/PaywallWarningBanner.vue')).default,
       props: { isSpaceAdmin: true },
+    }),
+    'template-offer': async () => ({
+      component: (await import('@/components/UpgradePrompt/TemplateOfferBanner.vue')).default,
+      props: { macroCount: templateOfferMacroCount },
     }),
     csat: async () => ({ component: (await import('@/components/CSAT/CsatBanner.vue')).default }),
     unplaced: async () => ({

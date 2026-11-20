@@ -79,6 +79,47 @@ describe("startClarityReplay", () => {
     expect(clarity.set).toHaveBeenCalledWith("surface", "editor");
   });
 
+  it.each([
+    ["PRODUCTION", "production"],
+    ["STAGING", "staging"],
+    ["DEVELOPMENT", "development"],
+    ["UNRECOGNIZED", undefined],
+    [undefined, undefined],
+  ])("tags recordings for Forge environment %s as %s", async (environmentType, expected) => {
+    const clarity = fakeClarity();
+    const result = await startClarityReplay({
+      getForgeContext: async () => ({ ...editorContext, environmentType }),
+      createFlagClient: async () => flagClient(true),
+      fetchGeo: async () => true,
+      loadClarity: async () => clarity,
+      storage: memoryStorage(),
+    });
+
+    expect(result.outcome).toBe("started");
+    expect(clarity.set.mock.calls.filter(([key]) => key === "environment"))
+      .toEqual(expected ? [["environment", expected]] : []);
+  });
+
+  it.each([
+    ["https://Example.atlassian.net:443/wiki/pages/123?param=value#section", "example.atlassian.net"],
+    ["example.atlassian.net/wiki", undefined],
+    ["file://example.atlassian.net/wiki", undefined],
+    [undefined, undefined],
+  ])("tags recordings for Forge site URL %s with hostname %s", async (siteUrl, expected) => {
+    const clarity = fakeClarity();
+    const result = await startClarityReplay({
+      getForgeContext: async () => ({ ...editorContext, siteUrl }),
+      createFlagClient: async () => flagClient(true),
+      fetchGeo: async () => true,
+      loadClarity: async () => clarity,
+      storage: memoryStorage(),
+    });
+
+    expect(result.outcome).toBe("started");
+    expect(clarity.set.mock.calls.filter(([key]) => key === "referrer_domain"))
+      .toEqual(expected ? [["referrer_domain", expected]] : []);
+  });
+
   it("skips an inline viewer without checking the flag", async () => {
     const client = flagClient(true);
     const result = await startClarityReplay({

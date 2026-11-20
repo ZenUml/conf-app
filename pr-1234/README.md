@@ -18,3 +18,14 @@ referenced by two Graph macros on one page. Steps: load the page, then reload tw
 - `after-tunnel-cached-reload.png`: reload with the cache entry present (`thisIdCached=true`). The yellow strip is a temporary, uncommitted console.error probe overlay (host, svg count, crash count). The dev bar shows the candidate branch and commit.
 
 Limitation: the AFTER cache entry was shown on screen only on load 4; loads 2 and 3 also showed `CRASH=0`.
+
+## CI-deployed staging (AFTER)
+
+PR validation run 44704156725 deployed bbdd0ecb0 to Lite staging (deploy job finished 08:53Z 2026-11-20; no other staging deploy after it before the check). Same lite-stg page and content as BEFORE (page 420675956, content 421396670), robot test user, two reloads at ~09:05Z:
+
+| Reload | Crash lines in console | Cache entry `zenuml:ccache:421396670` | Canvas |
+|---|---|---|---|
+| 1 | 0 | present, 422 chars, contains `compressed` | `<svg>` painted |
+| 2 | 0 | same | painted (`after-staging-reload.png`) |
+
+BEFORE on the same page and slot: 2 and 4 crash lines on reloads 2 and 3.

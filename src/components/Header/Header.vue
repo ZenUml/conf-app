@@ -81,7 +81,7 @@ import TemplateGallery from "@/components/TemplateGallery/TemplateGallery.vue";
 import { PUBLISH_BLOCK_MESSAGES } from "@/model/editDupGate";
 import { getTemplatesForType } from "@/model/Diagram/EditorTemplates";
 import { hasAutoOpenedStarterGallery, markStarterGalleryAutoOpened } from "@/utils/starterGallery/autoOpenMarker";
-import Example from "@/utils/sequence/Example";
+import Example, { MERMAID_SEEDS } from "@/utils/sequence/Example";
 import { isAiChatEnabled } from '@/apis/aiTitleFeatureFlag';
 
 // forgeIndex.ts never mounts a genuinely new Sequence/Mermaid/PlantUml macro
@@ -94,13 +94,13 @@ import { isAiChatEnabled } from '@/apis/aiTitleFeatureFlag';
 // showed the seeded "Order Service" sample instead of auto-opening the
 // gallery). Treat the untouched seed as equivalent to empty.
 const SEED_CODE_BY_TYPE = {
-  [DiagramType.Sequence]: Example.Sequence,
-  [DiagramType.Mermaid]: Example.Mermaid,
-  [DiagramType.PlantUml]: Example.PlantUml,
+  [DiagramType.Sequence]: [Example.Sequence],
+  [DiagramType.Mermaid]: MERMAID_SEEDS,
+  [DiagramType.PlantUml]: [Example.PlantUml],
 };
 function isBlankOrUntouchedSeed(diagramType, code, isNewDiagram) {
   if (!code) return true;
-  return !!isNewDiagram && SEED_CODE_BY_TYPE[diagramType] === code;
+  return !!isNewDiagram && !!SEED_CODE_BY_TYPE[diagramType]?.includes(code);
 }
 
 export default {

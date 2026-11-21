@@ -196,3 +196,14 @@ describe('PlantUML viewer fallback preserves loaded-body analytics (#113)', () =
     expect(viewContentState(sequence, DiagramType.Sequence)).toBe('authored');
   });
 });
+
+describe('classifyContentState: Mermaid flowchart seed', () => {
+  it('counts the flowchart seed as the default body, not authored', () => {
+    expect(classifyContentState({ mermaidCode: Example.MermaidFlowchart }, DiagramType.Mermaid)).toBe('default');
+    expect(classifyContentState({ mermaidCode: Example.Mermaid }, DiagramType.Mermaid)).toBe('default');
+  });
+
+  it('still calls an edited flowchart authored', () => {
+    expect(classifyContentState({ mermaidCode: `${Example.MermaidFlowchart}\n    Done --> End` }, DiagramType.Mermaid)).toBe('authored');
+  });
+});

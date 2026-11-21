@@ -318,6 +318,13 @@ export type CacheState = "cold" | "warm" | "unknown";
 // high-confidence wipe. See utils/analytics/contentState.ts.
 export type ContentState = "default" | "authored" | "empty";
 
+// What code a new diagram's editor opened with (`macro_create_started`).
+//   flowchart    — the byline Flowchart tile / a pasted `/new/mermaid` link: the
+//                  Mermaid editor was seeded with a flowchart sample instead of
+//                  the sequence-diagram sample
+//   type_default — the starter sample of the diagram type (today's behaviour)
+export type SeedKind = "flowchart" | "type_default";
+
 // diagram_paste_handled: the info string of a Markdown fence found in a paste.
 // `none` = no fence, or a fence without a language.
 export type PasteFenceLanguage = "mermaid" | "plantuml" | "other" | "none";

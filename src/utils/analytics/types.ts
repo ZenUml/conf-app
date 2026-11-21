@@ -21,6 +21,7 @@ import type {
   RenderGateOutcome,
   CacheState,
   ContentState,
+  SeedKind,
   PasteFenceLanguage,
   DiagramPasteAction,
   CacheSource,
@@ -1014,6 +1015,8 @@ export type AnalyticsProperties = {
   view_of_day?: "first" | "repeat";
   // #113: body classification at render time (default starter / authored / empty). Wipe detection.
   content_state?: ContentState;
+  // macro_create_started only: which sample code the new diagram's editor opened with.
+  seed_kind?: SeedKind;
   // Full only: Forge `license.active` at render time. Absent on other variants
   // and whenever Forge supplies no boolean; Forge also reports false for free apps.
   license_active?: boolean;

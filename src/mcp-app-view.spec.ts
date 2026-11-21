@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   applyHostContext,
   currentUserZoom,
+  downloadName,
   extractDiagram,
   fitScale,
   mcpModeOf,
@@ -46,9 +47,13 @@ const mermaidMock = vi.hoisted(() => ({
 }));
 vi.mock('mermaid', () => ({ default: mermaidMock }));
 
-const sequence = vi.hoisted(() => ({ setDiagramFontUrl: vi.fn(), render: vi.fn(async () => {}) }));
+const sequence = vi.hoisted(() => ({
+  setDiagramFontUrl: vi.fn(),
+  render: vi.fn(async () => {}),
+  getSvg: vi.fn(async () => 'data:image/svg+xml;charset=utf-8,%3Csvg%20data-test%3D%22seq%22%3E%3C%2Fsvg%3E'),
+}));
 vi.mock('@zenuml/core', () => ({
-  default: Object.assign(vi.fn(function () { return { render: sequence.render }; }), {
+  default: Object.assign(vi.fn(function () { return { render: sequence.render, getSvg: sequence.getSvg }; }), {
     setDiagramFontUrl: sequence.setDiagramFontUrl,
   }),
 }));
@@ -915,5 +920,127 @@ describe('zooming a drawing', () => {
     zoom('zoom_in');
     await drawMermaid();
     expect(currentUserZoom()).toBe(1);
+  });
+});
+
+function readBlob(blob: Blob): Promise<string> {
+  return new Promise((resolveRead) => {
+    const reader = new FileReader();
+    reader.onload = () => resolveRead(String(reader.result));
+    reader.readAsText(blob);
+  });
+}
+
+describe('Copy and Download', () => {
+  const beacon = vi.fn((_url: string, _body: string) => true);
+  const actions = () => beacon.mock.calls.map(([, body]) => JSON.parse(body)).filter((b) => b.kind === 'action');
+  const writeText = vi.fn(async (_text: string) => {});
+  let saved: Array<{ name: string; blob: Blob }> = [];
+  const blobs = new Map<string, Blob>();
+  const button = (id: string) => document.getElementById(id) as HTMLButtonElement | null;
+
+  beforeEach(() => {
+    resetViewState();
+    document.body.innerHTML = '<div id="app"></div>';
+    beacon.mockClear();
+    writeText.mockReset();
+    writeText.mockResolvedValue(undefined);
+    saved = [];
+    blobs.clear();
+    vi.stubGlobal('navigator', { ...navigator, sendBeacon: beacon, clipboard: { writeText } });
+    let n = 0;
+    vi.stubGlobal('URL', Object.assign(class extends URL {}, {
+      createObjectURL: (blob: Blob) => { const url = `blob:test/${n++}`; blobs.set(url, blob); return url; },
+      revokeObjectURL: () => {},
+    }));
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      saved.push({ name: this.download, blob: blobs.get(this.href)! });
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('puts Copy and Download first in the toolbar of a drawing', async () => {
+    deliver({ diagramType: 'mermaid', dsl: 'graph TD;A-->B;' });
+    await vi.waitFor(() => expect(button('zen-mcp-download')).not.toBeNull());
+    const ids = [...document.querySelectorAll('#zen-mcp-toolbar button')].map((b) => b.id);
+    expect(ids.slice(0, 5)).toEqual(['zen-mcp-copy', 'zen-mcp-download', 'zen-mcp-zoom-out', 'zen-mcp-zoom-fit', 'zen-mcp-zoom-in']);
+    expect(button('zen-mcp-download')?.title).toBe('Download SVG');
+  });
+
+  it('copies the source and reports it, without the source', async () => {
+    const dsl = 'graph TD;A-->B;';
+    deliver({ diagramType: 'mermaid', dsl });
+    await vi.waitFor(() => expect(button('zen-mcp-copy')).not.toBeNull());
+    button('zen-mcp-copy')!.click();
+    await vi.waitFor(() => expect(actions()).toHaveLength(1));
+    expect(writeText).toHaveBeenCalledWith(dsl);
+    expect(actions()[0]).toEqual({ kind: 'action', macro_type: 'mermaid', view_action: 'copy_source', action_outcome: 'done' });
+    expect(button('zen-mcp-copy')?.title).toBe('Copied');
+  });
+
+  it('reports a refused copy as failed when the copy command fails too', async () => {
+    writeText.mockRejectedValue(new Error('not allowed'));
+    document.execCommand = vi.fn(() => false);
+    deliver({ diagramType: 'mermaid', dsl: 'graph TD;A-->B;' });
+    await vi.waitFor(() => expect(button('zen-mcp-copy')).not.toBeNull());
+    button('zen-mcp-copy')!.click();
+    await vi.waitFor(() => expect(actions()).toHaveLength(1));
+    expect(document.execCommand).toHaveBeenCalledWith('copy');
+    expect(actions()[0].action_outcome).toBe('failed');
+    expect(button('zen-mcp-copy')?.title).toBe('Copy source failed');
+  });
+
+  it('downloads a Mermaid drawing as the SVG it drew, named after the title', async () => {
+    deliver({ diagramType: 'mermaid', dsl: 'graph TD;A-->B;', title: 'Login flow' });
+    await vi.waitFor(() => expect(button('zen-mcp-download')).not.toBeNull());
+    button('zen-mcp-download')!.click();
+    await vi.waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0].name).toBe('Login-flow.svg');
+    expect(saved[0].blob.type).toBe('image/svg+xml');
+    expect(await readBlob(saved[0].blob)).toBe('<svg data-test="mermaid-block"></svg>');
+    await vi.waitFor(() => expect(actions()).toHaveLength(1));
+    expect(actions()[0]).toEqual({ kind: 'action', macro_type: 'mermaid', view_action: 'download', download_format: 'svg', action_outcome: 'done' });
+  });
+
+  it('downloads a sequence diagram through core\'s getSvg', async () => {
+    deliver({ diagramType: 'sequence', dsl: 'A.b()' });
+    await vi.waitFor(() => expect(button('zen-mcp-download')).not.toBeNull());
+    button('zen-mcp-download')!.click();
+    await vi.waitFor(() => expect(saved).toHaveLength(1));
+    expect(sequence.getSvg).toHaveBeenCalled();
+    expect(saved[0].name).toBe('sequence-diagram.svg');
+    expect(await readBlob(saved[0].blob)).toBe('<svg data-test="seq"></svg>');
+  });
+
+  it('downloads an OpenAPI document as its source file', async () => {
+    const spec = 'openapi: 3.0.0\ninfo:\n  title: Pets\n  version: "1"\npaths: {}\n';
+    deliver({ diagramType: 'OpenAPI', source: spec });
+    await vi.waitFor(() => expect(button('zen-mcp-download')).not.toBeNull());
+    expect(button('zen-mcp-download')?.title).toBe('Download source');
+    button('zen-mcp-download')!.click();
+    await vi.waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0].name).toBe('openapi-diagram.yaml');
+    expect(await readBlob(saved[0].blob)).toBe(spec);
+    await vi.waitFor(() => expect(actions()).toHaveLength(1));
+    expect(actions()[0]).toMatchObject({ view_action: 'download', download_format: 'source', action_outcome: 'done' });
+  });
+
+  it('takes the buttons away when the result has no diagram', async () => {
+    deliver({ diagramType: 'mermaid', dsl: 'graph TD;A-->B;' });
+    await vi.waitFor(() => expect(button('zen-mcp-copy')).not.toBeNull());
+    onHostMessage({ data: { jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { content: [] } } } as MessageEvent);
+    expect(button('zen-mcp-copy')).toBeNull();
+    expect(button('zen-mcp-download')).toBeNull();
+  });
+});
+
+describe('downloadName', () => {
+  it('keeps a title readable and safe as a file name', () => {
+    expect(downloadName({ diagramType: 'Mermaid', dsl: '', title: ' a/b: c*d ' }, 'svg')).toBe('ab-cd.svg');
+    expect(downloadName({ diagramType: 'Mermaid', dsl: '', title: '///' }, 'svg')).toBe('mermaid-diagram.svg');
   });
 });

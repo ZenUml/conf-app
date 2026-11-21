@@ -2668,7 +2668,12 @@ describe('GenericViewer (chrome-less)', () => {
     let contextBefore: typeof forgeRuntime.forgeContext
     let viewBefore: typeof forgeRuntime.view
 
-    beforeEach(() => {
+    beforeEach(async () => {
+      // getView() imports '@forge/bridge' dynamically. The first import in a
+      // worker takes longer than one flushPromises(), so the test that happens
+      // to run first (the order is random) would assert before the copy
+      // settles. Load the module here so every test starts from the same state.
+      await import('@forge/bridge')
       // These tests need cloudId to come from the lazy getContext() path, so
       // the memoized context left by earlier tests must not be there.
       // getView() also returns early once `view` is cached.

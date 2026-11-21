@@ -62,6 +62,33 @@ describe('guardUpdateDiagram — parse gate (C0)', () => {
     const r = await guardUpdateDiagram('A->B: hi', { diagramType: 'Sequence', dsl: 'A->B: hi' });
     expect(r.ok).toBe(true);
   });
+
+  // A Mermaid macro whose text starts with `zenuml` renders through the
+  // mermaid-zenuml plugin; bare Mermaid core used to refuse it as a parse error.
+  describe('Mermaid macro holding a zenuml block', () => {
+    const current = 'zenuml\n  title Demo\n  Alice->Bob: hello\n  Bob->Alice: ok';
+
+    it('accepts an edited zenuml block and reports a ZenUML-counted diff', async () => {
+      const next = 'zenuml\n  title Demo\n  Alice->Bob: hello\n  Bob->Carol: forward\n  Bob->Alice: ok';
+      const r = await guardUpdateDiagram(next, { diagramType: 'Mermaid', dsl: current });
+      expect(r).toEqual({
+        ok: true,
+        diff: { participants_before: 2, participants_after: 3, messages_before: 2, messages_after: 3 },
+      });
+    });
+
+    it('still rejects a broken zenuml block with the error on the agent-text line', async () => {
+      const r = await guardUpdateDiagram('zenuml\n  Alice->Bob: hello\n  if(x {', {
+        diagramType: 'Mermaid',
+        dsl: current,
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.reason).toBe('parse_error');
+        expect(r.errors?.[0].line).toBe(3);
+      }
+    });
+  });
 });
 
 describe('guardUpdateDiagram — data-loss hard reject (C2)', () => {

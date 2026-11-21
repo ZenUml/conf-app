@@ -402,6 +402,34 @@ describe('flowchart in-place editing (controller)', () => {
     expect(events(h, 'editor_inline_edit_cancelled')).toEqual([{ ...NODE, inline_edit_cancel_reason: 'escape', inline_edit_ms_open: 0 }]);
   });
 
+  it('Esc while a preview render is still running: the base picture comes back, not the draft', async () => {
+    const h = setup();
+    await h.render();
+    dblclick(node(h, 'B'));
+    // The preview render of the draft starts but has not drawn yet (a slow render,
+    // or a background tab whose timers are throttled).
+    // Like Mermaid.vue's renderPreview: the latest request wins, an overtaken one draws nothing.
+    const gate = deferred<void>();
+    const drawNow = h.host.renderPreview.getMockImplementation()!;
+    let generation = 0;
+    h.host.renderPreview.mockImplementation(async (code: string) => {
+      const mine = ++generation;
+      if (mine === 1) await gate.promise;
+      if (mine !== generation) return false;
+      return drawNow(code);
+    });
+    await type(h, 'Draft');
+    expect(String(h.host.renderPreview.mock.lastCall?.[0])).toContain('Draft');
+    key(layer()!, 'Escape');
+    await h.flush();
+    // The late draft render lands after the cancel.
+    gate.resolve();
+    await h.flush();
+    expect(layer()).toBeNull();
+    expect(h.deps.writeCode).not.toHaveBeenCalled();
+    expect(readHtmlLabel(node(h, 'B'))).toBe('Round label');
+  });
+
   it('unchanged text: no gate, no write, cancelled unchanged', async () => {
     const h = setup();
     await h.render();

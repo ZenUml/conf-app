@@ -113,6 +113,26 @@ describe('reviewed Magic writeback', () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).type).toBe(type);
     expect(row()).toBeUndefined();
   });
+  describe('development environment with its own Connect key (functions/utils/devConnectKeys.ts)', () => {
+    const devCtx = { ...ctx, environmentType: 'DEVELOPMENT', environmentId: 'ari:cloud:ecosystem::environment/8ad26115-211f-4216-971b-0540f606303d/4d8bcead-f943-4b68-8298-648e626e6891' };
+    const devType = 'ac:com.zenuml.confluence-addon-lite-alt:zenuml-content-sequence';
+    it('writes a diagram stored under the registered key of a DEVELOPMENT environment', async () => {
+      enqueue(devCtx);
+      fetchMock.mockResolvedValueOnce(reply({ ...doc(), type: devType })).mockResolvedValueOnce(reply({ ...saved(), type: devType }));
+      expect(await (await invoke(request(), devCtx)).json()).toEqual({ outcome: 'written', artifact });
+      expect(JSON.parse(fetchMock.mock.calls[1][1].body).type).toBe(devType);
+    });
+    it('refuses that key when the verified FIT is not DEVELOPMENT, or names another environment', async () => {
+      for (const context of [
+        { ...devCtx, environmentType: 'STAGING' },
+        { ...devCtx, environmentId: ctx.environmentId },
+      ]) {
+        enqueue(context, Date.now() + 86400000, `delivery-${context.environmentType}-${context.environmentId.slice(-4)}`);
+        fetchMock.mockResolvedValueOnce(reply({ ...doc(), type: devType }));
+        expect(await (await invoke(request(), context)).json()).toEqual({ outcome: 'invalid_target' });
+      }
+    });
+  });
   it('rejects malformed or cross-app verified environment ARIs before accessing pending work', async () => {
     for (const environmentId of ['dev-a', 'ari:cloud:ecosystem::environment/other-app/11111111-2222-4333-8444-555555555555']) {
       expect((await invoke(request(), { ...ctx, environmentId })).status).toBe(401);

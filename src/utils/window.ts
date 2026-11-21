@@ -199,6 +199,16 @@ export function addonKey() {
 }
 
 /**
+ * The Connect key this build's development environment was deployed with, when
+ * it is not the variant's fixed key; '' otherwise (every staging and production
+ * build). Only custom-content types use it: `addonKey()` stays the variant's
+ * fixed key because the backend and analytics read it as the variant's identity.
+ */
+export function connectKeyOverride(): string {
+  return import.meta.env.CONNECT_KEY_OVERRIDE || '';
+}
+
+/**
  * Serialize any caught value into a string suitable for Mixpanel event labels.
  * Handles Error objects, DOM Events ({isTrusted:true}), and other non-serializable values.
  */

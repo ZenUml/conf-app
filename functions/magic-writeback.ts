@@ -1,6 +1,7 @@
 import { OkResponse, response } from './OkResponse';
 import type { ForgeRequestData } from './utils/authenticate';
 import { requireForgeUserToken } from './utils/forgeUserToken';
+import { devConnectKeyFor } from './utils/devConnectKeys';
 
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
@@ -56,7 +57,11 @@ export async function onRequest({ request, data, env }: {
   // target, so there is no fallback to the app token for that viewer.
   const user = requireForgeUserToken(request);
   if (!c.accountId || user instanceof Response) return response(403, 'no_user_credential');
-  const allowedTypes = [...TYPES[c.forgeAppId], `forge:${c.forgeAppId}:${environmentUuid}:${moduleKey}`];
+  // A development environment deployed with its own Connect key stores under
+  // `ac:<that key>:…`. Only a verified DEVELOPMENT FIT may use the table.
+  const devKey = c.environmentType === 'DEVELOPMENT' ? devConnectKeyFor(c.forgeAppId, environmentUuid) : undefined;
+  const allowedTypes = [...TYPES[c.forgeAppId], `forge:${c.forgeAppId}:${environmentUuid}:${moduleKey}`,
+    ...(devKey ? [`ac:${devKey}:${moduleKey}`] : [])];
   const result = (outcome: string, artifact?: Artifact) => OkResponse({ outcome, ...(artifact ? { artifact } : {}) });
   // Reason codes are fixed strings or HTTP statuses only: no bodies, hashes, tokens or error text.
   const unavailable = (reason: string) => OkResponse({ outcome: 'unavailable', reason });

@@ -91,6 +91,15 @@ function getHtmlFiles(dir, { isBuild = false } = {}) {
   return htmlFiles;
 }
 
+// Same shape Forge accepts for app.connect.key, and never one of the four fixed
+// keys: an override equal to a shipped key would silently write into that
+// variant's types on any site that has both installed.
+const CONNECT_KEY_OVERRIDE = process.env.CONNECT_KEY_OVERRIDE || ''
+if (CONNECT_KEY_OVERRIDE && (!/^[a-z0-9][a-z0-9.-]{2,62}$/.test(CONNECT_KEY_OVERRIDE)
+  || ['com.zenuml.confluence-addon', 'com.zenuml.confluence-addon-lite', 'gptdock-confluence', 'my-api'].includes(CONNECT_KEY_OVERRIDE))) {
+  throw new Error(`CONNECT_KEY_OVERRIDE "${CONNECT_KEY_OVERRIDE}" must be lowercase [a-z0-9.-], 3-63 chars, and not a shipped variant key`)
+}
+
 export default defineConfig(({ command }) => ({
   base: './',
   define: {
@@ -102,6 +111,13 @@ export default defineConfig(({ command }) => ({
     // variant can render, which is how a malformed key once rendered as an
     // unknown extension on a customer's page.
     'import.meta.env.SEQUENCE_MACRO_KEY': JSON.stringify(process.env.SEQUENCE_MACRO_KEY || 'zenuml-sequence-macro'),
+    // Non-default Connect key for a development environment, the same env var
+    // the manifest templates as ${CONNECT_KEY}. Empty means "use the variant's
+    // fixed key" (ApWrapper2.getCustomContentTypePrefix). It must match the key
+    // the environment was deployed with, or every custom-content read and write
+    // targets a type this install did not register. See
+    // docs/reference/dev-connect-key.md.
+    'import.meta.env.CONNECT_KEY_OVERRIDE': JSON.stringify(CONNECT_KEY_OVERRIDE),
     'import.meta.env.VITE_MIXPANEL_TOKEN': JSON.stringify(mixpanelToken),
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
     'import.meta.env.VITE_APP_COMMIT': JSON.stringify(process.env.VITE_APP_GIT_HASH || 'unknown'),
@@ -304,6 +320,17 @@ export default defineConfig(({ command }) => ({
   // If a refactor renames these entry chunks the family silently drops out of
   // the manifest — the renderer-prefetch unit test on family presence guards
   // a built dist (see docs/features/renderer-prefetch.md).
+  // Records which Connect key this dist/ was built for, so scripts/forgex can
+  // refuse to deploy it to an environment with a different key (every
+  // custom-content read and write would then name types the install does not
+  // own). Empty for every staging and production build.
+  {
+    name: 'connect-key-marker',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'connect-key-override.txt', source: CONNECT_KEY_OVERRIDE });
+    },
+  },
   {
     name: 'prefetch-manifest',
     apply: 'build',

@@ -86,6 +86,8 @@ ATLASSIAN_SITE=<your-test-site>.atlassian.net
 
 To discover yours, run `forge environments list` (lists dev environments deployed for the app) and `forge install list -e <env>` (shows which sites have it installed). Pick a `(env, site)` pair where the env is deployed AND the site has it installed — or be prepared to fresh-install on a site where you have admin rights.
 
+> **Site already has another environment of this app?** Confluence allows one install per Connect key per site, so `forge install` fails with `APP_ALREADY_INSTALLED`. Give your environment its own key: [docs/reference/dev-connect-key.md](../../../docs/reference/dev-connect-key.md).
+
 > **The env name often doesn't match the site name.** A site called `lite-dev.atlassian.net` may have its install in env `development` (not `lite-dev`). When the user says "test on lite-dev", that's the site — `forge install list` is the source of truth for which env the install actually lives in. Don't guess; check.
 
 ## Step-by-step

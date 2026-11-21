@@ -145,10 +145,13 @@ describe('variant table', () => {
   });
 
   it('builds ac:<connectKey>:<contentKey> custom-content types', () => {
-    expect(customContentTypesFor(LITE)).toEqual([
+    // The fixed key comes first; any development environment registered with
+    // its own key follows (functions/utils/devConnectKeys.ts).
+    expect(customContentTypesFor(LITE).slice(0, 2)).toEqual([
       'ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence',
       'ac:com.zenuml.confluence-addon-lite:zenuml-content-graph',
     ]);
+    expect(customContentTypesFor(LITE).slice(2).every((t) => /^ac:[a-z0-9.-]+:zenuml-content-(sequence|graph)$/.test(t))).toBe(true);
     expect(customContentTypesFor(ASYNCAPI)).toEqual(['ac:my-api:async-api-doc']);
     expect(customContentTypesFor(DIAGRAMLY)).toEqual(['ac:gptdock-confluence:gpt-custom-content-key']);
   });

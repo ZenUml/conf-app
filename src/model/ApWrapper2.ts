@@ -1,4 +1,4 @@
-import {trackEvent, addonKey} from '@/utils/window';
+import {trackEvent, addonKey, connectKeyOverride} from '@/utils/window';
 import time from '@/utils/timer';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { describeThrownFetchError } from '@/utils/fetchErrorDiagnostics';
@@ -270,6 +270,12 @@ export default class ApWrapper2 {
   }
 
   getCustomContentTypePrefix() {
+    // A development environment deployed with its own Connect key (so it can
+    // sit next to another environment of the same app on one site) registers
+    // its custom-content types under that key. Staging and production builds
+    // never set it. See docs/reference/dev-connect-key.md.
+    const override = connectKeyOverride();
+    if (override) return `ac:${override}`;
     let key;
     if (forgeGlobal.isDiagramly) {
       key = 'gptdock-confluence';

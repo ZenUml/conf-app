@@ -4,7 +4,7 @@
 import { setup, type Args, type Meta, type StoryObj } from '@storybook/vue3-vite'
 // @ts-expect-error -- resolved by Storybook's Vite pipeline
 import { expect, userEvent, waitFor, within } from 'storybook/test'
-import mixpanel from 'mixpanel-browser'
+import mixpanel from '@/utils/analytics/mixpanelClient'
 import { FeatureFlags } from '@forge/bridge'
 import GenericViewer from './GenericViewer.vue'
 import GraphPageNav from './GraphPageNav.vue'
@@ -22,6 +22,7 @@ import { resetFeatureFlagsForTests } from '@/apis/aiTitleFeatureFlag'
 import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'
 import { __resetMermaidLoaderForTests, loadMermaid } from '@/utils/mermaid/loadMermaid'
 import { __resetEditGateCache } from '@/utils/guardEditClick'
+import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
 import { PI_MAGIC_SYNTHETIC_ARTIFACT, PI_MAGIC_SYNTHETIC_SOURCE } from './fixtures/piMagicSynthetic'
 
 // Header.stories.ts's `{ template: '<story/>', app: (app) => app.use(store) }`
@@ -809,6 +810,47 @@ export const MermaidFullscreenPanZoom: Story = {
     await expect(canvas.queryByRole('button', { name: 'Reset view' })).toBeNull()
     await expect(canvas.getByRole('button', { name: 'Zoom out' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+  },
+}
+
+/**
+ * Fullscreen while the Lite site-policy notice applies (the server said the
+ * watermark applies). Fullscreen shows the watermark only: the notice strip
+ * stays on the inline macro, where the reader saw it before opening Fullscreen.
+ * Counts are invented.
+ */
+export const MermaidFullscreenLicenseNotice: Story = {
+  name: 'Fullscreen — Mermaid under the Lite license notice (watermark only)',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Idea to Ship',
+        mermaidCode: SAMPLE_MERMAID_WIDE,
+        fullscreenMode: true,
+      })
+      ;(useCustomerSuccessService as any).__resetForTests()
+      stubResponses.remote.push({
+        match: '/api/space-status',
+        body: {
+          isPaid: false,
+          decisionKnown: true,
+          enforcement: {
+            stage: 'watermark', count: 59228, limit: 100,
+            effects: { datedBanner: true, watermark: true, blockCreate: false, requestEdit: false },
+          },
+        },
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    await canvas.findByTestId('license-watermark', {}, { timeout: 15000 })
+    await expect(canvas.queryByTestId('license-notice-strip')).toBeNull()
   },
 }
 

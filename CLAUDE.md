@@ -209,6 +209,37 @@ multiple worktrees run concurrently. The shared Portless proxy uses plain HTTP o
 the non-privileged port 1355 so agents can start it without sudo or certificate
 prompts; application processes still receive independent random internal ports.
 
+### Unit test cleanup rules
+
+`pnpm test:unit` runs with `isolate: false`, random file and test order, and one jsdom per worker
+(`vite.config.mjs`, `tests/setup/`). A worker runs many spec files in one module graph, so a spec
+must leave no state behind. A failure that appears only for some seeds is a leak, not a flaky test.
+
+- **One shared module graph per worker.** Before each file, `tests/setup/shared-graph-reset.ts` drops the
+  vite-node module cache and the mock registry, so a `vi.mock()` from another file never reaches yours and
+  module-level state is rebuilt per file. Inside one file nothing resets it: `vi.resetModules()` keeps `vi.mock`
+  factories, and a re-imported module still gets the same mock object.
+- **What setup resets after each file:** fake timers, pending timers (`setTimeout`/`setInterval`), `vi.stubGlobal`
+  and `vi.stubEnv` values, `localStorage` and `sessionStorage`, `document.body` and `document.head`, properties
+  added to or changed on `window`, `document`, `navigator` and the DOM prototypes, jsdom globals that a spec
+  assigned (`globalThis.CSS = ...`), the Vue vnode transformer and Vue Test Utils `config.global`. A timer left
+  running is cleared because a 60 s production deadline would otherwise keep the worker alive for a minute after
+  the last file. Still clear timers a test depends on inside the test.
+- **What a spec must undo itself (between tests):**
+  - Mock implementations and queued `Once` values. `vi.clearAllMocks()` keeps both; use `mockReset()` and set the
+    default again in `beforeEach`.
+  - Spies on objects the file does not own: restore in `afterEach` or a `finally`.
+  - Mutable fixtures, module singletons, store state and `localStorage` keys that one test writes and another reads.
+  - Mounted wrappers: call `enableAutoUnmount(afterEach)` once at module level, or unmount in `afterEach`.
+  - Anything set in `beforeAll` and changed by a test.
+- **Reproduce an order failure.** Vitest prints `Running tests with seed "N"`. Re-run with
+  `pnpm exec vitest --run <file> --sequence.seed=N`; for a failure across files, run the whole suite with the same
+  seed (or pass the files with `--poolOptions.forks.singleFork`). Fix the leaking spec, then try several seeds.
+- **Not allowed:** retries, longer timeouts, `skip`/`todo`, or a weaker assertion to get past an order failure.
+- **Isolated project.** A file may move to a project with `isolate: true` only when it cannot share a module graph,
+  for example it replaces a native global that cannot be restored, or it loads a module with unrestorable
+  import-time side effects. Write the concrete reason next to the file in the project config.
+
 ### Database setup
 
 ```bash
@@ -317,7 +348,7 @@ Full reference (event storage, `clientDomain` format, key sources, paywall event
 
 **Paywall mechanics** (metered soft-paywall, the "Continue editing (N)" counter, staging test spaces, how to skip it): use the **paywall** skill.
 
-**Every new feature must include Mixpanel tracking.** When adding a feature, add `trackAnalyticsEvent` calls for the key lifecycle moments (requested, succeeded, failed, dismissed, etc.). Register new event names in `src/utils/analytics/catalog.ts` (`AnalyticsEventName` union) and use appropriate properties from `src/utils/analytics/types.ts`. Tracking is not optional — it is part of the definition of done.
+**Every new feature must include Mixpanel tracking.** When adding a feature, add `trackAnalyticsEvent` calls for the key lifecycle moments (requested, succeeded, failed, dismissed, etc.). Register new event names in `src/utils/analytics/catalog.ts` (`AnalyticsEventName` union) and use appropriate properties from `src/utils/analytics/types.ts`. Give each new event a volume decision in `src/utils/analytics/eventSampling.ts` (full rate, sampled, reduced, stopped, or sampled at the emit site); `eventVolumeClassification.spec.ts` fails until you do, because an unlisted event is sent on every occurrence and the plan allows 1M events a month. Tracking is not optional — it is part of the definition of done.
 
 ### Bug reports: User-First Trace
 

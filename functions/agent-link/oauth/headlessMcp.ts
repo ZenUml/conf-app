@@ -26,6 +26,7 @@ import { readUiResource, uiCapability, uiResourceList, withUiMeta } from './mcpA
 import type { GateEnv } from './headlessGate';
 import type { GrantEvent } from './tokenStore';
 import { mixpanelTrack } from '../../service/mixpanelService';
+import { guardrailErrorKindOf, mermaidDslKindOf } from '../guardTelemetry';
 import { loadClient, type McpTokenRecord } from './asStore';
 import type { GrantStore } from './tokenStore';
 import { createRefreshLedger } from './refreshLedger';
@@ -283,10 +284,12 @@ async function trackWriteRefusal(
   cloudId: string | undefined,
   failure: HeadlessToolError,
   clientDomain: string | undefined,
+  args: unknown,
 ): Promise<void> {
   if (!env.MIXPANEL_TOKEN) return;
   const event = WRITE_EVENT_BY_TOOL[tool];
   if (!event) return;
+  const guard = guardrailDetailOf(failure, args);
   try {
     await withTimeout(mixpanelTrack(
       {
@@ -302,6 +305,11 @@ async function trackWriteRefusal(
         guardrail_rejected: failure.code === 'guardrail_rejected' || undefined,
         guardrail_reason: guardrailReasonOf(failure),
         macro_type: refusedMacroType(failure),
+        input_len: guard.inputLen,
+        output_len: guard.outputLen,
+        guardrail_kept_pct: guard.keptPct,
+        guardrail_error_kind: guard.errorKind,
+        guardrail_dsl_kind: guard.dslKind,
       },
       env.MIXPANEL_TOKEN,
       env,
@@ -320,6 +328,42 @@ function guardrailReasonOf(failure: HeadlessToolError): 'parse_error' | 'data_lo
   if (failure.code !== 'guardrail_rejected') return undefined;
   const reason = (failure.detail as { reason?: unknown } | undefined)?.reason;
   return reason === 'parse_error' || reason === 'data_loss' ? reason : 'other';
+}
+
+export interface GuardrailDetail {
+  inputLen?: number;
+  outputLen?: number;
+  keptPct?: number;
+  errorKind?: string;
+  dslKind?: string;
+}
+
+/**
+ * How the write guard refused, in enough detail to tell a false alarm from a
+ * caught accident: the sizes and the share kept (data_loss), the class of the
+ * first parse error (parse_error), and the Mermaid keyword the refused source
+ * starts with. Numbers and closed vocabularies only — the parser message and
+ * the source can quote a customer's diagram and never leave here.
+ */
+export function guardrailDetailOf(failure: HeadlessToolError, args: unknown): GuardrailDetail {
+  if (failure.code !== 'guardrail_rejected') return {};
+  const detail = (failure.detail ?? {}) as {
+    reason?: unknown;
+    input_len?: unknown;
+    output_len?: unknown;
+    kept_pct?: unknown;
+    errors?: unknown;
+  };
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+  const firstError = Array.isArray(detail.errors) ? (detail.errors[0] as { message?: unknown } | undefined) : undefined;
+  const dsl = ((args ?? {}) as { dsl?: unknown }).dsl;
+  return {
+    inputLen: num(detail.input_len),
+    outputLen: num(detail.output_len),
+    keptPct: num(detail.kept_pct),
+    errorKind: detail.reason === 'parse_error' ? guardrailErrorKindOf(firstError?.message) : undefined,
+    dslKind: refusedMacroType(failure) === 'mermaid' && typeof dsl === 'string' ? mermaidDslKindOf(dsl) : undefined,
+  };
 }
 
 const IDENTITY_FAILURES = new Set(['no_macro_on_site', 'no_extension_node', 'app_id_mismatch', 'probe_failed']);
@@ -455,6 +499,7 @@ async function trackToolCall(
     macroType?: string;
     embeddedDiagramCount?: number;
     guardrailReason?: string;
+    guardrail?: GuardrailDetail;
     failureStep?: string;
     upstreamStatus?: number;
     identityFailure?: string;
@@ -477,6 +522,11 @@ async function trackToolCall(
       mcp_tool_outcome: call.outcome,
       reason: call.reason,
       guardrail_reason: call.guardrailReason,
+      input_len: call.guardrail?.inputLen,
+      output_len: call.guardrail?.outputLen,
+      guardrail_kept_pct: call.guardrail?.keptPct,
+      guardrail_error_kind: call.guardrail?.errorKind,
+      guardrail_dsl_kind: call.guardrail?.dslKind,
       failure_step: call.failureStep,
       upstream_status: call.upstreamStatus,
       identity_failure: call.identityFailure,
@@ -686,6 +736,7 @@ export async function handleHeadlessRpc(
           macroType?: string;
           embeddedDiagramCount?: number;
           guardrailReason?: string;
+          guardrail?: GuardrailDetail;
           failureStep?: string;
           upstreamStatus?: number;
           identityFailure?: string;
@@ -747,6 +798,7 @@ export async function handleHeadlessRpc(
             cloudId,
             e,
             clientDomainOf(reachableSites, params.arguments),
+            params.arguments,
           );
           const upstream = upstreamFailureOf(e);
           if (upstream.identityFailure) {
@@ -762,6 +814,7 @@ export async function handleHeadlessRpc(
           await trackCall('tool_error', e.code, {
             macroType: refusedMacroType(e),
             guardrailReason: guardrailReasonOf(e),
+            guardrail: guardrailDetailOf(e, params.arguments),
             ...upstream,
           });
           // A dead grant is the one failure the user can act on, so it is a

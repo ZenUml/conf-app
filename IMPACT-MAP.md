@@ -1085,7 +1085,9 @@
 
 **契约与边界**：事件不是渲染成功证明；OpenAPI 内容失败也可上报，时序需等内容加载结算。Graph／OpenAPI 的 fetch_ms 归实际读取方，正文读取与异步 PNG 附件工作分开。现有测试检查一次事件、product_type、duration_ms、fetch_ms 及 custom_content_fetch_ms，不等于检查图像可见。这里只登记已追踪的内联宿主，其他宿主不因引用同一个 helper 自动扩列；本轮未运行浏览器遥测验证。
 
-**代码证据**：[src/utils/analytics/trackRenderTime.ts:75](src/utils/analytics/trackRenderTime.ts#L75)；[src/utils/viewerBootstrap.ts:156](src/utils/viewerBootstrap.ts#L156)；[src/components/Viewer/OpenApiViewer.vue:87](src/components/Viewer/OpenApiViewer.vue#L87)；[src/components/Viewer/ForgeGraphViewer.vue:209](src/components/Viewer/ForgeGraphViewer.vue#L209)。
+**SDK 加载边界**：所有 Mixpanel 调用都经 `mixpanelClient.ts` 的唯一 SDK 实例（async-modules 加载器，不含回放录制器）；`trackAnalyticsEvent.ts` 与旧版 `window.ts` 两处 `mixpanel.init` 共用它。改动这层（SDK 入口、init 配置）时，iframe 启动由 `@smoke` 覆盖，事件经 SDK 发出由本 Feature 的 `fetch-phase-telemetry.spec.ts` 覆盖（PR #1265 的选择依据）。会话回放录制器改为在录制开始时才以同源 `<script>` 加载（`recorder_src`）：这条按需加载路径（如 `feedback-report` × `feedback-dialog` 强制录制）没有注册的 E2E 覆盖，只在 lite-stg 手动验证过（2026-11-21：录制器 200、无 CSP 报错、`/record` 上传 200）。
+
+**代码证据**：[src/utils/analytics/mixpanelClient.ts:36](src/utils/analytics/mixpanelClient.ts#L36)；[src/utils/analytics/mixpanelClient.ts:42](src/utils/analytics/mixpanelClient.ts#L42)；[src/utils/analytics/trackAnalyticsEvent.ts:388](src/utils/analytics/trackAnalyticsEvent.ts#L388)；[src/utils/window.ts:29](src/utils/window.ts#L29)；[src/utils/analytics/trackRenderTime.ts:75](src/utils/analytics/trackRenderTime.ts#L75)；[src/utils/viewerBootstrap.ts:156](src/utils/viewerBootstrap.ts#L156)；[src/components/Viewer/OpenApiViewer.vue:87](src/components/Viewer/OpenApiViewer.vue#L87)；[src/components/Viewer/ForgeGraphViewer.vue:209](src/components/Viewer/ForgeGraphViewer.vue#L209)。
 
 <a id="f77"></a>
 ### F77 · 渲染器资源空闲预取 — `renderer-prefetch`

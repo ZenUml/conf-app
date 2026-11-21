@@ -88,13 +88,18 @@ describe('export session snapshot', () => {
     expect(readExportSession()?.annotations[0].text).toBe('Review this');
   });
 
-  it('hydrates once from fullscreen modal context', () => {
+  it('hydrates once from fullscreen modal context', async () => {
+    // The seed-once flag is module state; any earlier read in this worker has
+    // already spent it, so this test needs a fresh copy of the module.
+    vi.resetModules();
+    const fresh = await import('./exportSession');
     setModalContext({ macroMode: 'fullscreen', macro_uuid: 'macro-1', exportSession: snapshot });
-    expect(readExportSession()).toEqual(snapshot);
+    expect(fresh.readExportSession()).toEqual(snapshot);
 
     const changed = { ...snapshot, background: 'warm' };
     setModalContext({ macroMode: 'fullscreen', macro_uuid: 'macro-1', exportSession: changed });
-    expect(readExportSession()?.background).toBe('white');
+    expect(fresh.readExportSession()?.background).toBe('white');
+    fresh.writeExportSession(null);
   });
 
   it('publishes fullscreen writes with the modal macro identity', async () => {

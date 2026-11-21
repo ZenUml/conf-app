@@ -64,9 +64,19 @@ inputs:
     description: 'Opt-in Lite staging experiment: baseline or candidate'
     required: false
     default: 'baseline'
+  pages-branch:
+    description: "Cloudflare Pages branch to deploy to. 'production' (default) is the production alias; any other name is a preview deployment that uses the preview secrets and [env.preview.*] config."
+    required: false
+    default: 'production'
 runs:
   using: 'composite'
   steps:
+    - name: Validate Pages branch
+      shell: bash
+      env:
+        PAGES_BRANCH: ${{ inputs.pages-branch }}
+      run: |
+        [[ "$PAGES_BRANCH" =~ ^[a-z0-9-]{1,28}$ ]] || { echo 'Invalid Pages branch' >&2; exit 1; }
     - name: Setup pnpm
       uses: pnpm/action-setup@v5
     - uses: actions/setup-node@v5
@@ -177,17 +187,21 @@ runs:
     - name: Sync runtime env vars to Cloudflare Pages
       if: inputs.preparation-mode != 'candidate'
       run: |
-        printf '%s' "$VITE_MIXPANEL_TOKEN" | npx wrangler pages secret put MIXPANEL_TOKEN --project-name=${{ inputs.project }}
-        printf '%s' "$SENTRY_DSN" | npx wrangler pages secret put SENTRY_DSN --project-name=${{ inputs.project }}
+        # A non-production Pages branch is a preview deployment: its secrets live in the preview environment.
+        ENV_ARGS=()
+        if [ "$PAGES_BRANCH" != production ]; then ENV_ARGS=(--env preview); fi
+        printf '%s' "$VITE_MIXPANEL_TOKEN" | npx wrangler pages secret put MIXPANEL_TOKEN --project-name=${{ inputs.project }} "${ENV_ARGS[@]}"
+        printf '%s' "$SENTRY_DSN" | npx wrangler pages secret put SENTRY_DSN --project-name=${{ inputs.project }} "${ENV_ARGS[@]}"
         if [ -n "$PAGE_CAPTURE_SECRET" ]; then
-          printf '%s' "$PAGE_CAPTURE_SECRET" | npx wrangler pages secret put PAGE_CAPTURE_SECRET --project-name=${{ inputs.project }}
+          printf '%s' "$PAGE_CAPTURE_SECRET" | npx wrangler pages secret put PAGE_CAPTURE_SECRET --project-name=${{ inputs.project }} "${ENV_ARGS[@]}"
         fi
         # PAGE_CAPTURE_ALLOWED_DOMAINS is a plain (non-secret) Pages var — injected into
         # wrangler.toml [vars] in the "Prepare wrangler config" step below.
         # Delete any pre-existing secret with the same name so the plain var isn't shadowed.
-        echo y | npx wrangler pages secret delete PAGE_CAPTURE_ALLOWED_DOMAINS --project-name=${{ inputs.project }} 2>/dev/null || true
+        echo y | npx wrangler pages secret delete PAGE_CAPTURE_ALLOWED_DOMAINS --project-name=${{ inputs.project }} "${ENV_ARGS[@]}" 2>/dev/null || true
       shell: bash
       env:
+        PAGES_BRANCH: ${{ inputs.pages-branch }}
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
         VITE_MIXPANEL_TOKEN: ${{ inputs.vite-mixpanel-token }}
@@ -209,12 +223,13 @@ runs:
         # Create wrangler.toml with the project name replaced
         sed "s/name=\"conf-${{ inputs.environment }}\"/name=\"${{ inputs.project }}\"/" "$CONFIG_FILE" > wrangler.toml
 
-        # Inject PAGE_CAPTURE_ALLOWED_DOMAINS into [vars] and [env.production.vars] sections as a plain var.
+        # Inject PAGE_CAPTURE_ALLOWED_DOMAINS into [vars], [env.production.vars] and [env.preview.vars] sections as a plain var.
         # Sourced from GitHub Actions vars (PAGE_CAPTURE_ALLOWED_DOMAINS_STG / _PROD) so the
         # tenant allowlist can be updated without a source PR.
         if [ -n "$PAGE_CAPTURE_ALLOWED_DOMAINS" ]; then
           sed -i "/^\[vars\]$/a PAGE_CAPTURE_ALLOWED_DOMAINS = \"$PAGE_CAPTURE_ALLOWED_DOMAINS\"" wrangler.toml
           sed -i "/^\[env\.production\.vars\]$/a PAGE_CAPTURE_ALLOWED_DOMAINS = \"$PAGE_CAPTURE_ALLOWED_DOMAINS\"" wrangler.toml
+          sed -i "/^\[env\.preview\.vars\]$/a PAGE_CAPTURE_ALLOWED_DOMAINS = \"$PAGE_CAPTURE_ALLOWED_DOMAINS\"" wrangler.toml
         fi
         node scripts/ci/mixpanel-staging-config.mjs wrangler.toml "${{ inputs.environment }}"
         cat wrangler.toml
@@ -244,6 +259,7 @@ runs:
         DEPLOY_LICENSE: ${{ inputs.license }}
         DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
         DEPLOY_PROJECT: ${{ inputs.project }}
+        DEPLOY_PAGES_BRANCH: ${{ inputs.pages-branch }}
         DEPLOY_SKIP_MIGRATIONS: ${{ inputs.skip-migrations }}
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
@@ -254,9 +270,10 @@ runs:
         PAGE_CAPTURE_ALLOWED_DOMAINS: ${{ inputs.page-capture-allowed-domains }}
     - name: Publish
       if: inputs.skip-publish != 'true'
-      run: pnpm exec wrangler pages deploy dist --branch production --project-name=${{ inputs.project }}
+      run: pnpm exec wrangler pages deploy dist --branch "$PAGES_BRANCH" --project-name=${{ inputs.project }}
       shell: bash
       env:
+        PAGES_BRANCH: ${{ inputs.pages-branch }}
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
     - name: Cleanup

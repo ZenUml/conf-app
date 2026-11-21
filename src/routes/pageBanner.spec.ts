@@ -59,6 +59,12 @@ const RELEASE = {
 }
 const loadSurvey = vi.mocked((await import('@/features/targetedSurvey/survey')).loadTargetedSurvey)
 
+// The mocks keep their return values across tests, and the suite runs in random
+// order: put "What's new" back to "nothing to show" before every test.
+beforeEach(() => {
+  whatsNew.mockReturnValue(null)
+})
+
 describe('decidePageBanner — central priority for page-banner slots', () => {
   beforeEach(() => {
     vi.clearAllMocks()

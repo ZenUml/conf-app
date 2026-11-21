@@ -80,6 +80,20 @@ export const TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE = 0.1;
 // them over 4,905 user x macro keys (~31k billable events in one day).
 export const LICENSE_NOTICE_REPEAT_SAMPLE_RATE = 0.1;
 
+// Events whose volume is controlled where they are emitted rather than by
+// name in the tables here: sampled per occurrence (the rates above) or
+// deduplicated per browser per UTC day. sampleRateFor() does not read this
+// set; it records the decision for eventVolumeClassification.spec.ts, which
+// requires every AnalyticsEventName to have one.
+export const PER_OCCURRENCE_SAMPLED_EVENTS = new Set<string>([
+  "macro_viewed", // macroViewOfDay.ts: repeats at MACRO_VIEWED_REPEAT_SAMPLE_RATE
+  "title_draft_requested", // titleDraft/offer.ts: misses at TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE
+  "license_notice_shown", // licenseNotice/noticeOccurrence.ts
+  "license_notice_evaluated", // licenseNotice/noticeOccurrence.ts
+  "paywall_banner_shown", // PaywallWarningBanner.vue: once per browser x site x space x day
+  "agent_link_mcp_button_shown", // agentLink/connectMcpShown.ts: once per viewer x day
+]);
+
 // Rates that change on a fixed date. Before `until` (exclusive, UTC) the
 // event is sent at `before`; from then on at `after`.
 //

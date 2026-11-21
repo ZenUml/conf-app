@@ -14,16 +14,11 @@ export interface IMacroMetrics {
   openapi: number;
   mermaid: number;
   plantuml: number;
-  // Lite ships the AsyncAPI macro (ADR-0005 Option A). Its own bucket keeps
-  // these out of `unknown`, which is the corrupt-content signal.
   asyncapi: number;
   markdown: number;
   unknown: number;
   isLite: boolean;
   lastUpdated?: string;
-  // Where this count was read from: 'kv' = KV cache hit (may be stale-low),
-  // 'collect' = fresh space enumeration. Consumed by the paywall gate's
-  // `macro_count_source` telemetry (#302). Absent on the mock/localStorage path.
   source?: 'kv' | 'collect';
 }
 
@@ -40,21 +35,8 @@ interface MacroMetricsQueryResult {
   metrics: IMacroMetrics | null;
 }
 
-// The paywall blocks at this many macros (mirrors MACROS_LIMIT in
-// useCustomerSuccessService). On the latency-critical read/gate path we stop
-// counting once the total crosses it.
 const PAYWALL_COUNT_CEILING = 100;
 
-// Diagram types that own a metric bucket but deliberately have no
-// DiagramTypeConfig entry. AsyncAPI renders through the Studio iframe /
-// @asyncapi/react-component, not the storeUpdateAction plumbing
-// DiagramTypeConfig describes, so giving it a full config would hand it
-// capabilities (agent-link writes, the diagram portal, the template gallery)
-// that have never been validated for it. It still needs to be counted.
-// Typed to `keyof IMacroMetrics`, not `string`: a mistyped field name would
-// otherwise compile, and `(stats[field] as number)++` on a key that isn't there
-// is `undefined++` → NaN — a silently wrong count, which is the exact defect
-// class this bucket exists to prevent.
 const EXTRA_METRIC_FIELDS: Partial<Record<DiagramType, keyof IMacroMetrics>> = {
   [DiagramType.AsyncApi]: 'asyncapi',
 };
@@ -65,30 +47,23 @@ export class MacroMetrics {
     private readonly eventTracker = trackEvent
   ) {}
 
-  // Report Macro Metrics for the Current Space.
   async reportMacroMetrics(): Promise<void> {
     try {
       const currentSpace = await this.apWrapper.getCurrentSpace();
       const space = currentSpace.key;
       const domain = getClientDomain();
 
-      // Snapshot-managed Lite installations have one authoritative backend
-      // writer. The save path only performs this lightweight mode check and
-      // never enumerates the space or races the scheduled whole-object commit.
       const cached = await this.readFromKV(domain, space);
       if (cached?.mode === 'snapshot') {
         console.debug('[metrics:report] snapshot-managed', { space });
         return;
       }
 
-      // Always collect fresh metrics on save
       const metrics = await this.collectMetrics(space, currentSpace.id);
 
       if (metrics) {
-        // Write to KV for shared cache
         await this.writeToKV(domain, space, metrics);
 
-        // Report to analytics
         console.debug('[metrics:report] success', { space: metrics.space, total: metrics.total });
         this.eventTracker(`${JSON.stringify(metrics)}`, 'report_macro_metrics', 'info');
       }
@@ -98,16 +73,12 @@ export class MacroMetrics {
     }
   }
 
-  // Get Macro Metrics for the Current Space.
   async getMacroMetrics(): Promise<IMacroMetrics | undefined> {
     try {
       const currentSpace = await this.apWrapper.getCurrentSpace();
       const space = currentSpace.key;
       const domain = getClientDomain();
 
-      // Read from KV cache. Metrics present, whether snapshot-managed or
-      // legacy-collected, is always a hit; only an EMPTY snapshot record is
-      // a miss that must not fall through to a fresh space enumeration.
       const cached = await this.readFromKV(domain, space);
       if (cached?.metrics) {
         console.debug('[metrics:kv:read] hit', { domain, space });
@@ -118,12 +89,9 @@ export class MacroMetrics {
         return undefined;
       }
 
-      // KV miss, collect fresh metrics. This feeds the awaited paywall gate, so
-      // bound the count at the limit — see collectMetrics / PAYWALL_COUNT_CEILING.
       console.debug('[metrics:kv:read] miss', { domain, space });
       const metrics = await this.collectMetrics(space, currentSpace.id, PAYWALL_COUNT_CEILING);
       if (metrics) {
-        // Write to cache for future reads
         await this.writeToKV(domain, space, metrics);
         return { ...metrics, source: 'collect' };
       }
@@ -145,20 +113,7 @@ export class MacroMetrics {
       data.results.forEach((content) => this.processContentResult(stats, content));
     };
 
-    // Errors here propagate to the caller (reportMacroMetrics / getMacroMetrics),
-    // which already catches and fires the same trackError('report_macro_metrics')
-    // event — a local catch here would only duplicate that single error event.
     if (spaceId) {
-      // Count from the V2 space custom-content endpoint (system of record),
-      // paginated per content type. The v1 CQL content search is
-      // search-index-backed and under-returns for large / bulk-grown spaces,
-      // which silently under-counted the macro total used by the paywall.
-      //
-      // When `ceiling` is set (latency-critical read/gate path) stop as soon
-      // as the total crosses it — the paywall decision can't change above the
-      // limit, so a huge space must not stall the awaited editor/fullscreen
-      // mount enumerating thousands of items. The save path passes no ceiling
-      // and enumerates fully so the cached/analytics count stays accurate.
       for (const type of this.apWrapper.getMacroContentTypes()) {
         const url = `/api/v2/spaces/${spaceId}/custom-content?type=${encodeURIComponent(type)}&body-format=raw&limit=250`;
         if (ceiling != null) {
@@ -169,8 +124,6 @@ export class MacroMetrics {
         }
       }
     } else {
-      // Fallback when no numeric space id is available (e.g. non-Forge
-      // contexts where getCurrentSpace() yields only a key).
       const searchUrl = this.buildSearchUrl(space);
       await this.apWrapper.requestAllPaginatedData(searchUrl, consumer);
     }
@@ -221,8 +174,6 @@ export class MacroMetrics {
   private updateDiagramStats(stats: Partial<IMacroMetrics>, diagramType: DiagramType): void {
     const field = (getDiagramConfig(diagramType)?.metricField as keyof IMacroMetrics | undefined)
       ?? EXTRA_METRIC_FIELDS[diagramType];
-    // A type without a bucket must land in `unknown`, never NaN: the backend
-    // rejects payloads whose buckets do not sum to total.
     if (field && Object.prototype.hasOwnProperty.call(stats, field) && typeof stats[field] === 'number') {
       (stats[field] as number)++;
     } else {
@@ -249,8 +200,6 @@ export class MacroMetrics {
       ) {
         return response as MacroMetricsQueryResult;
       }
-      // Defensive compatibility with a backend that has not deployed
-      // contract=2 yet: treat the old bare object as a legacy cache hit.
       return response ? { mode: 'legacy', metrics: response as IMacroMetrics } : null;
     } catch (e) {
       console.warn('[metrics:kv:read] failed', { error: (e as Error).message });
@@ -266,22 +215,17 @@ export class MacroMetrics {
         { domain, space, metrics }
       );
     } catch (e) {
-      // Surface write failures — a silently-swallowed failure left stale-low
-      // counts cached with no signal, producing phantom sub-threshold readings.
       console.warn('[metrics:kv:write] failed', { error: (e as Error).message });
       this.trackError(e);
     }
   }
 
   private trackError(e: unknown): void {
-    // JSON.stringify(new Error('x')) is '{}': message and stack are not enumerable, so the cause was lost.
     const label = e instanceof Error ? `${e.name}: ${e.message}` : serializeError(e);
     this.eventTracker(label, 'report_macro_metrics', 'error');
   }
 }
 
-// Factory function for creating instances
 export const createMacroMetrics = () => new MacroMetrics();
 
-// Maintain backward compatibility with existing code
 export default createMacroMetrics();

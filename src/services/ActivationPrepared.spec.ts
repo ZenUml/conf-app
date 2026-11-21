@@ -46,8 +46,6 @@ describe('ActivationPrepared', () => {
       const d: any = preparedToDiagram({ diagramType: type, diagramSource: 'SRC', title: 'T' });
       expect(d.diagramType).toBe(expectedType);
       expect(d[field]).toBe('SRC');
-      // The other content fields must stay empty (schema-traps: a stray value in
-      // a non-matching field is mis-read by later per-type queries).
       for (const f of ['code', 'mermaidCode', 'plantUmlCode', 'graphXml']) {
         if (f !== field) expect(d[f] || '').toBe('');
       }

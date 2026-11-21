@@ -14,10 +14,6 @@ import {
 
 import { DiagramType } from '@/model/Diagram/Diagram';
 
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
-
 function body(diagramType: DiagramType, fields: Record<string, unknown>) {
   return { raw: { value: JSON.stringify({ diagramType, ...fields }) } };
 }
@@ -40,7 +36,6 @@ function fixedIdentity(): IdentitySection {
 }
 
 beforeEach(() => {
-  // collectIdentity reads window.forgeGlobal. Default to a populated shape.
   (window as any).forgeGlobal = {
     forgeContext: {
       cloudId: 'cloud-A',
@@ -58,10 +53,6 @@ beforeEach(() => {
 afterEach(() => {
   delete (window as any).forgeGlobal;
 });
-
-// ---------------------------------------------------------------------------
-// extractActiveField — per diagramType
-// ---------------------------------------------------------------------------
 
 describe('extractActiveField', () => {
   it('extracts graphXml for graph', () => {
@@ -100,10 +91,6 @@ describe('extractActiveField', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// collectEditorContent
-// ---------------------------------------------------------------------------
-
 describe('collectEditorContent', () => {
   it('reports byte length + sha256 for ASCII content', async () => {
     const out = await collectEditorContent(DiagramType.Sequence, 'A->B: hi');
@@ -113,7 +100,6 @@ describe('collectEditorContent', () => {
   });
 
   it('counts UTF-8 bytes for non-ASCII content (not character count)', async () => {
-    // 4 Chinese characters = 12 bytes in UTF-8, not 4.
     const out = await collectEditorContent(DiagramType.Mermaid, '系統流程');
     expect(out.byteLength).toBe(12);
     expect(out.active).toBe('系統流程');
@@ -122,14 +108,9 @@ describe('collectEditorContent', () => {
   it('produces a stable sha256 for an empty active string', async () => {
     const out = await collectEditorContent(DiagramType.Sequence, '');
     expect(out.byteLength).toBe(0);
-    // SHA-256 of "" is e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
     expect(out.sha256).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
   });
 });
-
-// ---------------------------------------------------------------------------
-// collectIdentity
-// ---------------------------------------------------------------------------
 
 describe('collectIdentity', () => {
   const deps = {
@@ -168,10 +149,6 @@ describe('collectIdentity', () => {
     expect(id.macroUuid).toBeNull();
   });
 });
-
-// ---------------------------------------------------------------------------
-// fetchContentHistory
-// ---------------------------------------------------------------------------
 
 describe('fetchContentHistory', () => {
   function mockRequest(map: Record<string, any>): DebugBundleDeps['apRequest'] {
@@ -231,7 +208,6 @@ describe('fetchContentHistory', () => {
         version: { number: 2, createdAt: 'then' },
         body: body(DiagramType.Sequence, { code: 'v2' }),
       },
-      // v=1 is intentionally absent — should produce an error entry
     });
     const out = await fetchContentHistory('cc-3', DiagramType.Sequence, 4, { apRequest });
     expect(out.latest?.versionNumber).toBe(3);
@@ -249,10 +225,6 @@ describe('fetchContentHistory', () => {
     expect(out.errors[0].section).toBe('saved.latest');
   });
 });
-
-// ---------------------------------------------------------------------------
-// assembleBundle + filename
-// ---------------------------------------------------------------------------
 
 describe('assembleBundle', () => {
   it('folds history.errors into bundle.errors and stamps capturedAt', () => {

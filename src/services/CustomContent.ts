@@ -8,7 +8,7 @@ import { callRemote } from '@/utils/requestUtil';
 
 const MICRO_SYNC_BLOCKED_DOMAIN_HASHES = new Set([
   'f1a5aefbdad6aca8afe6cf3ebdf5c93d',
-  '9ff49cb7e15b4b19d166d0bd472175c7', // md5('blocked-domain-example') — test fixture
+  '9ff49cb7e15b4b19d166d0bd472175c7',
 ]);
 
 export async function syncCustomContent(customContent: any, diagramType: DiagramType, macroUuid: string) {

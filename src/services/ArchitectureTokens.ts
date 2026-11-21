@@ -15,27 +15,18 @@ export interface RelatedPage {
 export interface RelatedParticipant {
   actorId: string
   rawLabel: string
-  /** The nearest few, already ordered and capped by the backend. */
   related: RelatedPage[]
-  /** Every page the index holds for this name; `related` is a slice of it. */
   relatedTotal: number
 }
 
 export interface RelatedResponse {
-  /** Optional only for compatibility with a backend deployed before outcome telemetry. */
   lookup_outcome?: 'indexed' | 'index_miss'
   indexedAt: string | null
   contentVersion: number | null
   participants: RelatedParticipant[]
   error_kind?: string
-  /**
-   * Only with `error_kind: 'stale_index'`: which of its three cases this was. Absent from a
-   * backend deployed before the field existed. `contentVersion` is then the indexed version.
-   */
   stale_reason?: ArchitectureTokenStaleReason
-  /** The live version, when `stale_reason` is `version_mismatch`. */
   live_version?: number
-  /** Only with `error_kind: 'stale_index'`: which writer produced the stale index rows. */
   index_source?: ArchitectureTokenIndexSource
 }
 
@@ -45,11 +36,6 @@ export class RelatedLookupError extends Error {
   }
 }
 
-/**
- * `pageId` is the page the reader is on: the backend lists the nearest few positions, and
- * without it the reader's own page can fall outside that slice. Options rather than
- * positional arguments — inserting a parameter ahead of `timeoutMs` silently retargeted it.
- */
 export async function getRelatedDiagrams(
   customContentId: string,
   { pageId, timeoutMs = 8000 }: { pageId?: string; timeoutMs?: number } = {},
@@ -63,7 +49,6 @@ export async function getRelatedDiagrams(
     return await Promise.race([
       callRemote(
         `/api/architecture-tokens/related?customContentId=${encodeURIComponent(customContentId)}`
-          // the reader's page, so the nearest position survives the backend's slice
           + (pageId ? `&pageId=${encodeURIComponent(pageId)}` : ''),
         'GET',
       ),

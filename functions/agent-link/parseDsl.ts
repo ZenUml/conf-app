@@ -166,7 +166,34 @@ export function summarizeParserMessage(raw: string): string {
   return text.length > MAX_ERROR_MESSAGE_CHARS ? `${text.slice(0, MAX_ERROR_MESSAGE_CHARS - 1)}…` : text;
 }
 
+/** Same keyword test as @mermaid-js/mermaid-zenuml's detector (and the regexp its draw() strips). */
+const MERMAID_ZENUML_KEYWORD = /^\s*zenuml/;
+
+/**
+ * The ZenUML source inside a Mermaid `zenuml` block, or undefined when the text
+ * is some other Mermaid type. The viewer registers @mermaid-js/mermaid-zenuml
+ * (src/utils/mermaid/loadMermaid.ts), whose own parse() is a no-op and whose
+ * draw() hands everything after the keyword to the ZenUML renderer. Bare
+ * Mermaid core here has no such type and refused the text outright, so every
+ * update_diagram on these macros was a false guardrail refusal.
+ *
+ * Front matter, `%%{…}%%` directives and `%%` comments may precede the keyword
+ * (Mermaid removes them before detection); each is blanked line-for-line so
+ * the ZenUML parser's line numbers still point into the agent's text.
+ */
+export function mermaidZenumlBody(dsl: string): string | undefined {
+  const blank = (s: string) => s.replace(/[^\n]/g, ' ');
+  const stripped = dsl
+    .replace(/^\s*---\r?\n[\s\S]*?\r?\n---[ \t]*(?=\r?\n|$)/, blank)
+    .replace(/%%\{[\s\S]*?\}%%/g, blank)
+    .replace(/^[ \t]*%%.*$/gm, blank);
+  if (!MERMAID_ZENUML_KEYWORD.test(stripped)) return undefined;
+  return stripped.replace(MERMAID_ZENUML_KEYWORD, (m) => blank(m));
+}
+
 async function parseMermaid(dsl: string): Promise<ParseDslResult> {
+  const zenumlBody = mermaidZenumlBody(dsl);
+  if (zenumlBody !== undefined) return parseZenuml(zenumlBody);
   const mermaid = await getMermaid();
   try {
     await mermaid.parse(dsl, { suppressErrors: false });
@@ -379,8 +406,11 @@ export function computeStats(diagramType: string, dsl: string): DslStats | undef
   switch (normalizeDialect(diagramType)) {
     case 'zenuml':
       return zenumlStats(dsl);
-    case 'mermaid':
-      return mermaidStats(dsl);
+    case 'mermaid': {
+      // Count a zenuml block the way parseMermaid does, so before/after match.
+      const zenumlBody = mermaidZenumlBody(dsl);
+      return zenumlBody !== undefined ? zenumlStats(zenumlBody) : mermaidStats(dsl);
+    }
     default:
       return undefined;
   }

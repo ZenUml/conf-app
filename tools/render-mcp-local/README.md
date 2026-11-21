@@ -6,6 +6,20 @@ The host draws the result with the MCP Apps view loaded from `https://zenuml.com
 
 ## Use
 
+From npm, with no checkout. For Claude Code:
+
+```sh
+claude mcp add zenuml-local -- npx -y @zenuml/render-mcp
+```
+
+For Claude Desktop (`claude_desktop_config.json`):
+
+```json
+{ "mcpServers": { "zenuml-local": { "command": "npx", "args": ["-y", "@zenuml/render-mcp"] } } }
+```
+
+### From a checkout
+
 Build it from the repository root after `pnpm install`:
 
 ```sh
@@ -24,7 +38,7 @@ For Claude Desktop (`claude_desktop_config.json`):
 { "mcpServers": { "zenuml-local": { "command": "node", "args": ["/path/to/conf-app/tools/render-mcp-local/dist/cli.mjs"] } } }
 ```
 
-The bundle leaves the parsers (`@zenuml/core`, `mermaid`, `linkedom`, `js-yaml`) as runtime dependencies. Inside this repository they come from the root `node_modules`. A published package would install them from `package.json`. The package is `private` until we decide to publish it.
+The bundle leaves the parsers (`@zenuml/core`, `mermaid`, `linkedom`, `js-yaml`) as runtime dependencies. Inside this repository they come from the root `node_modules`. The published package installs them from `package.json`.
 
 `ZENUML_VIEW_ORIGIN` points the view at another deployment, such as the render Worker preview. It must use https, or http on localhost.
 
@@ -43,3 +57,14 @@ The source itself travels only from the agent to the host, to this process, back
 - `src/server.ts`: the JSON-RPC handler and the newline-delimited stdio transport.
 - The tool, parse check, DSL guides and view resource are shared with the public Worker: `functions/agent-link/renderTool.ts`, `dslGuides.ts` and `oauth/mcpApps.ts`.
 - `src/server.spec.ts` runs with the root unit tests (`pnpm exec vitest run tools/render-mcp-local`).
+
+## Release to npm
+
+1. Change `version` in `package.json` and merge that to `main`.
+2. Push the tag `render-mcp-v<version>` on that `main` commit.
+
+`.github/workflows/render-mcp-npm-publish.yml` then tests, builds, installs the packed tarball, draws one diagram with it and publishes. It signs in to npm with Trusted Publishing (OIDC), so the repository holds no npm token. npm trusts the repository together with that workflow file name: if the file is renamed, update the trusted publisher of the package on npmjs.com (`npm trust list @zenuml/render-mcp` shows the current one).
+
+## License
+
+Apache-2.0, the same license as this repository. See `LICENSE`.

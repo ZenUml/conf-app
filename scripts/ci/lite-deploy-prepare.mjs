@@ -13,10 +13,24 @@ export async function runParallel(tasks) {
   return results.map(result => result.value);
 }
 
+// Pages branch: 'production' is the production alias; any other name is a preview deployment.
+export function resolvePagesBranch(value) {
+  const branch = value || 'production';
+  if (!/^[a-z0-9-]{1,28}$/.test(branch)) throw new Error('Invalid Pages branch');
+  return branch;
+}
+
+// Secrets of a preview deployment live in the preview environment.
+export function pagesSecretCommand(action, name, project, branch) {
+  return ['wrangler', 'pages', 'secret', action, name, `--project-name=${project}`, ...(branch === 'production' ? [] : ['--env', 'preview'])];
+}
+
 async function main() {
   if (process.env.DEPLOY_LICENSE !== 'lite' || process.env.DEPLOY_ENVIRONMENT !== 'stg' || process.env.DEPLOY_PROJECT !== 'conf-stg-lite') {
     throw new Error('Parallel preparation is restricted to Lite staging');
   }
+  const pagesBranch = resolvePagesBranch(process.env.DEPLOY_PAGES_BRANCH);
+  const secret = (action, name) => pagesSecretCommand(action, name, 'conf-stg-lite', pagesBranch);
   const timings = {};
   const command = (args, options = {}) => new Promise((resolve, reject) => {
     const child = spawn('pnpm', ['exec', ...args], { stdio: ['pipe', 'inherit', 'inherit'], env: process.env });
@@ -39,15 +53,15 @@ async function main() {
         });
       }),
       timed('pages_configuration_and_migrations', async () => {
-        await command(['wrangler', 'pages', 'secret', 'put', 'MIXPANEL_TOKEN', '--project-name=conf-stg-lite'], { input: process.env.VITE_MIXPANEL_TOKEN });
-        await command(['wrangler', 'pages', 'secret', 'put', 'SENTRY_DSN', '--project-name=conf-stg-lite'], { input: process.env.SENTRY_DSN });
-        if (process.env.PAGE_CAPTURE_SECRET) await command(['wrangler', 'pages', 'secret', 'put', 'PAGE_CAPTURE_SECRET', '--project-name=conf-stg-lite'], { input: process.env.PAGE_CAPTURE_SECRET });
+        await command(secret('put', 'MIXPANEL_TOKEN'), { input: process.env.VITE_MIXPANEL_TOKEN });
+        await command(secret('put', 'SENTRY_DSN'), { input: process.env.SENTRY_DSN });
+        if (process.env.PAGE_CAPTURE_SECRET) await command(secret('put', 'PAGE_CAPTURE_SECRET'), { input: process.env.PAGE_CAPTURE_SECRET });
         // Match the existing action's tolerated missing secret; the plain var
         // below must take precedence over any older secret of the same name.
-        await command(['wrangler', 'pages', 'secret', 'delete', 'PAGE_CAPTURE_ALLOWED_DOMAINS', '--project-name=conf-stg-lite'], { input: 'y\n', ignoreFailure: true });
+        await command(secret('delete', 'PAGE_CAPTURE_ALLOWED_DOMAINS'), { input: 'y\n', ignoreFailure: true });
         let config = (await readFile('wrangler-stg.toml', 'utf8')).replace('name="conf-stg"', 'name="conf-stg-lite"');
         if (process.env.PAGE_CAPTURE_ALLOWED_DOMAINS) {
-          config = config.replace(/^(\[vars\]|\[env\.production\.vars\])$/gm, `$1\nPAGE_CAPTURE_ALLOWED_DOMAINS = ${JSON.stringify(process.env.PAGE_CAPTURE_ALLOWED_DOMAINS)}`);
+          config = config.replace(/^(\[vars\]|\[env\.production\.vars\]|\[env\.preview\.vars\])$/gm, `$1\nPAGE_CAPTURE_ALLOWED_DOMAINS = ${JSON.stringify(process.env.PAGE_CAPTURE_ALLOWED_DOMAINS)}`);
         }
         await writeFile('wrangler.toml', prepareMixpanelConfig(config, process.env.DEPLOY_ENVIRONMENT));
         if (process.env.DEPLOY_SKIP_MIGRATIONS !== 'true') await command(['wrangler', 'd1', 'migrations', 'apply', 'DB', '--remote', '--env', 'production']);

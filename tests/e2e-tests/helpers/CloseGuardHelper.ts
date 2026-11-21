@@ -103,6 +103,22 @@ export async function readPersistedDraft(
 }
 
 /**
+ * List every editor draft key (`zenuml.draft.<cloudId>.<scope>`) in the
+ * frame's localStorage. The viewer macro iframe and the editor iframe share
+ * the app's origin, so a viewer frame sees the drafts the editor left behind.
+ */
+export async function listDraftKeys(frame: FrameLocator): Promise<string[]> {
+  return frame.locator('body').evaluate(() => {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith('zenuml.draft.')) keys.push(key);
+    }
+    return keys.sort();
+  });
+}
+
+/**
  * Same primitive but operating on the top-level Confluence page, not a
  * Forge iframe. Useful for `page-actions:3` (close-page-while-dirty) where
  * Confluence's own editor registers a beforeunload listener.

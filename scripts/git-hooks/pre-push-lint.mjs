@@ -7,7 +7,6 @@
 // budget fails), so the hook cannot silently become slow.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 
 export const BUDGET_MS = 9000;
 // Keep in sync with the `lint` script in package.json.
@@ -63,4 +62,4 @@ function main() {
   done(r.status === 0 ? 0 : 1);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] === import.meta.filename) main();

@@ -1,0 +1,103 @@
+name: Render MCP npm publish
+
+# Publishes tools/render-mcp-local to npm as @zenuml/render-mcp.
+#
+# Authentication is npm Trusted Publishing (OIDC): npm trusts this repository
+# plus this workflow FILE NAME, and exchanges the job's id-token for a
+# short-lived publish credential. There is no NPM_TOKEN secret. Renaming or
+# moving this file breaks the trust until the package's trusted publisher is
+# updated on npmjs.com (`npm trust list @zenuml/render-mcp`).
+#
+# To release: bump tools/render-mcp-local/package.json on main, then push the
+# tag `render-mcp-v<that version>` on that main commit.
+
+on:
+  push:
+    tags:
+      - 'render-mcp-v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-mcp-npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # the OIDC token npm exchanges for a publish credential
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Tag must match package.json and sit on main
+        run: |
+          pkg_version="$(jq -r .version tools/render-mcp-local/package.json)"
+          tag_version="${GITHUB_REF_NAME#render-mcp-v}"
+          if [ "$pkg_version" != "$tag_version" ]; then
+            echo "::error::package.json version $pkg_version does not match tag $GITHUB_REF_NAME"
+            exit 1
+          fi
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_SHA is not on main; publish only from main"
+            exit 1
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted Publishing needs npm 11.5.1 or newer. Pinned to a major so a
+      # new npm major is a deliberate edit, not a surprise on release day.
+      - name: Upgrade npm
+        run: npm install -g npm@^11
+
+      - name: Install dependencies (skip post-install scripts)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+
+      - name: Unit tests
+        run: pnpm exec vitest run tools/render-mcp-local
+
+      - name: Build
+        run: node tools/render-mcp-local/build.mjs
+
+      - name: Pack
+        working-directory: tools/render-mcp-local
+        run: npm pack --pack-destination "$RUNNER_TEMP"
+
+      # Install the tarball the way a user gets it (dependencies from npm, not
+      # from this repository's node_modules) and draw one diagram over stdio.
+      - name: Smoke test the packed tarball
+        run: |
+          mkdir "$RUNNER_TEMP/smoke"
+          cd "$RUNNER_TEMP/smoke"
+          npm init -y >/dev/null
+          npm install --no-save --no-audit --no-fund "$RUNNER_TEMP"/zenuml-render-mcp-*.tgz
+          request='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"render_diagram","arguments":{"source":"A.b()"}}}'
+          answer="$(printf '%s\n' "$request" | timeout 60 npx zenuml-render-mcp)"
+          echo "$answer"
+          grep -q '"valid":true' <<<"$answer"
+
+      # No NODE_AUTH_TOKEN: npm detects the Actions OIDC token. Provenance is
+      # attached automatically for a public repository under Trusted Publishing.
+      - name: Publish to npm
+        working-directory: tools/render-mcp-local
+        run: npm publish --access public

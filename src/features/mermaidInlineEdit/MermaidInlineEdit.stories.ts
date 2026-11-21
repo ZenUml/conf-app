@@ -169,8 +169,13 @@ const meta: Meta<typeof Workspace> = {
     const previous = forgeGlobal.forgeContext
     const context = (previous ?? {}) as any
     forgeGlobal.forgeContext = { ...context, extension: { ...context.extension, modal: { macroMode: 'editor' } } } as any
+    // The editor entry (forgeIndex.ts) sets window.split; Workspace creates the
+    // drag bar between the code pane and the preview only when it is set.
+    const previousSplit = (window as any).split
+    ;(window as any).split = true
     return () => {
       forgeGlobal.forgeContext = previous
+      ;(window as any).split = previousSplit
     }
   },
   parameters: {

@@ -421,9 +421,12 @@
                 :diagram-host="getCaptureNode"
               />
             </div>
+            <!-- Inline macro only. Fullscreen opens from the inline macro, where
+                 the reader has already seen this strip; there the watermark
+                 alone carries the message. -->
             <LicenseNoticeStrip
-              v-if="showLicenseNotice"
-              :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
+              v-if="showLicenseNotice && !isFullscreenMode"
+              surface="viewer"
               :macro-type="diagramType ?? 'none'"
               :basis="licenseNoticeBasis"
               :count="siteNotice?.count"
@@ -2826,17 +2829,6 @@ export default {
 .viewer-frame--fullscreen .viewer-footer-row {
   width: 100%;
   max-width: 1000px;
-}
-/* The license notice joins the same column. It is a size container
-   (container-type: inline-size), so its own content gives it no width: in this
-   centred flex column it collapsed to its 2px of border and the text overflowed
-   as a narrow card. An explicit width fixes that; the side margins go because
-   the canvas padding already insets the column. */
-.viewer-frame--fullscreen .license-notice {
-  flex: 0 0 auto;
-  width: 100%;
-  max-width: 1000px;
-  margin: 12px 0 0;
 }
 /* See fullscreenUncappedDiagram(). Only the diagram box opts out; .viewer-footer-row
    above keeps the 1000px so the byline stays a readable line. */

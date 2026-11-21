@@ -814,14 +814,13 @@ export const MermaidFullscreenPanZoom: Story = {
 }
 
 /**
- * Fullscreen with the Lite site-policy notice on (the server said the
- * watermark applies). The notice strip belongs to the diagram's column: it
- * takes the byline's width (the canvas column, capped at 1000px), so its button sits
- * beside the text instead of the strip collapsing to a narrow card.
+ * Fullscreen while the Lite site-policy notice applies (the server said the
+ * watermark applies). Fullscreen shows the watermark only: the notice strip
+ * stays on the inline macro, where the reader saw it before opening Fullscreen.
  * Counts are invented.
  */
 export const MermaidFullscreenLicenseNotice: Story = {
-  name: 'Fullscreen — Mermaid with the Lite license notice',
+  name: 'Fullscreen — Mermaid under the Lite license notice (watermark only)',
   parameters: { layout: 'fullscreen' },
   loaders: MermaidFullscreenPanZoom.loaders,
   decorators: [
@@ -850,19 +849,8 @@ export const MermaidFullscreenLicenseNotice: Story = {
   render: (args: Args) => renderMermaidViewer(args),
   play: async () => {
     const canvas = within(document.body)
-    const strip = await canvas.findByTestId('license-notice-strip', {}, { timeout: 15000 })
-    const viewerCanvas = strip.closest('.viewer-canvas') as HTMLElement
-    // The byline's column: the canvas content box (24px padding), capped at 1000px.
-    const expected = Math.min(1000, viewerCanvas.clientWidth - 48)
-    await waitFor(() => expect(Math.abs(strip.getBoundingClientRect().width - expected)).toBeLessThanOrEqual(1))
-    const stripBox = strip.getBoundingClientRect()
-    const canvasBox = viewerCanvas.getBoundingClientRect()
-    // Centred in the canvas, like the diagram and the byline.
-    await expect(Math.abs((stripBox.left + stripBox.right) - (canvasBox.left + canvasBox.right))).toBeLessThanOrEqual(2)
-    // Wide enough that the button sits beside the text, not under it.
-    const button = canvas.getByTestId('license-notice-plan-usage').getBoundingClientRect()
-    const body = canvas.getByTestId('license-notice-body-lite').getBoundingClientRect()
-    await expect(button.left).toBeGreaterThanOrEqual(body.right)
+    await canvas.findByTestId('license-watermark', {}, { timeout: 15000 })
+    await expect(canvas.queryByTestId('license-notice-strip')).toBeNull()
   },
 }
 

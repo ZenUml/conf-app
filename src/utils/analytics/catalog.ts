@@ -343,7 +343,9 @@ export type McpViewPlantUmlRenderer = "local" | "failed";
 // (agent_link_app_view_fullscreen_requested).
 export type McpViewFullscreenOutcome = "entered" | "exited" | "declined" | "failed";
 // What the MCP Apps view's keep-it buttons did (agent_link_app_view_action_used, #1271).
-export type McpViewAction = "copy_source" | "download";
+// `save_confluence` sends "save this to Confluence" into the chat (ui/message);
+// the agent does the save, so `done` means the host took the message.
+export type McpViewAction = "copy_source" | "download" | "save_confluence";
 // `svg` for a drawing (sequence, mermaid, plantuml, graph); `source` for a
 // document (openapi, asyncapi, markdown), whose source is the useful file.
 export type McpViewDownloadFormat = "svg" | "source";
@@ -1820,7 +1822,10 @@ export type AnalyticsEventName =
   | "agent_link_app_view_zoomed"
   // A press of the view's Copy or Download button (POST /mcp/view-event, like
   // _rendered; #1271). Carries `macro_type`, `mcp_mode`, `view_action`
-  // (copy_source | download), `download_format` (download only: svg for a
+  // (copy_source | download | save_confluence; save_confluence posts a
+  // request into the chat with ui/message, and the agent saves it, so its
+  // `done` means the host accepted the message, not that a diagram was
+  // saved), `download_format` (download only: svg for a
   // drawing, source for a document) and `action_outcome` (done | failed; a
   // download `done` means the browser was handed the file, which a host's
   // sandbox can still block silently). Denominator: _rendered with

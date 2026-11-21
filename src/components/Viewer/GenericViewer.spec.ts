@@ -2668,7 +2668,12 @@ describe('GenericViewer (chrome-less)', () => {
     let contextBefore: typeof forgeRuntime.forgeContext
     let viewBefore: typeof forgeRuntime.view
 
-    beforeEach(() => {
+    beforeEach(async () => {
+      // getView() imports '@forge/bridge' dynamically. The first import in a
+      // worker takes longer than one flushPromises(), so the test that happens
+      // to run first (the order is random) would assert before the copy
+      // settles. Load the module here so every test starts from the same state.
+      await import('@forge/bridge')
       // These tests need cloudId to come from the lazy getContext() path, so
       // the memoized context left by earlier tests must not be there.
       // getView() also returns early once `view` is cached.
@@ -3805,6 +3810,17 @@ describe('GenericViewer license notice (Lite, per-site enforcement)', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
     expect(wrapper.find('.screen-capture-content').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('keeps the watermark but leaves the strip out in the Fullscreen viewer', async () => {
+    // The reader saw the strip on the inline macro before opening Fullscreen.
+    window.forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } } as any
+    siteEnforcement.value = enforcement(true)
+    const wrapper = mountViewer()
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(true))
+    expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('license_notice_shown', expect.anything())
     wrapper.unmount()
   })
 

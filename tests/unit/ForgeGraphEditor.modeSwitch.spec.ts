@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import EventBus from '@/EventBus'
-import { clearDraft, isDraftNewerThanSaved, loadDraft, makeDebouncedDraftSaver } from '@/utils/draftStore'
+import { clearDraft, clearDraftSync, isDraftNewerThanSaved, loadDraft, makeDebouncedDraftSaver, saveDraftSync } from '@/utils/draftStore'
+import { setupCloseGuard } from '@/utils/closeGuard'
 import {
   getGraphEditorMode,
   setGraphEditorMode,
@@ -26,6 +27,7 @@ vi.mock('@/utils/draftStore', () => ({
   getCachedCloudId: vi.fn(() => 'cloud'),
   getCachedSavedVersionUpdatedAt: vi.fn(() => null),
   saveDraftSync: vi.fn(),
+  clearDraftSync: vi.fn(),
   isDraftNewerThanSaved: vi.fn(() => false),
 }))
 vi.mock('@/EventBus', () => ({
@@ -367,6 +369,57 @@ describe('ForgeGraphEditor Diagram/Board mode switch', () => {
     expect(clearDraft).toHaveBeenCalledWith('new:graph:diagram')
     expect(clearDraft).toHaveBeenCalledWith('new:graph:board')
     expect(clearDraft).not.toHaveBeenCalledWith('edit:cc-new-42:diagram')
+    wrapper.unmount()
+  })
+
+  // forge-graph-editor.ts emits publish-committing before view.submit /
+  // view.close, which can destroy the iframe before 'saved' is emitted.
+  it('clears every published draft scope synchronously when Publish commits', async () => {
+    const wrapper = mountEditor({ graphEditorMode: 'diagram' })
+    await flushPromises()
+    const saver = vi.mocked(makeDebouncedDraftSaver).mock.results.at(-1)!.value
+
+    wrapper.vm.publishCommittingListener()
+
+    expect(saver.cancel).toHaveBeenCalled()
+    expect(clearDraftSync).toHaveBeenCalledWith('new:graph:diagram')
+    expect(clearDraftSync).toHaveBeenCalledWith('new:graph:board')
+    expect(clearDraftSync).toHaveBeenCalledWith('new:graph')
+    wrapper.unmount()
+  })
+
+  it('does not autosave or close-save a draft after Publish commits', async () => {
+    const wrapper = mountEditor({ graphEditorMode: 'diagram' })
+    await flushPromises()
+    const saver = vi.mocked(makeDebouncedDraftSaver).mock.results.at(-1)!.value
+    const closeHandler = vi.mocked(setupCloseGuard).mock.calls.at(-1)![0] as () => void
+    vi.mocked(saveDraftSync).mockClear()
+
+    wrapper.vm.publishCommittingListener()
+    wrapper.vm.messageListener({ data: JSON.stringify({ event: 'autosave', modified: 1, xml: EDITED }) })
+    closeHandler()
+
+    expect(saver.save).not.toHaveBeenCalled()
+    expect(saveDraftSync).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('writes the draft back when view.submit fails after commit', async () => {
+    const wrapper = mountEditor({ graphEditorMode: 'diagram', graphXml: EDITED })
+    await flushPromises()
+    vi.mocked(saveDraftSync).mockClear()
+
+    wrapper.vm.publishCommitFailedListener() // no commit yet: nothing to restore
+    expect(saveDraftSync).not.toHaveBeenCalled()
+
+    wrapper.vm.publishCommittingListener()
+    wrapper.vm.publishCommitFailedListener()
+
+    expect(saveDraftSync).toHaveBeenCalledWith(
+      'new:graph:diagram',
+      'cloud',
+      expect.objectContaining({ code: EDITED, graphEditorMode: 'diagram' }),
+    )
     wrapper.unmount()
   })
 

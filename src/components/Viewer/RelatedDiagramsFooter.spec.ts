@@ -16,7 +16,7 @@ const { related, getRelatedDiagrams, trackAnalyticsEvent, openUrl, getGateTeleme
 vi.mock('@/services/ArchitectureTokens', () => ({
   getRelatedDiagrams,
   RelatedLookupError: class extends Error {
-    constructor(public kind: string) {
+    constructor(public kind: string, public httpStatus?: number) {
       super(kind)
     }
   },
@@ -27,12 +27,15 @@ vi.mock('@/model/globals/forgeGlobal', () => ({
   openUrl,
   default: {
     forgeContext: {
+      // a signed-in viewer; the anonymous cases delete it
+      accountId: '557058:viewer-a',
       siteUrl: 'https://example.atlassian.net',
       extension: { space: { key: 'OP' } },
     },
   },
 }))
 
+import forgeGlobal from '@/model/globals/forgeGlobal'
 import { RelatedLookupError } from '@/services/ArchitectureTokens'
 import RelatedDiagramsFooter from './RelatedDiagramsFooter.vue'
 
@@ -163,6 +166,7 @@ const propertiesOf = (eventName: string) =>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  ;(forgeGlobal as any).forgeContext.accountId = '557058:viewer-a'
   // Default: the gate never ran, matching what a fresh module gives every other spec.
   getGateTelemetry.mockReturnValue({})
   // The backend always sends relatedTotal; fixtures that do not care about truncation
@@ -902,6 +906,81 @@ describe('RelatedDiagramsFooter', () => {
       'related_diagrams_lookup_succeeded',
       expect.anything(),
     )
+  })
+
+  it('records error_kind and http_status for a classified HTTP failure', async () => {
+    getRelatedDiagrams.mockRejectedValueOnce(new (RelatedLookupError as any)('http_error', 500))
+    mountFooter()
+    await flushPromises()
+    expect(propertiesOf('related_diagrams_lookup_failed')).toMatchObject({
+      error_kind: 'http_error',
+      http_status: 500,
+    })
+
+    trackAnalyticsEvent.mockClear()
+    getRelatedDiagrams.mockRejectedValueOnce(new (RelatedLookupError as any)('no_user_credential', 403))
+    mountFooter()
+    await flushPromises()
+    expect(propertiesOf('related_diagrams_lookup_failed')).toMatchObject({
+      error_kind: 'no_user_credential',
+      http_status: 403,
+    })
+  })
+
+  it('records an error that is not a RelatedLookupError as network, with no http_status', async () => {
+    getRelatedDiagrams.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    mountFooter()
+    await flushPromises()
+    const properties = propertiesOf('related_diagrams_lookup_failed')
+    expect(properties).toMatchObject({ error_kind: 'network' })
+    expect(properties).not.toHaveProperty('http_status')
+  })
+
+  describe('anonymous viewer', () => {
+    beforeEach(() => {
+      delete (forgeGlobal as any).forgeContext.accountId
+    })
+
+    // Forge sends no user token to an anonymous viewer, so the backend can only answer 403.
+    it('sends no request and renders nothing', async () => {
+      related.value = twoParticipants
+      const { wrapper } = mountFooter()
+      await flushPromises()
+
+      expect(getRelatedDiagrams).not.toHaveBeenCalled()
+      expect(wrapper.find('[data-testid="related-diagrams-footer"]').exists()).toBe(false)
+    })
+
+    it('records one related_diagrams_lookup_skipped with the reason, and no failure or success', async () => {
+      mountFooter({ macroType: 'sequence', surface: 'fullscreen' })
+      await flushPromises()
+
+      expect(trackAnalyticsEvent).toHaveBeenCalledTimes(1)
+      expect(propertiesOf('related_diagrams_lookup_skipped')).toMatchObject({
+        feature_area: 'architecture_tokens',
+        surface: 'fullscreen',
+        macro_type: 'sequence',
+        lookup_skip_reason: 'anonymous_viewer',
+      })
+    })
+
+    it('skips once per footer, not on every ready/enabled change', async () => {
+      const { wrapper } = mountFooter({ ready: false })
+      await wrapper.setProps({ ready: true })
+      await wrapper.setProps({ enabled: false })
+      await wrapper.setProps({ enabled: true })
+      await flushPromises()
+
+      expect(trackAnalyticsEvent).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('still asks for a signed-in viewer, guests included: they now carry a user token', async () => {
+    related.value = twoParticipants
+    mountFooter()
+    await flushPromises()
+    expect(getRelatedDiagrams).toHaveBeenCalledTimes(1)
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('related_diagrams_lookup_skipped', expect.anything())
   })
 
   it('keeps a response-level failure silent and records its error kind', async () => {

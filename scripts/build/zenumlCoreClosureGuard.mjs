@@ -1,9 +1,14 @@
-// Build guard: the 3.5 MB @zenuml/core renderer chunk must load only on demand.
+// Build guard: the 3.5 MB @zenuml/core renderer must load only on demand.
 //
-// It fails the build when an entry chunk or a lazily loaded chunk (the editor's
-// `Workspace`, each viewer) reaches the renderer through static imports. The
-// one allowed static importer is @mermaid-js/mermaid-zenuml's diagram
-// definition, which Mermaid itself loads lazily for a `zenuml` diagram.
+// It fails the build when:
+// - no chunk contains the renderer module (a core upgrade renamed
+//   `dist/zenuml.esm.mjs`, so this guard would otherwise check nothing);
+// - an entry chunk contains the renderer, or a lazily loaded chunk that is not
+//   the renderer's own (for example the editor's `Workspace`) contains it;
+// - an entry or lazily loaded chunk reaches a renderer chunk through static
+//   imports.
+// The one allowed static importer is @mermaid-js/mermaid-zenuml's diagram
+// definition chunk, which Mermaid itself loads lazily for a `zenuml` diagram.
 //
 // What it protects: vite.config.mjs drops @zenuml/codemirror-extensions'
 // linter module (which imports all of core) by its package-private path. If a
@@ -11,14 +16,32 @@
 // return to every editor's eager imports; this check fails instead.
 
 const CORE_MODULE = /[/\\]@zenuml[/\\]core[/\\]dist[/\\]zenuml\.esm\.m?js$/;
-const ALLOWED_IMPORTER = /[/\\]@mermaid-js[/\\]mermaid-zenuml[/\\]/;
+const ALLOWED_IMPORTER =
+  /[/\\]@mermaid-js[/\\]mermaid-zenuml[/\\]dist[/\\]chunks[/\\][^/\\]+[/\\]zenuml-definition-[^/\\]+\.mjs$/;
 
+const containsCore = (chunk) => Object.keys(chunk.modules || {}).some((id) => CORE_MODULE.test(id));
+const isLoadRoot = (chunk) => chunk.isEntry || chunk.isDynamicEntry;
+
+/** Returns one message per problem; an empty array means the bundle is fine. */
 export function findZenumlCoreClosureViolations(bundle) {
   const chunks = Object.values(bundle).filter((c) => c.type === 'chunk');
-  const coreChunks = new Set(
-    chunks.filter((c) => Object.keys(c.modules || {}).some((id) => CORE_MODULE.test(id))).map((c) => c.fileName),
-  );
-  if (coreChunks.size === 0) return [];
+  const coreChunks = chunks.filter(containsCore);
+  if (coreChunks.length === 0) {
+    return ['no chunk contains @zenuml/core/dist/zenuml.esm.(m)js; update CORE_MODULE in this guard'];
+  }
+  const problems = [];
+  const coreNames = new Set();
+  for (const c of coreChunks) {
+    const ownsCore = c.isDynamicEntry && !c.isEntry && CORE_MODULE.test(c.facadeModuleId || '');
+    if (ownsCore) {
+      coreNames.add(c.fileName);
+    } else if (isLoadRoot(c)) {
+      problems.push(`${c.fileName} bundles the renderer into its own chunk`);
+    } else {
+      // A shared chunk holding core; whoever imports it statically is flagged below.
+      coreNames.add(c.fileName);
+    }
+  }
   const byName = new Map(chunks.map((c) => [c.fileName, c]));
   const reachesCore = (start) => {
     const seen = new Set();
@@ -27,16 +50,17 @@ export function findZenumlCoreClosureViolations(bundle) {
       const name = stack.pop();
       if (seen.has(name)) continue;
       seen.add(name);
-      if (coreChunks.has(name)) return true;
+      if (coreNames.has(name)) return true;
       stack.push(...(byName.get(name)?.imports || []));
     }
     return false;
   };
-  return chunks
-    .filter((c) => (c.isEntry || c.isDynamicEntry) && !coreChunks.has(c.fileName))
-    .filter((c) => !ALLOWED_IMPORTER.test(c.facadeModuleId || ''))
-    .filter(reachesCore)
-    .map((c) => c.fileName);
+  for (const c of chunks) {
+    if (!isLoadRoot(c) || coreNames.has(c.fileName)) continue;
+    if (ALLOWED_IMPORTER.test(c.facadeModuleId || '')) continue;
+    if (reachesCore(c)) problems.push(`${c.fileName} statically imports the renderer`);
+  }
+  return problems;
 }
 
 export function zenumlCoreClosureGuard() {
@@ -44,12 +68,12 @@ export function zenumlCoreClosureGuard() {
     name: 'zenuml-core-closure-guard',
     apply: 'build',
     generateBundle(_options, bundle) {
-      const violations = findZenumlCoreClosureViolations(bundle);
-      if (violations.length > 0) {
+      const problems = findZenumlCoreClosureViolations(bundle);
+      if (problems.length > 0) {
         this.error(
-          `@zenuml/core's renderer is statically imported by: ${violations.join(', ')}. ` +
-            'It must load on demand (dynamic import). If @zenuml/codemirror-extensions was upgraded, ' +
-            'check the zenuml-linter treeshake rule in vite.config.mjs still matches its linter module.',
+          `@zenuml/core's renderer must load on demand (dynamic import): ${problems.join('; ')}. ` +
+            'If @zenuml/codemirror-extensions was upgraded, check the zenuml-linter treeshake rule in ' +
+            'vite.config.mjs still matches its linter module.',
         );
       }
     },

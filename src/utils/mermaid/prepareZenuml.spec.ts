@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { __resetPrepareZenumlForTests, isZenumlMermaidSource, prepareZenumlForMermaid } from './prepareZenuml';
+import {
+  __resetPrepareZenumlForTests,
+  IMPORT_CORE_TIMEOUT_MS,
+  isZenumlMermaidSource,
+  LOAD_ASSETS_TIMEOUT_MS,
+  prepareZenumlForMermaid,
+} from './prepareZenuml';
 
 function fakeCore() {
   return {
@@ -42,16 +48,54 @@ describe('prepareZenumlForMermaid', () => {
     expect(core.ensureDiagramIconsLoaded).toHaveBeenCalledWith(source);
   });
 
-  it('stops waiting after the timeout when a font or icon load stalls', async () => {
+  it('stops waiting for fonts and icons LOAD_ASSETS_TIMEOUT_MS after core loads', async () => {
     vi.useFakeTimers();
     try {
       const core = fakeCore();
       core.ensureDiagramFontsLoaded.mockImplementation(() => new Promise<void>(() => {}));
       let settled = false;
-      const done = prepareZenumlForMermaid('zenuml\n@VPC A', async () => core, 3000).then(() => {
+      const done = prepareZenumlForMermaid('zenuml\n@VPC A', async () => core).then(() => {
         settled = true;
       });
-      await vi.advanceTimersByTimeAsync(2999);
+      await vi.advanceTimersByTimeAsync(LOAD_ASSETS_TIMEOUT_MS - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await done;
+      expect(settled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('starts the asset budget only once core has downloaded', async () => {
+    vi.useFakeTimers();
+    try {
+      const core = fakeCore();
+      core.ensureDiagramIconsLoaded.mockImplementation(() => new Promise<void>(() => {}));
+      let settled = false;
+      const slowImport = () => new Promise<typeof core>((resolve) => setTimeout(() => resolve(core), 5000));
+      const done = prepareZenumlForMermaid('zenuml\n@VPC A', slowImport).then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(5000 + LOAD_ASSETS_TIMEOUT_MS - 1);
+      expect(core.ensureDiagramIconsLoaded).toHaveBeenCalled();
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await done;
+      expect(settled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives up IMPORT_CORE_TIMEOUT_MS into a stalled core download', async () => {
+    vi.useFakeTimers();
+    try {
+      let settled = false;
+      const done = prepareZenumlForMermaid('zenuml\nA->B', () => new Promise(() => {})).then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(IMPORT_CORE_TIMEOUT_MS - 1);
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
       await done;

@@ -8,9 +8,14 @@
 // instance the plugin renders with.
 //
 // This runs inside the Mermaid render queue, which every Mermaid render in the
-// iframe shares. Core's font load (`FontFace.load()`) and icon fetches have no
-// timeout, so the wait is bounded: a stalled fetch costs one diagram its icons
-// or exact font metrics, never the renders queued behind it.
+// iframe shares, so every wait is bounded and a stalled fetch never holds up
+// the renders queued behind it. Two budgets, because the two waits differ:
+// - Importing core downloads the 3.5 MB renderer chunk. The plugin imports
+//   that same chunk to draw, so a slow download delays this diagram either
+//   way; the budget is long so slow connections still get icons.
+// - Fonts and icons (`FontFace.load()`, icon fetches; core sets no timeout)
+//   are small. Their budget starts once core is loaded. Past it the diagram
+//   draws with fallback metrics and labels instead of icons.
 import { configureDiagramFonts } from '@/utils/fonts/configureDiagramFonts';
 
 type ZenumlCore = {
@@ -19,7 +24,8 @@ type ZenumlCore = {
   ensureDiagramIconsLoaded(code: string): Promise<void>;
 };
 
-export const PREPARE_ZENUML_TIMEOUT_MS = 3000;
+export const IMPORT_CORE_TIMEOUT_MS = 15000;
+export const LOAD_ASSETS_TIMEOUT_MS = 3000;
 
 // Mermaid detects the type after removing front matter and directives; the
 // plugin's own detector is /^\s*zenuml/ on that remainder.
@@ -29,33 +35,44 @@ export function isZenumlMermaidSource(source: string): boolean {
   return ZENUML_SOURCE.test(source);
 }
 
+const TIMED_OUT = Symbol('timed out');
+
+/** Resolves with the promise's value, or TIMED_OUT after `ms`. Never rejects. */
+async function within<T>(promise: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), ms);
+  });
+  try {
+    return await Promise.race([promise.catch(() => TIMED_OUT), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 let fontsConfigured = false;
 
 export async function prepareZenumlForMermaid(
   source: string,
   importCore: () => Promise<ZenumlCore> = () => import('@zenuml/core') as unknown as Promise<ZenumlCore>,
-  timeoutMs: number = PREPARE_ZENUML_TIMEOUT_MS,
 ): Promise<void> {
   if (!isZenumlMermaidSource(source)) return;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, timeoutMs);
-  });
-  const prepare = (async () => {
-    const core = await importCore();
+  let core: ZenumlCore | typeof TIMED_OUT;
+  try {
+    core = await within(importCore(), IMPORT_CORE_TIMEOUT_MS);
+  } catch {
+    return; // importCore threw synchronously; the plugin still renders.
+  }
+  if (core === TIMED_OUT) return;
+  try {
     if (!fontsConfigured) {
       configureDiagramFonts(core.default);
       fontsConfigured = true;
     }
     // Both never reject (core contract); a missing icon falls back to its label.
-    await Promise.all([core.ensureDiagramFontsLoaded(), core.ensureDiagramIconsLoaded(source)]);
-  })().catch(() => {
+    await within(Promise.all([core.ensureDiagramFontsLoaded(), core.ensureDiagramIconsLoaded(source)]), LOAD_ASSETS_TIMEOUT_MS);
+  } catch {
     // Preparation is an enhancement; the plugin still renders without it.
-  });
-  try {
-    await Promise.race([prepare, timeout]);
-  } finally {
-    clearTimeout(timer);
   }
 }
 

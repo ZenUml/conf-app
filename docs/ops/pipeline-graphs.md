@@ -11,9 +11,11 @@ flowchart LR
   C --> U1[Unit tests, 4 shards]
   C --> A[AsyncAPI build]
   C --> M[MCP app build and CI script tests]
+  C --> L[Lint: oxlint, 5 s budget]
   U1 --> U[Build and Unit Test]
   A --> U
   M --> U
+  L --> U
   C --> P[E2E: Viewer preview]
   Q --> G{Still the PR head?}
   G -- no --> S[Skip every staging job]

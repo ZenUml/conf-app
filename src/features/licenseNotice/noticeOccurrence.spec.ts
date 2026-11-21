@@ -60,3 +60,44 @@ describe('licenseNoticeOccurrence', () => {
     expect(licenseNoticeOccurrence('shown', scope, { storage: null, clock: NOV_16, random: drop })).toEqual({})
   })
 })
+
+// 2026-11-20: the Lite site-policy notice sent 4,524 license_notice_shown, 98%
+// from one enforced site, 15.8 per user per day but 1.2 per user x diagram.
+describe('licenseNoticeOccurrence per site (Lite site-policy notice)', () => {
+  const perSite = { perSite: true }
+
+  it('sends the first notice on the site today, whatever the macro', () => {
+    expect(licenseNoticeOccurrence('shown', scope, { storage: memoryStorage(), clock: NOV_16, random: keep }, perSite))
+      .toEqual({ view_of_day: 'first' })
+  })
+
+  it('drops every later notice on the same site that day, even on another macro and inside the sample', () => {
+    const storage = memoryStorage()
+    licenseNoticeOccurrence('shown', scope, { storage, clock: NOV_16, random: keep }, perSite)
+    expect(licenseNoticeOccurrence('shown', { ...scope, macroKey: 'cc-2' }, { storage, clock: NOV_16, random: keep }, perSite))
+      .toBeNull()
+    expect(licenseNoticeOccurrence('shown', scope, { storage, clock: NOV_16, random: keep }, perSite)).toBeNull()
+  })
+
+  it('starts over the next UTC day and on another site', () => {
+    const storage = memoryStorage()
+    licenseNoticeOccurrence('shown', scope, { storage, clock: NOV_16, random: keep }, perSite)
+    expect(licenseNoticeOccurrence('shown', scope, { storage, clock: NOV_17, random: keep }, perSite))
+      .toEqual({ view_of_day: 'first' })
+    expect(licenseNoticeOccurrence('shown', { ...scope, clientDomain: 'other' }, { storage, clock: NOV_16, random: keep }, perSite))
+      .toEqual({ view_of_day: 'first' })
+  })
+
+  it('does not need a macro id, and sends unmarked without storage', () => {
+    expect(licenseNoticeOccurrence('shown', { ...scope, macroKey: null }, { storage: memoryStorage(), clock: NOV_16 }, perSite))
+      .toEqual({ view_of_day: 'first' })
+    expect(licenseNoticeOccurrence('shown', scope, { storage: null, clock: NOV_16 }, perSite)).toEqual({})
+  })
+
+  it('keeps the per-macro record of the Full notice separate', () => {
+    const storage = memoryStorage()
+    licenseNoticeOccurrence('shown', scope, { storage, clock: NOV_16, random: keep }, perSite)
+    expect(licenseNoticeOccurrence('shown', scope, { storage, clock: NOV_16, random: drop }))
+      .toEqual({ view_of_day: 'first' })
+  })
+})

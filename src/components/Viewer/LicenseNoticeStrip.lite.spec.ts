@@ -6,9 +6,11 @@ import { navigateToAppPage, openUrl } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
 vi.mock('@/model/globals/forgeGlobal', () => ({
+  default: { forgeContext: {} },
   openUrl: vi.fn().mockResolvedValue(undefined),
   navigateToAppPage: vi.fn().mockResolvedValue(true),
 }))
+vi.mock('@/utils/ContextParameters/ContextParameters', () => ({ getClientDomain: () => 'example-tenant' }))
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
 
 const liteProps = { surface: 'viewer', macroType: 'mermaid', basis: 'site_policy_limit_reached', count: 2282, limit: 100, stage: 'watermark' } as const
@@ -44,6 +46,16 @@ describe('LicenseNoticeStrip, Lite site-policy variant', () => {
     expect(wrapper.get('.license-notice-help').text()).toContain("Can't upgrade?")
     await wrapper.get('[data-testid="license-notice-ticket"]').trigger('click')
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_ticket_clicked', analytics)
+  })
+
+  it('reports license_notice_shown once per site per day, however many diagrams show it', () => {
+    localStorage.clear()
+    mount(LicenseNoticeStrip, { props: liteProps })
+    mount(LicenseNoticeStrip, { props: { ...liteProps, macroType: 'sequence' } })
+    mount(LicenseNoticeStrip, { props: liteProps })
+    const shown = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'license_notice_shown')
+    expect(shown).toHaveLength(1)
+    expect(shown[0][1]).toMatchObject({ ...analytics, view_of_day: 'first' })
   })
 })
 

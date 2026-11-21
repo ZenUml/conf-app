@@ -1,6 +1,6 @@
 // src/utils/analytics/trackAnalyticsEvent.ts
 
-import mixpanel from "mixpanel-browser";
+import mixpanel, { MIXPANEL_RECORDER_SRC } from "./mixpanelClient";
 import {
   getClientDomain,
   getSpaceKey,
@@ -383,6 +383,9 @@ function _initMixpanel(): Promise<void> {
         // headers, no bodies — so diagram content never enters the recording.
         record_console: true,
         record_network: true,
+        // Load the replay recorder from our bundle, and only when a recording
+        // starts (see mixpanelClient.ts).
+        recorder_src: MIXPANEL_RECORDER_SRC,
       });
       mixpanel.register({ analytics_init_ms: performance.now() - startedAt });
       // Stamp every event with the resolved rate + why, so the throttle and

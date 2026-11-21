@@ -101,6 +101,36 @@ describe('parseDsl — Mermaid', () => {
       expect(message.length).toBeLessThanOrEqual(MAX_ERROR_MESSAGE_CHARS);
     }
   });
+
+  // The viewer registers @mermaid-js/mermaid-zenuml (src/utils/mermaid/loadMermaid.ts),
+  // so a Mermaid macro whose text starts with `zenuml` renders as ZenUML. Bare
+  // Mermaid core has no such type and threw "No diagram type detected", which
+  // made every update_diagram on such a macro a guardrail refusal.
+  describe('zenuml block (mermaid-zenuml plugin)', () => {
+    it('accepts a valid zenuml block and counts it as ZenUML', async () => {
+      const r = await parseDsl('Mermaid', 'zenuml\n  title Demo\n  Alice->Bob: hello\n  Bob->Alice: ok');
+      expect(r).toEqual({ ok: true, stats: { participants: 2, messages: 2 } });
+    });
+
+    it('accepts a zenuml block after front matter and a comment', async () => {
+      const dsl = '---\ntitle: Demo\n---\n%% a note\nzenuml\n  Alice->Bob: hello';
+      const r = await parseDsl('Mermaid', dsl);
+      expect(r.ok).toBe(true);
+    });
+
+    it('rejects an invalid zenuml block on the line of the Mermaid text', async () => {
+      const r = await parseDsl('Mermaid', 'zenuml\n  Alice->Bob: hello\n  if(x {');
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.errors[0].line).toBe(3);
+    });
+
+    it('computeStats counts a zenuml block as ZenUML, matching parseDsl', () => {
+      expect(computeStats('Mermaid', 'zenuml\n  Alice->Bob: hello\n  Bob->Alice: ok')).toEqual({
+        participants: 2,
+        messages: 2,
+      });
+    });
+  });
 });
 
 describe('summarizeParserMessage', () => {

@@ -118,6 +118,23 @@ export function fullscreenAvailable(): boolean {
 let drawnType: string | null = null;
 
 /**
+ * Which server answered the last tool call, as far as the result says. Only the
+ * local @zenuml/render-mcp server stamps its results (`mcpMode: 'local'`); the
+ * view events carry it so local use can be told apart from remote (viewEvent.ts).
+ */
+let resultMode: 'local' | null = null;
+
+/** `mcpMode: 'local'` from a tool result's structuredContent, else null. */
+export function mcpModeOf(result: unknown): 'local' | null {
+  const content = (result as { structuredContent?: { mcpMode?: unknown } } | undefined)?.structuredContent;
+  return content?.mcpMode === 'local' ? 'local' : null;
+}
+
+function modeField(): { mcp_mode?: 'local' } {
+  return resultMode ? { mcp_mode: resultMode } : {};
+}
+
+/**
  * The spec's protocol revision, sent in `ui/initialize`.
  *
  * Hard-coded rather than negotiated: this view implements exactly one revision,
@@ -410,6 +427,7 @@ function reportRender(type: string, failure?: unknown): void {
       new URL('mcp/view-event', viewOrigin()).href,
       JSON.stringify({
         macro_type: type,
+        ...modeField(),
         render_outcome: failed ? 'failed' : 'rendered',
         fullscreen_available: fullscreenAvailable(),
         ...(type === 'plantuml'
@@ -567,6 +585,7 @@ function reportZoom(action: ZoomAction, input: ZoomInput): void {
       JSON.stringify({
         kind: 'zoom',
         macro_type: drawnType,
+        ...modeField(),
         viewport_action: action,
         viewport_input: input,
         fullscreen_active: isFullscreen(),
@@ -723,7 +742,7 @@ function reportFullscreen(outcome: string): void {
   try {
     navigator.sendBeacon?.(
       new URL('mcp/view-event', viewOrigin()).href,
-      JSON.stringify({ kind: 'fullscreen', macro_type: drawnType, fullscreen_outcome: outcome }),
+      JSON.stringify({ kind: 'fullscreen', macro_type: drawnType, ...modeField(), fullscreen_outcome: outcome }),
     );
   } catch {
     // analytics never fails the view
@@ -847,6 +866,7 @@ export function onHostMessage(event: MessageEvent): void {
   }
 
   if (msg.method === 'ui/notifications/tool-result') {
+    resultMode = mcpModeOf(msg.params);
     const payload = extractDiagram(msg.params);
     if (payload) void render(payload);
     else status('No diagram in this result.');

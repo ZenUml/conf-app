@@ -2,11 +2,16 @@
  * The one wiring file: the only place that imports sourcemap/ and edit/ and
  * hands them, with the store and the toast, to the interaction layer. Mermaid.vue
  * loads this module with a dynamic import, and only on the editor preview, so
- * the page viewer never downloads it.
+ * the page viewer never downloads it. The flowchart half (flowchartApi.ts) is
+ * a further dynamic import, made on the first flowchart render.
  */
 import type { Store } from 'vuex';
-import { renameParticipant, editMessageText, sourceTextOf } from './edit';
-import type { GetSourceMap } from './types';
+// Direct files, not './edit': its index also re-exports the flowchart edit
+// code, which must stay in the flowchart chunk.
+import { renameParticipant } from './edit/renameParticipant';
+import { editMessageText } from './edit/editMessageText';
+import { sourceTextOf } from './edit/sourceTextOf';
+import type { GetSequenceSourceMap } from './types';
 import { attachInlineEdit, type InlineEditController, type InlineEditDeps, type InlineEditHost } from './ui/controller';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import { getStoreUpdateAction } from '@/model/Diagram/DiagramTypeConfig';
@@ -16,7 +21,7 @@ import { toast } from '@/utils/toast';
 // The parser is loaded on first use (the first sequence render in the editor). getSourceMap
 // runs its own Mermaid work through enqueueMermaid if it needs any; do not
 // wrap it here as well: the queue is serial, so a nested enqueue deadlocks.
-const getSourceMap: GetSourceMap = async (code) => (await import('./sourcemap')).getSourceMap(code);
+const getSourceMap: GetSequenceSourceMap = async (code) => (await import('./sourcemap')).getSourceMap(code);
 
 export function mountMermaidInlineEdit(container: HTMLElement, store: Store<any>, host: InlineEditHost): InlineEditController {
   const deps: InlineEditDeps = {
@@ -24,6 +29,7 @@ export function mountMermaidInlineEdit(container: HTMLElement, store: Store<any>
     renameParticipant,
     editMessageText,
     sourceTextOf,
+    flowchart: { load: async () => (await import('./flowchartApi')).flowchartEditApi },
     getCode: () => store.state.diagram.mermaidCode ?? '',
     writeCode: (code) => {
       // Same write as Workspace.applyAIChatCode: CodeMirror, re-render, draft

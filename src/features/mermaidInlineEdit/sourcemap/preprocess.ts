@@ -36,7 +36,7 @@ function identity(text: string): MappedText {
  * common prefix and suffix of match and replacement keep their positions and
  * the differing middle collapses to its edges.
  */
-function replaceMapped(
+export function replaceMapped(
   input: MappedText,
   regex: RegExp,
   replacer: (match: string, ...groups: string[]) => string,
@@ -185,6 +185,22 @@ export interface ParserInput extends MappedText {
 export function toParserInput(code: string): ParserInput {
   const preprocessed = preprocessDiagram(identity(code));
   return { ...encodeEntities(preprocessed), preprocessedLength: preprocessed.text.length };
+}
+
+// chunks/mermaid.core/chunk-SHT3W25Y.mjs (src/diagrams/flowchart/parser/flowParser.ts):
+// the flowchart parser wrapper runs this on the text before jison sees it.
+const FLOW_TRAILING_BRACE_SPACE = /}\s*\n/g;
+
+/**
+ * The string the flowchart jison parser sees for `code` on the render path:
+ * `toParserInput(code)` (what `Diagram.fromText` hands the parser wrapper),
+ * then the wrapper's `src.replace(/}\s*\n/g, '}\n')`. `official` is the text
+ * before the wrapper, for the comparison with `diagram.text`.
+ */
+export function toFlowchartParserInput(code: string): ParserInput & { official: string } {
+  const before = toParserInput(code);
+  const after = replaceMapped(before, FLOW_TRAILING_BRACE_SPACE, () => '}\n');
+  return { ...after, preprocessedLength: before.preprocessedLength, official: before.text };
 }
 
 /** Original range for a range of the transformed text. An empty range maps to the insertion point. */

@@ -1566,6 +1566,12 @@ EventBus.$on('save', async () => {
       content_id: String(id),
       custom_content_id: String(id),
     });
+    // The editor clears its local draft NOW, synchronously: view.submit /
+    // view.close below can tear the iframe down before their promise settles,
+    // so 'saved' (emitted after the await) is not a reliable place to clear.
+    // A failure below emits 'publish-commit-failed', and the editor writes the
+    // draft back as the retry anchor.
+    EventBus.$emit('publish-committing', id);
     try {
       if (needsWriteback && !isValidCustomContentId(id)) {
         // conf-app#320 defense-in-depth: never write a garbage customContentId
@@ -1603,6 +1609,7 @@ EventBus.$on('save', async () => {
       // The 'saved' event is intentionally NOT emitted here so the local
       // draft survives as a retry anchor.
       console.error('view.submit/close failed after save', error);
+      EventBus.$emit('publish-commit-failed', error);
       // The dialog didn't close — release the Publish button (Header.vue).
       EventBus.$emit('save-error', error);
       trackEvent('save_failed', 'view_submit_failed', 'error', {

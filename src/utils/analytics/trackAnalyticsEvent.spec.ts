@@ -1,7 +1,7 @@
 // src/utils/analytics/trackAnalyticsEvent.spec.ts
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import mixpanel from "mixpanel-browser";
+import mixpanel from "./mixpanelClient";
 import { getClientDomain, getSpaceKey } from "@/utils/ContextParameters/ContextParameters";
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import {
@@ -19,7 +19,8 @@ import { normalizeProductType } from "./productType";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
 import { EVENT_SAMPLE_RATES } from "./eventSampling";
 
-vi.mock("mixpanel-browser", () => ({
+vi.mock("./mixpanelClient", () => ({
+  MIXPANEL_RECORDER_SRC: "https://app.test/assets/mixpanel-recorder.min.js",
   default: {
     init: vi.fn(),
     identify: vi.fn(),
@@ -246,6 +247,14 @@ describe("trackAnalyticsEvent", () => {
     expect(mixpanel.init).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ record_sessions_percent: 100 }));
     expect(mixpanel.register).toHaveBeenCalledWith(expect.objectContaining({
       session_replay_percent: 100, session_replay_source: 'feedback_dialog',
+    }));
+  });
+
+  it('points the async replay recorder at our bundled copy', async () => {
+    vi.mocked(forgeGlobal).forgeContext = { localId: 'modal-fb', extension: { modal: { macroMode: 'feedback' } } } as any;
+    await _awaitableTrackAnalyticsEvent('feedback_report_opened', { surface: 'modal' });
+    expect(mixpanel.init).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      recorder_src: 'https://app.test/assets/mixpanel-recorder.min.js',
     }));
   });
 

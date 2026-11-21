@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import worker, { type Env } from './index';
 import * as renderer from '../../functions/agent-link/renderMcp';
 import { DIAGRAM_VIEW_URI, VIEW_MARKER } from '../../functions/agent-link/oauth/mcpApps';
+import rootPackage from '../../package.json';
 
 const ORIGIN = 'https://zenuml.com';
 const VIEW = `<!doctype html>${VIEW_MARKER}<script type="module" src="./assets/view-test.js"></script>`;
@@ -49,6 +50,8 @@ describe('independent render MCP routing and protocol', () => {
     const body: any = await response.json();
     expect(body.id).toBe(7);
     expect(body.result.serverInfo.name).toBe('zenuml-render');
+    // Same source as /mcp/health's version (build.mjs reads the root package.json).
+    expect(body.result.serverInfo.version).toBe(rootPackage.version);
     expect(body.result.protocolVersion).toBe('2025-06-18');
   });
 

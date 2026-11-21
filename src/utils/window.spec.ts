@@ -1,14 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import path from 'node:path'
 import ts from 'typescript'
-import mixpanel from 'mixpanel-browser'
+import mixpanel from '@/utils/analytics/mixpanelClient'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 import { _awaitableTrackEvent, _resetLegacyMixpanelForTesting, addonKey, addonKeyForProductType, getUrlParam, getLocalStorageKey, getLocalState, setLocalState } from './window';
 import forgeGlobal from '@/model/globals/forgeGlobal';
 import { normalizeProductType } from '@/utils/analytics/productType';
 
 // Mock dependencies
-vi.mock('mixpanel-browser', () => ({
+vi.mock('@/utils/analytics/mixpanelClient', () => ({
+  MIXPANEL_RECORDER_SRC: 'https://app.test/assets/mixpanel-recorder.min.js',
   default: {
     init: vi.fn(),
     identify: vi.fn(),
@@ -287,6 +288,14 @@ describe('window utils', async () => {
         expect.any(Error)
       )
       consoleErrorSpy.mockRestore()
+    })
+
+    it('points the async replay recorder at our bundled copy', async () => {
+      _resetLegacyMixpanelForTesting()
+      await _awaitableTrackEvent('test-label', 'test-action', 'analytics')
+      expect(mixpanel.init).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+        recorder_src: 'https://app.test/assets/mixpanel-recorder.min.js',
+      }))
     })
 
     it('should initialize Mixpanel and track events', async () => {

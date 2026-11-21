@@ -22,6 +22,7 @@
 
 import { listAccessibleSites, type AtlassianAppConfig, type FetchLike, type AccessibleSite } from './atlassianClient';
 import { confluenceReaderFor } from './confluenceReader';
+import { keptPct } from '../guardTelemetry';
 import { confluenceRequestFor, type ConfluenceRequest } from './confluenceWriter';
 import { checkCreateAllowed, type GateEnv } from './headlessGate';
 import { buildMacroNode, countExtensions, embeddedContentIds, referencesCustomContent } from '../macroNode';
@@ -638,7 +639,10 @@ function errorText(body: unknown): string {
  * body. There is no parser here — storage format is XHTML, and "does it
  * parse" is not the question — so this is the length test alone.
  */
-function guardPageBody(current: string, next: string): { ok: true } | { ok: false; message: string } {
+function guardPageBody(
+  current: string,
+  next: string,
+): { ok: true } | { ok: false; message: string; kept_pct?: number } {
   const nonWs = (s: string) => s.replace(/\s+/g, '').length;
   const before = nonWs(current);
   const after = nonWs(next);
@@ -650,6 +654,7 @@ function guardPageBody(current: string, next: string): { ok: true } | { ok: fals
         `Rejected: the replacement is ${pct}% shorter than the current page (${before} -> ${after} non-whitespace characters). ` +
         'This looks like accidental truncation, not an edit. Nothing was saved. If you really mean to replace the whole page, ' +
         'read it first and send the complete new body.',
+      kept_pct: keptPct(before, after),
     };
   }
   return { ok: true };
@@ -938,6 +943,7 @@ export async function callHeadlessTool(
           errors: verdict.errors,
           input_len: verdict.input_len,
           output_len: verdict.output_len,
+          kept_pct: verdict.kept_pct,
           diagramType: stored.diagramType,
         });
       }
@@ -1276,6 +1282,7 @@ export async function callHeadlessTool(
           reason: 'data_loss',
           input_len: current.body.length,
           output_len: body.length,
+          kept_pct: verdict.kept_pct,
         });
       }
 

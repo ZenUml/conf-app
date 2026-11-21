@@ -1,4 +1,4 @@
-/* Mermaid sequence in-place editing (Figma-style text layer), ui/controller.ts.
+/* Mermaid in-place editing (Figma-style text layer), ui/controller.ts: sequence and flowchart.
    Global, not scoped: the svg arrives through v-html. */
 
 /* Figma-style arrow over the whole diagram while in-place editing is
@@ -22,6 +22,24 @@
 /* The SVG text under the editing layer. visibility keeps its bbox measurable. */
 svg text.mie-hidden {
   visibility: hidden;
+}
+
+/* A flowchart HTML label (p or span in a foreignObject) under the layer: transparent glyphs, so the box and
+   an edge label's white background stay (the edge line must not show through
+   the transparent layer). !important: Mermaid's `#<svg id> span { color }`
+   rule has id specificity. */
+svg p.mie-hidden,
+svg span.mie-hidden,
+svg p.mie-hidden *,
+svg span.mie-hidden * {
+  color: transparent !important;
+}
+
+/* Flowchart labels are selectable HTML: a double-click must not select a word
+   in the diagram (the layer selects the word in its own text). */
+.mie-cursor .diagram-viewport .diagram-viewport-content svg div {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .mie-hover,

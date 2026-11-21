@@ -12,3 +12,5 @@ export {
   renderParity,
 } from './parity';
 export type { ParityResult } from './parity';
+export { decodeFlowText, encodeFlowText, flowDbTextOf, hasHtml, sourceReadOnlyReason } from './flowchartText';
+export type { FlowEncodeOptions, FlowEncodeResult, FlowTextContext } from './flowchartText';

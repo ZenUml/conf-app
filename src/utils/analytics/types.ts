@@ -66,8 +66,10 @@ import type {
   ActivationPath,
   GalleryOpenTrigger,
   CodePanelToggleTrigger,
+  InlineEditDiagram,
   InlineEditKind,
   InlineEditRejection,
+  InlineEditUnavailableReason,
   SessionReplayEventSource,
   SessionReplayStartCallOutcome,
   ClarityReplayOutcome,
@@ -451,9 +453,17 @@ export type AnalyticsProperties = {
   preview_source_changed_in_window?: boolean;
   preview_window_completed?: boolean;
   preview_ms_since_editor_open?: number;
-  // editor_inline_edit_* only (Mermaid sequence inline edit). Bounded values:
-  // never the edited text, the actor id or the message index.
+  // editor_inline_edit_* only (Mermaid inline edit). Bounded values:
+  // never the edited text, the actor or node id, or the message index.
   inline_edit_kind?: InlineEditKind;
+  /**
+   * All editor_inline_edit_* events: the diagram type being edited. Optional
+   * because events sent before flowchart inline edit carry none (read absent
+   * as 'sequence').
+   */
+  inline_edit_diagram?: InlineEditDiagram;
+  /** editor_inline_edit_unavailable: why it is read-only (absent on events sent before 2026-11-21). */
+  inline_edit_unavailable_reason?: InlineEditUnavailableReason;
   /** editor_inline_edit_rejected: the EditRejection reason. */
   inline_edit_rejection?: InlineEditRejection;
   /** editor_inline_edit_cancelled: Esc, or the box closed with unchanged text. */

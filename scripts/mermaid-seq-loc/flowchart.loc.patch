@@ -1,0 +1,113 @@
+--- a/flow.jison
++++ b/flow.jison
+@@ -6,6 +6,7 @@
+ 
+ /* lexical grammar */
+ %lex
++%options ranges
+ %x string
+ %x md_string
+ %x acc_title
+@@ -430,39 +431,39 @@
+     ;
+ 
+ vertex:  idString SQS text SQE
+-        {$$ = $idString;yy.addVertex($idString,$text,'square');}
++        {$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString,$text,'square');}
+     | idString DOUBLECIRCLESTART text DOUBLECIRCLEEND
+-        {$$ = $idString;yy.addVertex($idString,$text,'doublecircle');}
++        {$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString,$text,'doublecircle');}
+     | idString PS PS text PE PE
+-        {$$ = $idString;yy.addVertex($idString,$text,'circle');}
++        {$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString,$text,'circle');}
+     | idString '(-' text '-)'
+-        {$$ = $idString;yy.addVertex($idString,$text,'ellipse');}
++        {$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString,$text,'ellipse');}
+     | idString STADIUMSTART text STADIUMEND
+-        {$$ = $idString;yy.addVertex($idString,$text,'stadium');}
++        {$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString,$text,'stadium');}
+     | idString SUBROUTINESTART text SUBROUTINEEND
+-        {$$ = $idString;yy.addVertex($idString,$text,'subroutine');}
++        {$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString,$text,'subroutine');}
+     | idString VERTEX_WITH_PROPS_START NODE_STRING\[field] COLON NODE_STRING\[value] PIPE text SQE
+-        {$$ = $idString;yy.addVertex($idString,$text,'rect',undefined,undefined,undefined, Object.fromEntries([[$field, $value]]));}
++        {$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString,$text,'rect',undefined,undefined,undefined, Object.fromEntries([[$field, $value]]));}
+     | idString CYLINDERSTART text CYLINDEREND
+-        {$$ = $idString;yy.addVertex($idString,$text,'cylinder');}
++        {$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString,$text,'cylinder');}
+     | idString PS text PE
+-        {$$ = $idString;yy.addVertex($idString,$text,'round');}
++        {$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString,$text,'round');}
+     | idString DIAMOND_START text DIAMOND_STOP
+-        {$$ = $idString;yy.addVertex($idString,$text,'diamond');}
+-    | idString DIAMOND_START DIAMOND_START text DIAMOND_STOP DIAMOND_STOP
+-        {$$ = $idString;yy.addVertex($idString,$text,'hexagon');}
++        {$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString,$text,'diamond');}
++    | idString DIAMOND_START DIAMOND_START text DIAMOND_STOP DIAMOND_STOP
++        {$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString,$text,'hexagon');}
+     | idString TAGEND text SQE
+-        {$$ = $idString;yy.addVertex($idString,$text,'odd');}
++        {$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString,$text,'odd');}
+     | idString TRAPSTART text TRAPEND
+-        {$$ = $idString;yy.addVertex($idString,$text,'trapezoid');}
++        {$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString,$text,'trapezoid');}
+     | idString INVTRAPSTART text INVTRAPEND
+-        {$$ = $idString;yy.addVertex($idString,$text,'inv_trapezoid');}
++        {$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString,$text,'inv_trapezoid');}
+     | idString TRAPSTART text INVTRAPEND
+-        {$$ = $idString;yy.addVertex($idString,$text,'lean_right');}
++        {$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString,$text,'lean_right');}
+     | idString INVTRAPSTART text TRAPEND
+-        {$$ = $idString;yy.addVertex($idString,$text,'lean_left');}
++        {$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString,$text,'lean_left');}
+     | idString
+-        { /*console.warn('h: ', $idString);*/$$ = $idString;yy.addVertex($idString);}
++        { /*console.warn('h: ', $idString);*/$$ = $idString;yy.__idLoc($idString, @1.range);yy.addVertex($idString);}
+     ;
+ 
+ 
+@@ -482,13 +483,13 @@
+     ;
+ 
+ edgeText: edgeTextToken
+-    {$$={text:$edgeTextToken, type:'text'};}
++    {$$={text:$edgeTextToken, type:'text', loc: @$.range, inline: true};}
+     | edgeText edgeTextToken
+-    {$$={text:$edgeText.text+''+$edgeTextToken, type:$edgeText.type};}
++    {$$={text:$edgeText.text+''+$edgeTextToken, type:$edgeText.type, loc: @$.range, inline: true};}
+     |STR
+-    {$$={text: $STR, type: 'string'};}
++    {$$={text: $STR, type: 'string', loc: @$.range, inline: true};}
+     | MD_STR
+-    {$$={text:$MD_STR, type:'markdown'};}
++    {$$={text:$MD_STR, type:'markdown', loc: @$.range, inline: true};}
+     ;
+ 
+ 
+@@ -504,13 +505,13 @@
+     ;
+ 
+ text: textToken
+-    { $$={text:$textToken, type: 'text'};}
++    { $$={text:$textToken, type: 'text', loc: @$.range};}
+     | text textToken
+-    { $$={text:$text.text+''+$textToken, type: $text.type};}
++    { $$={text:$text.text+''+$textToken, type: $text.type, loc: @$.range};}
+     | STR
+-    { $$ = {text: $STR, type: 'string'};}
++    { $$ = {text: $STR, type: 'string', loc: @$.range};}
+     | MD_STR
+-    { $$={text: $MD_STR, type: 'markdown'};}
++    { $$={text: $MD_STR, type: 'markdown', loc: @$.range};}
+     ;
+ 
+ 
+@@ -526,7 +527,7 @@
+     | STR
+     { $$={text: $STR, type: 'text'};}
+     | MD_STR
+-    { $$={text: $MD_STR, type: 'markdown'};}
++    { $$={text: $MD_STR, type: 'markdown', loc: @$.range};}
+     ;
+ 
+ 

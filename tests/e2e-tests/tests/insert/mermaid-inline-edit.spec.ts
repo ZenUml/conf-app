@@ -6,7 +6,7 @@ import { MacroPage } from '../../pages/MacroPage.js';
 import { DiagramTestHelper } from '../../helpers/DiagramTestHelper.js';
 
 /**
- * Mermaid sequence inline edit (docs/features/mermaid-inline-edit.md,
+ * Mermaid inline edit, sequence and flowchart (docs/features/mermaid-inline-edit.md,
  * src/features/mermaidInlineEdit/).
  *
  * In the macro editor preview (Workspace.vue), double-clicking a participant
@@ -237,6 +237,114 @@ test.describe('Mermaid sequence inline edit', { tag: ['@test:mermaid', '@variant
       // Negative case: give a layer time to appear before checking that none did.
       await page.waitForTimeout(1500);
       await expect(viewer.locator('div.mie-layer')).toHaveCount(0);
+    });
+  });
+});
+
+const FLOW_SOURCE = 'flowchart LR\n  A[Start] -->|yes| B(Round)\n  B --> C';
+
+/** A rendered flowchart node label (HTML in a foreignObject) in the editor preview. */
+function nodeLabel(frame: FrameLocator, text: string): Locator {
+  return frame.locator('.diagram-viewport-content svg g.node span.nodeLabel').filter({ hasText: exact(text) });
+}
+
+/** A rendered flowchart edge label in the editor preview. */
+function edgeLabel(frame: FrameLocator, text: string): Locator {
+  return frame.locator('.diagram-viewport-content svg g.edgeLabel span.edgeLabel').filter({ hasText: exact(text) });
+}
+
+async function setupFlowchart(page: Page, testName: string) {
+  const editorPage = new ConfluenceEditorPage(page);
+  const helper = new DiagramTestHelper(page, editorPage);
+  await helper.createPageWithDiagramMacro(testName);
+  await editorPage.switchToMacroTab('Mermaid');
+  await helper.enterCodeInEditor(FLOW_SOURCE);
+  const frame = editorPage.getMacroEditorFrame();
+  await waitEditable(frame);
+  await expect(nodeLabel(frame, 'Start').first()).toBeAttached({ timeout: TIMEOUTS.FRAME_LOAD });
+  const before = await readCode(frame);
+  expect(before).toContain('A[Start] -->|yes| B(Round)');
+  expect(before).toMatch(/^\s*B --> C$/m);
+  console.log(`  ✓ Source in editor:\n${before}`);
+  return { frame, before };
+}
+
+test.describe('Mermaid flowchart inline edit', { tag: ['@test:mermaid', '@variant:lite', '@variant:full', '@variant:diagramly', '@editor', '@mermaid', '@feature:editing', '@interface:editor', '@scenario:editing:editor'] }, () => {
+  test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
+
+  test('edit a node label in place: live preview, source written once on Enter', async ({ page }) => {
+    const { frame, before } = await setupFlowchart(page, 'Mermaid Flow Inline Node');
+
+    await test.step('Double-click Start and replace the text', async () => {
+      await openLayerOn(page, frame, nodeLabel(frame, 'Start'), 'Edit node label');
+      await page.keyboard.press('ControlOrMeta+a');
+      await page.keyboard.type('Begin here');
+      await expect(nodeLabel(frame, 'Begin here').first()).toBeAttached({ timeout: TIMEOUTS.FRAME_LOAD });
+      expect(await readCode(frame)).toBe(before);
+    });
+
+    await test.step('Enter writes only the label', async () => {
+      await page.keyboard.press('Enter');
+      const expected = before.replace('A[Start]', 'A[Begin here]');
+      await expect.poll(() => readCode(frame), { timeout: TIMEOUTS.FRAME_LOAD }).toBe(expected);
+      await expect(editLayer(frame)).toHaveCount(0, { timeout: TIMEOUTS.FRAME_LOAD });
+      await expect(nodeLabel(frame, 'Begin here').first()).toBeAttached();
+      await expect(nodeLabel(frame, 'Start')).toHaveCount(0);
+    });
+  });
+
+  test('edit an edge label in place: the pipe form stays', async ({ page }) => {
+    const { frame, before } = await setupFlowchart(page, 'Mermaid Flow Inline Edge');
+
+    await test.step('Double-click yes and replace the text', async () => {
+      await openLayerOn(page, frame, edgeLabel(frame, 'yes'), 'Edit edge label');
+      await page.keyboard.press('ControlOrMeta+a');
+      await page.keyboard.type('confirmed');
+      await expect(edgeLabel(frame, 'confirmed').first()).toBeAttached({ timeout: TIMEOUTS.FRAME_LOAD });
+    });
+
+    await test.step('Enter writes the edge text', async () => {
+      await page.keyboard.press('Enter');
+      await expect.poll(() => readCode(frame), { timeout: TIMEOUTS.FRAME_LOAD }).toBe(before.replace('-->|yes|', '-->|confirmed|'));
+      await expect(editLayer(frame)).toHaveCount(0, { timeout: TIMEOUTS.FRAME_LOAD });
+    });
+  });
+
+  test('a node that shows its id gets a label: C becomes C[text]', async ({ page }) => {
+    const { frame, before } = await setupFlowchart(page, 'Mermaid Flow Inline Bare Id');
+
+    await test.step('Double-click C and type a label', async () => {
+      await openLayerOn(page, frame, nodeLabel(frame, 'C'), 'Edit node label');
+      await page.keyboard.press('ControlOrMeta+a');
+      await page.keyboard.type('Done');
+      await expect(nodeLabel(frame, 'Done').first()).toBeAttached({ timeout: TIMEOUTS.FRAME_LOAD });
+    });
+
+    await test.step('Enter inserts [Done] after the id', async () => {
+      await page.keyboard.press('Enter');
+      const expected = before.replace(/^(\s*B --> C)$/m, '$1[Done]');
+      expect(expected).not.toBe(before);
+      await expect.poll(() => readCode(frame), { timeout: TIMEOUTS.FRAME_LOAD }).toBe(expected);
+    });
+  });
+
+  test('Esc cancels a flowchart edit: code unchanged, no layer left', async ({ page }) => {
+    const { frame, before } = await setupFlowchart(page, 'Mermaid Flow Inline Cancel');
+
+    await test.step('Start editing Round', async () => {
+      await openLayerOn(page, frame, nodeLabel(frame, 'Round'), 'Edit node label');
+      await page.keyboard.press('End');
+      await page.keyboard.type(' trip');
+      await expect(nodeLabel(frame, 'Round trip').first()).toBeAttached({ timeout: TIMEOUTS.FRAME_LOAD });
+    });
+
+    await test.step('Esc restores the stored picture and writes nothing', async () => {
+      await page.keyboard.press('Escape');
+      await expect(editLayer(frame)).toHaveCount(0, { timeout: TIMEOUTS.FRAME_LOAD });
+      await expect(page.getByTestId('custom-ui-fullscreen-modal-dialog')).toBeVisible();
+      await expect(nodeLabel(frame, 'Round').first()).toBeAttached({ timeout: TIMEOUTS.FRAME_LOAD });
+      await expect(nodeLabel(frame, 'Round trip')).toHaveCount(0);
+      expect(await readCode(frame)).toBe(before);
     });
   });
 });

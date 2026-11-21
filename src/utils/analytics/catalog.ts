@@ -1787,6 +1787,9 @@ export type AnalyticsEventName =
   // listed `fullscreen` in its availableDisplayModes (so the view showed its
   // fullscreen button). Never carries the source, a title or any free text,
   // and no user or site: the endpoint accepts these enums and nothing else.
+  // `mcp_mode: 'local'` on this, _fullscreen_requested and _zoomed = the
+  // result came from the local @zenuml/render-mcp server (0.1.3+); absent =
+  // a remote server (render or headless).
   | "agent_link_app_view_rendered"
   // The MCP Apps view's fullscreen button was pressed, and what the host did
   // with `ui/request-display-mode` (POST /mcp/view-event, like _rendered).
@@ -2361,7 +2364,12 @@ export type AgentLinkMcpButtonReveal = "always" | "hover";
 // 'render' = the public render-only endpoint (POST /mcp/render), which
 // needs no sign-in and no Atlassian site. Its events carry no user id, so they
 // all share Mixpanel's unknown_user_account_id; split them by `mcp_mode`.
-export type AgentLinkMcpMode = "headless" | "relay" | "render";
+// 'local' = the @zenuml/render-mcp stdio server on the user's own machine
+// (tools/render-mcp-local). It sends no events itself; only the MCP Apps view's
+// agent_link_app_view_rendered / _zoomed / _fullscreen_requested carry it, when
+// the tool result says it came from that server. Absent on those three = a
+// remote server (render or headless), or a local package older than 0.1.3.
+export type AgentLinkMcpMode = "headless" | "relay" | "render" | "local";
 
 // Whether render_diagram's source parsed (agent_link_mcp_tool_called with
 // `mcp_mode: 'render'`). 'valid' = the dialect's parser accepted it;

@@ -58,7 +58,7 @@ import "@/components/DrawIoExtension/graphEditor.css";
 import { getView, getContext as initForgeContext, isInserting } from '@/model/globals/forgeGlobal';
 import { setupCloseGuard } from "@/utils/closeGuard";
 import { registerEditorCloseTracking } from "@/utils/analytics/editorCloseOutcome";
-import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, isDraftNewerThanSaved } from "@/utils/draftStore";
+import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, isDraftNewerThanSaved, clearDraftSync } from "@/utils/draftStore";
 import EventBus from "@/EventBus";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import { notifyAiTitleSaved } from "@/composables/useAutoTitle";
@@ -301,6 +301,10 @@ export default {
       draftSaver: null,
       savedListener: null,
       draftScope: null,
+      // True between Publish commit and its outcome (see publishCommittingListener).
+      publishCommitting: false,
+      publishCommittingListener: null,
+      publishCommitFailedListener: null,
       restoreListener: null,
       messageListener: null,
       loadTicket: 0,
@@ -355,7 +359,7 @@ export default {
         if (payload.xml && this.drawioModified) this.mcpPromoXml = payload.xml;
         if (payload.xml) {
           this.setXmlForMode(this.editorMode, payload.xml);
-          if (this.drawioModified && this.draftSaver) {
+          if (this.drawioModified && this.draftSaver && !this.publishCommitting) {
             this.draftSaver.save({
               code: payload.xml,
               title: this.$store?.state?.diagram?.title || '',
@@ -410,6 +414,8 @@ export default {
     this.closeOutcomeOff?.();
     this.draftSaver?.flush();
     if (this.savedListener) EventBus.$off('saved', this.savedListener);
+    if (this.publishCommittingListener) EventBus.$off('publish-committing', this.publishCommittingListener);
+    if (this.publishCommitFailedListener) EventBus.$off('publish-commit-failed', this.publishCommitFailedListener);
     if (this.restoreListener) EventBus.$off('draft-restore', this.restoreListener);
     if (this.messageListener) window.removeEventListener('message', this.messageListener);
   },
@@ -437,6 +443,7 @@ export default {
 
     // view.onClose: synchronously persist the latest XML if dirty.
     this.closeGuardOff = setupCloseGuard(() => {
+      if (this.publishCommitting) return;
       if (!this.drawioModified || !this.xmlForMode(this.editorMode)) return;
       const cloudId = getCachedCloudId();
       if (cloudId) {
@@ -459,21 +466,49 @@ export default {
 
     // Clear draft after successful publish.
     const scopeBaseAtMount = this.draftScopeBase();
+    // A publish writes both mode documents, so clear both drafts. Derive
+    // them from ONE base captured at mount: draftScopeBase() reads
+    // diagram.id, which the save itself populates on a brand-new macro, so
+    // recomputing it here cleared `edit:<newId>:*` and orphaned the
+    // `new:graph:*` drafts the session actually wrote.
+    const publishedDraftScopes = () => {
+      const scopes = [`${scopeBaseAtMount}:diagram`, `${scopeBaseAtMount}:board`, scopeBaseAtMount];
+      if (this.draftScope && !scopes.includes(this.draftScope)) scopes.push(this.draftScope);
+      return scopes;
+    };
     this.savedListener = () => {
       this.draftSaver?.cancel();
-      // A publish writes both mode documents, so clear both drafts. Derive
-      // them from ONE base captured at mount: draftScopeBase() reads
-      // diagram.id, which the save itself populates on a brand-new macro, so
-      // recomputing it here cleared `edit:<newId>:*` and orphaned the
-      // `new:graph:*` drafts the session actually wrote.
-      clearDraft(`${scopeBaseAtMount}:diagram`);
-      clearDraft(`${scopeBaseAtMount}:board`);
-      clearDraft(scopeBaseAtMount);
-      if (this.draftScope && this.draftScope !== `${scopeBaseAtMount}:${this.editorMode}`) {
-        clearDraft(this.draftScope);
-      }
+      this.publishCommitting = false;
+      publishedDraftScopes().forEach((scope) => clearDraft(scope));
     };
     EventBus.$on('saved', this.savedListener);
+
+    // Publish saved the content and is about to call view.submit / view.close
+    // (forge-graph-editor.ts), which can destroy this iframe before 'saved'
+    // arrives. Clear synchronously and block every writer until the outcome.
+    this.publishCommittingListener = () => {
+      this.publishCommitting = true;
+      this.draftSaver?.cancel();
+      publishedDraftScopes().forEach((scope) => clearDraftSync(scope));
+    };
+    EventBus.$on('publish-committing', this.publishCommittingListener);
+
+    // view.submit / view.close threw after commit: the macro still points at
+    // the old content, so write the published XML back as the retry anchor.
+    this.publishCommitFailedListener = () => {
+      if (!this.publishCommitting) return;
+      this.publishCommitting = false;
+      const xml = this.xmlForMode(this.editorMode);
+      const cloudId = getCachedCloudId();
+      if (xml && cloudId) {
+        saveDraftSync(this.draftScope, cloudId, {
+          code: xml,
+          title: this.$store?.state?.diagram?.title || '',
+          graphEditorMode: this.editorMode,
+        });
+      }
+    };
+    EventBus.$on('publish-commit-failed', this.publishCommitFailedListener);
 
     // Restore handler: re-load the draft XML into the DrawIO iframe.
     this.restoreListener = (payload) => {

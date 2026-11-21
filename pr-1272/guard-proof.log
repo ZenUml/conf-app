@@ -1,0 +1,6 @@
+full rule=on rc=0 
+lite rule=on rc=0 
+asyncapi rule=on rc=0 
+full rule=off rc=1 renderer must load on demand (dynamic import): assets/Workspace-CdiZCkqQ
+lite rule=off rc=1 renderer must load on demand (dynamic import): assets/Workspace-CT97hC23
+asyncapi rule=off rc=1 renderer must load on demand (dynamic import): assets/Workspace-CT57tR1c

@@ -1,0 +1,3 @@
+renderer must load on demand (dynamic import): assets/Workspace-CdiZCkqQ.js statically imports the renderer. If @zenuml/codemirror-extensions was upgraded, check the zenuml-linter treeshake rule in vite.config.mjs still matches its linter module.
+renderer must load on demand (dynamic import): assets/Workspace-CT97hC23.js statically imports the renderer. If @zenuml/codemirror-extensions was upgraded, check the zenuml-linter treeshake rule in vite.config.mjs still matches its linter module.
+renderer must load on demand (dynamic import): assets/Workspace-CT57tR1c.js statically imports the renderer. If @zenuml/codemirror-extensions was upgraded, check the zenuml-linter treeshake rule in vite.config.mjs still matches its linter module.

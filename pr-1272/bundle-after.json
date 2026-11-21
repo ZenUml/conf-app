@@ -1,5 +1,5 @@
 {
- "totalJsBytes": 17215041,
+ "totalJsBytes": 17215076,
  "jsFiles": 83,
  "coreBytesByVersion": {
   "core@4.13.1": 3678319
@@ -7,29 +7,29 @@
  "paths": {
   "entry (index)": {
    "roots": [
-    "index-BLQZrobC.js",
     "index-BLVV_wS8.js",
-    "index-Bj_IxR75.js",
-    "index-C-UJ7OX9.js",
-    "index-DLDmg5zr.js",
-    "index-Dh6gQ2Sb.js",
-    "index-aPARVICW.js"
+    "index-CW3AJFFv.js",
+    "index-C_1psGYz.js",
+    "index-CvyYwylt.js",
+    "index-Diw-A6gq.js",
+    "index-DpKIqXhf.js",
+    "index-DrVRN-5o.js"
    ],
    "chunks": 11,
-   "raw": 2364653,
-   "gzip": 692979
+   "raw": 2364797,
+   "gzip": 693023
   },
   "sequence viewer (zenuml.esm)": {
    "roots": [
-    "zenuml.esm-N2_sGaue.js"
+    "zenuml.esm-BpYjO010.js"
    ],
    "chunks": 1,
    "raw": 3506717,
-   "gzip": 860943
+   "gzip": 860944
   },
   "Mermaid zenuml (zenuml-definition)": {
    "roots": [
-    "zenuml-definition-ZCSB3OVJ-Dx2VlSz0.js"
+    "zenuml-definition-ZCSB3OVJ-BKwrytJw.js"
    ],
    "chunks": 2,
    "raw": 3508229,
@@ -37,15 +37,15 @@
   },
   "editor (Workspace)": {
    "roots": [
-    "Workspace-Behj2KzE.js"
+    "Workspace-BAkKt4PE.js"
    ],
    "chunks": 17,
-   "raw": 1248852,
-   "gzip": 411352
+   "raw": 1248743,
+   "gzip": 411251
   }
  },
  "coreChunks": {
-  "zenuml.esm-N2_sGaue.js": {
+  "zenuml.esm-BpYjO010.js": {
    "size": 3506717,
    "core@4.13.1": 3502826
   }

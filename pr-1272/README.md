@@ -22,3 +22,12 @@ copied into the baseline checkout for BEFORE. Fixture data only. Built-in browse
 ## Limits
 
 Forge Tunnel and staging UI checks not done (see PR description).
+
+## Update for final head `000893b1`
+
+- `sb-mermaid-zenuml-icons-000893b1.jpg`: same story rerun on `000893b1`; lint stories again 1 mark (broken) / 0 marks (valid).
+- `guard-proof.log`, `guard-failure-messages.txt`: `PRODUCT_TYPE=<v> vite build --mode production` for full, lite and asyncapi
+  (asyncapi without the studio submodule build), first with the vite.config.mjs zenuml-linter treeshake rule,
+  then with it replaced by `moduleSideEffects: true`. With the rule: rc=0. Without: rc=1, guard names the Workspace chunk.
+- `stg-before.png`: lite-stg throwaway page on the main build before this PR deployed (Mermaid zenuml lacks VPC/RDS icons).
+- `bundle-after.json`: re-measured on the final code (unchanged within ~100 bytes).

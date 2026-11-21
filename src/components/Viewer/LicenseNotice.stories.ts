@@ -1,6 +1,6 @@
 import { setup, type Args, type Meta, type StoryObj } from '@storybook/vue3-vite'
 import type { App } from 'vue'
-import mixpanel from 'mixpanel-browser'
+import mixpanel from '@/utils/analytics/mixpanelClient'
 import GenericViewer from './GenericViewer.vue'
 import store from '@/model/store2'
 import globals from '@/model/globals'

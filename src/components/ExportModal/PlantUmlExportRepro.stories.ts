@@ -2,7 +2,7 @@
 // package exports. The Storybook/Vite build resolves them.
 // @ts-expect-error -- resolved by Storybook's Vite pipeline
 import { setup, type Meta, type StoryObj } from '@storybook/vue3-vite'
-import mixpanel from 'mixpanel-browser'
+import mixpanel from '@/utils/analytics/mixpanelClient'
 import { FeatureFlags } from '@forge/bridge'
 import DiagramPortal from '@/components/DiagramPortal.vue'
 import store from '@/model/store2'

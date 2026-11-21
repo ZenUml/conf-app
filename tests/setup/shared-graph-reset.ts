@@ -30,9 +30,16 @@ function dropModuleCache(): void {
   const mocker = (globalThis as { __vitest_mocker__?: Mocker }).__vitest_mocker__;
   // Vitest 2.1.9 keys its mock registry by the first file a worker ran when
   // isolation is off, so registrations pile up across files. Clear them.
-  mocker?.reset?.();
+  // These are Vitest internals. If an upgrade removes them, files would share
+  // modules and mocks with no warning, so stop the run instead.
   const cache = mocker?.moduleCache;
-  if (!cache) return;
+  if (!mocker?.reset || !cache?.forEach || !cache.invalidateModule) {
+    throw new Error(
+      'shared-graph-reset: Vitest internals (__vitest_mocker__.reset / moduleCache) not found. '
+      + 'Per-file module reset cannot run; update tests/setup/shared-graph-reset.ts for this Vitest version.',
+    );
+  }
+  mocker.reset();
   const stale: CachedModule[] = [];
   cache.forEach((mod, path) => {
     if (!KEEP.some((re) => re.test(path))) stale.push(mod);

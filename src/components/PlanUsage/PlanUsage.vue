@@ -49,7 +49,7 @@
 
         <template v-if="overLimitSpaces.length">
           <h2 class="section-title">Spaces over the limit</h2>
-          <p class="purchase-help">Unlock one space by card. This purchase applies only to the selected space.</p>
+          <p class="purchase-help" data-testid="plan-usage-purchase-help">Unlock one space by card. Checkout opens in a new tab: ${{ ENTERPRISE_BUNDLE_ANNUAL_COST }} per space per year, plus tax where applicable. No Confluence admin needed.</p>
           <p v-if="paidLookupFailed" class="purchase-help" role="status">We couldn’t check paid access. Purchase options are unavailable for now.</p>
           <table class="space-table">
             <thead><tr><th>Space</th><th class="num">Diagrams / limit</th><th class="purchase-heading">Unlock one space</th></tr></thead>
@@ -59,7 +59,11 @@
                 <td class="num space-count">{{ s.macroCount.toLocaleString() }} / {{ macrosLimit.toLocaleString() }}</td>
                 <td class="space-purchase">
                   <div class="space-purchase-content">
-                  <template v-if="canPurchase(s.spaceKey)">
+                  <template v-if="canPurchase(s.spaceKey) && checkoutOpened[s.spaceKey]">
+                    <span class="checkout-opened" data-testid="plan-usage-checkout-opened"><span class="checkout-opened-dot" aria-hidden="true"></span>Checkout opened in a new tab</span>
+                    <button type="button" class="btn btn-secondary" :aria-label="`Open checkout again: ${s.spaceKey}`" @click="purchaseSpace(s)">Open again</button>
+                  </template>
+                  <template v-else-if="canPurchase(s.spaceKey)">
                     <span class="space-price">${{ ENTERPRISE_BUNDLE_ANNUAL_COST }}/yr/space</span>
                     <button type="button" class="btn btn-secondary" :aria-label="`Unlock this space: ${s.spaceKey}`" @click="purchaseSpace(s)">Unlock this space</button>
                   </template>
@@ -143,6 +147,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { getSpaceStatuses, type PaidStatus } from '@/apis/spaceStatuses'
 import { enterpriseBundleCheckout } from '@/utils/paywall/enterpriseBundleCheckout'
+import { openBundleCheckout } from '@/utils/paywall/openBundleCheckout'
 import { ENTERPRISE_BUNDLE_ANNUAL_COST } from '@/components/UpgradePrompt/upgradePrompt'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 import forgeGlobal, { openUrl } from '@/model/globals/forgeGlobal'
@@ -201,11 +206,15 @@ async function loadPaidStatuses() {
   finally { paidLoading.value = false }
 }
 
+/** Rows whose checkout page opened in this visit; shows the row as opened. */
+const checkoutOpened = ref<Record<string, boolean>>({})
+
 async function purchaseSpace(space: { spaceKey: string; macroCount: number }) {
   if (!canPurchase(space.spaceKey)) return
-  const checkout = enterpriseBundleCheckout(domain.value, space.spaceKey)
-  trackAnalyticsEvent('paywall_bundle_cta_clicked', { feature_area: 'upgrade', surface: 'dashboard', space_key: space.spaceKey, macro_count: space.macroCount, macro_limit: macrosLimit.value, bundle_price_usd: ENTERPRISE_BUNDLE_ANNUAL_COST, client_reference_id: checkout.clientReferenceId })
-  await openUrl(checkout.url)
+  const checkout = enterpriseBundleCheckout(domain.value, space.spaceKey, { surface: 'plan_usage' })
+  trackAnalyticsEvent('paywall_bundle_cta_clicked', { feature_area: 'upgrade', surface: 'dashboard', space_key: space.spaceKey, macro_count: space.macroCount, macro_limit: macrosLimit.value, bundle_price_usd: ENTERPRISE_BUNDLE_ANNUAL_COST, client_reference_id: checkout.clientReferenceId, checkout_click_id: checkout.clickId })
+  const outcome = await openBundleCheckout(checkout.url, { surface: 'dashboard', checkoutSurface: 'plan_usage' })
+  if (outcome === 'opened') checkoutOpened.value = { ...checkoutOpened.value, [space.spaceKey]: true }
 }
 
 const copyState = ref<'default' | 'copied'>('default')
@@ -463,6 +472,8 @@ table.space-table { width: 720px; max-width: 100%; border-collapse: collapse; ta
 .space-purchase-content { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 60px; box-sizing: border-box; }
 .space-price { font-size: 14px; white-space: nowrap; }
 .license-state { color: var(--pu-text-low); font-size: 12px; font-weight: 400; }
+.checkout-opened { display: inline-flex; align-items: center; gap: 6px; color: var(--pu-text-low); font-size: 12px; font-weight: 400; white-space: nowrap; }
+.checkout-opened-dot { width: 6px; height: 6px; border-radius: 3px; background: var(--pu-primary); }
 .space-count { color: var(--pu-warning); font-variant-numeric: tabular-nums; }
 
 .upgrade-copy { color: var(--pu-text-low); max-width: 560px; margin: 0 0 16px; }

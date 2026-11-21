@@ -24,7 +24,7 @@ import type { DiagramAttribution } from '@/model/DiagramAttribution';
  * reference compressed so afterLoad's compressed_* telemetry still fires on it.
  * No-op for plain XML and for non-graph docs (`compressed` is undefined).
  */
-function normalizeCompressedGraphDoc(doc: Diagram | undefined): Diagram | undefined {
+export function normalizeCompressedGraphDoc(doc: Diagram | undefined): Diagram | undefined {
   if (doc?.compressed && doc.graphXml && !doc.graphXml.startsWith('<mxGraphModel')) {
     return { ...doc, graphXml: decompress(doc.graphXml), compressed: false };
   }

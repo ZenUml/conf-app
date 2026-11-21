@@ -1,0 +1,11 @@
+# Clarity upload proxy for the Forge app. See index.ts.
+# Deploy: npx wrangler deploy -c workers/stats-proxy/wrangler.toml
+name = "zenuml-stats-proxy"
+main = "index.ts"
+compatibility_date = "2026-11-01"
+workers_dev = false
+preview_urls = false
+routes = [{ pattern = "stats.zenuml.com", custom_domain = true }]
+
+[observability]
+enabled = true

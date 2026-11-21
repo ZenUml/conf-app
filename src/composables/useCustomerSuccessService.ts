@@ -87,7 +87,7 @@ export function useCustomerSuccessService() {
     // keys start with "~". Prefer currentSpaceKey (same identity the KV space
     // license is granted against) and fall back to the synchronous context
     // read before it loads.
-    return enterpriseBundleCheckout(getClientDomain(), currentSpaceKey.value || getSpaceKey()).url
+    return enterpriseBundleCheckout(getClientDomain(), currentSpaceKey.value || getSpaceKey(), { surface: 'upgrade_prompt' }).url
   })
 
   const learnMoreUrl = computed(() => {

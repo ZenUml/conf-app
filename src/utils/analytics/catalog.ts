@@ -424,6 +424,36 @@ export type GalleryOpenTrigger = "auto_first_open" | "manual";
 // so pairing the two values into a funnel would be lopsided by construction.
 export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
 
+// Mermaid inline edit (editor_inline_edit_*). Mirrors EditableKind
+// and EditRejection in src/features/mermaidInlineEdit/types.ts, in snake case
+// for Mixpanel; kept as literals so the catalog has no feature import.
+// `participant_label` / `message_text`: sequence diagrams; `node_label` /
+// `edge_label`: flowcharts (2026-11-21, registered ahead of the flowchart UI).
+export type InlineEditKind = "participant_label" | "message_text" | "node_label" | "edge_label";
+// Which Mermaid diagram type an editor_inline_edit_* event came from.
+export type InlineEditDiagram = "sequence" | "flowchart";
+// editor_inline_edit_unavailable: why the diagram or label is read-only.
+// `no_map`: the position parser gave no source map, so the whole diagram is
+// read-only (sequence: sent after the render; flowchart: sent on the
+// double-click). The others mirror FlowReadOnlyReason in
+// src/features/mermaidInlineEdit/types.ts (flowchart labels, sent on the
+// double-click of a read-only label).
+export type InlineEditUnavailableReason =
+  | "no_map"
+  | "markdown"
+  | "shape_data"
+  | "html"
+  | "shared_edge_label"
+  | "no_label"
+  | "linked_node"
+  | "unsupported";
+export type InlineEditRejection =
+  | "stale_source"
+  | "name_exists"
+  | "invalid_characters"
+  | "empty"
+  | "position_mismatch";
+
 // Effective Session Replay policy stamped on analytics events. `authoring`
 // means a sampled macro create/edit start requested recording independently of
 // the Forge flag cohort. See macro_create_started / macro_edit_started below.
@@ -472,6 +502,24 @@ export type SessionReplayStartCallOutcome =
   | "threw"
   | "skipped_sampled"
   | "skipped_daily_cap";
+
+/**
+ * Microsoft Clarity replay start outcome, registered once per iframe as the
+ * `clarity_replay_outcome` super-property (no event of its own).
+ * `started`         — clarity.start() was called (text and images masked,
+ *                     no cookies, no account id).
+ * `skipped_surface` — not an editor or fullscreen iframe.
+ * `skipped_flag`    — `clarity-replay-enabled` is off for this user/site.
+ * `skipped_geo`     — stats.zenuml.com/clarity/allow refused (EEA/UK/CH
+ *                     visitor) or could not be reached.
+ * `failed`          — the SDK threw while starting.
+ */
+export type ClarityReplayOutcome =
+  | "started"
+  | "skipped_surface"
+  | "skipped_flag"
+  | "skipped_geo"
+  | "failed";
 
 /**
  * Which 404 NOT_FOUND envelope a failed custom-content CREATE returned.
@@ -873,6 +921,23 @@ export type AnalyticsEventName =
   // macro_count, macro_limit, bundle_price_usd and client_reference_id identify
   // the selected space and its checkout attribution.
   | "paywall_bundle_cta_clicked"
+  // Bundle checkout path (spec 2026-11-20-bundle-checkout-path-design.md).
+  // The Bundle CTA opens our own handoff page on the backend host, because
+  // router.open shows Atlassian's "Opening external page" dialog for
+  // buy.stripe.com but not for *.zenuml.com (observed 2026-11-20).
+  // `bundle_checkout_redirected` (server): the handoff page was served
+  //   (`handoff_outcome: served`) or refused a bad link (`invalid_ref`).
+  // `bundle_checkout_continued` (server): the page sent the buyer on to Stripe;
+  //   `checkout_trigger` is auto (3 s countdown) or button, and
+  //   `countdown_stopped` says whether Stop was used first.
+  // `bundle_checkout_open_result` (client): router.open did not open the page
+  //   (`checkout_open_outcome: declined | error`). Opens are not sent; the
+  //   server event counts them.
+  // All three carry `checkout_click_id`, also on paywall_bundle_cta_clicked,
+  // so the click → page → Stripe funnel joins without a user id in the URL.
+  | "bundle_checkout_redirected"
+  | "bundle_checkout_continued"
+  | "bundle_checkout_open_result"
   // The Marketplace (Full plan) rail. Separate event from the bundle rail
   // because they need different people: Marketplace requires a Confluence SITE
   // admin, the bundle requires nobody. Splitting them is how we find out which
@@ -1955,6 +2020,32 @@ export type AnalyticsEventName =
   // look at (focus or press in the code pane) or change the source". Read-out rule:
   // docs/features/editor-preview-click.md.
   | "editor_preview_element_clicked"
+  // Mermaid sequence inline edit (2026-11-20; no flag, on in the editor).
+  // Editor preview only: a double-click on a participant label or a message
+  // text of a Mermaid sequence diagram opens an in-place text layer over it
+  // (the preview re-lays out live, the store is not written), and the commit
+  // rewrites the source once. `started` = the layer opened (the denominator);
+  // `succeeded` = the edit was written to the source (unchanged text sends
+  // nothing here); `rejected` = the edit function or the stale-source check
+  // refused it when the layer closed (`inline_edit_rejection`; an invalid text
+  // while typing sends nothing); `cancelled` = Esc, or the layer closed with
+  // unchanged text (`inline_edit_cancel_reason`); `unavailable` = a sequence
+  // diagram rendered in the editor, but the position parser gave no map, so
+  // the diagram stays read-only (at most once per editor session); for a
+  // flowchart it is sent on the double-click of a label that is read-only
+  // (or of any label when there is no map), at most once per editor session
+  // per reason (`inline_edit_unavailable_reason`).
+  // Properties: feature_area 'macro', surface 'editor', macro_type,
+  // inline_edit_kind, inline_edit_had_alias (participant only),
+  // inline_edit_ms_open, inline_edit_diagram ('sequence' | 'flowchart'; on every
+  // editor_inline_edit_* event once flowchart inline edit ships, absent on events
+  // sent before it). Flowchart labels use inline_edit_kind 'node_label' /
+  // 'edge_label'. Never diagram text or ids. docs/features/mermaid-inline-edit.md.
+  | "editor_inline_edit_started"
+  | "editor_inline_edit_succeeded"
+  | "editor_inline_edit_rejected"
+  | "editor_inline_edit_cancelled"
+  | "editor_inline_edit_unavailable"
   // Onboarding funnel — "second diagram" prompt (registered ahead of its
   // producer: this task only registers the event names + properties so the
   // catalog/types are ready; no call site exists yet in this codebase. A
@@ -1972,6 +2063,11 @@ export type AnalyticsEventName =
   // macro_type.
   // Full viewer decision settles or expires; flag-off views emit nothing.
   // license_notice_basis distinguishes Forge inactivity from explicit Legacy Free evidence.
+  // The Lite site-policy notice (basis 'site_policy_limit_reached') sends no
+  // `evaluated`: its only outcome is `shown`, and the watermark and strip render
+  // under one condition, so `license_notice_shown` (which carries
+  // enforcement_stage and macro_count) is its exposure event. On 2026-11-18 the
+  // duplicate was ~5,000 events a day.
   | "license_notice_evaluated"
   | "license_notice_shown"
   | "license_notice_upgrade_clicked"

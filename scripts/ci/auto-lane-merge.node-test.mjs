@@ -211,7 +211,8 @@ function fakeDeps({ rows = [listRow()], merged = [], checks = goodChecks(), leve
     calls.push(["classify", base, head]);
     return { level, lane: level === "auto-merge" ? "deps-dev-minor" : "deps-major", reasons: [] };
   };
-  return { calls, deps: { gh, git, classify } };
+  // Fixed clock: the fixture checks finished at 2026-11-13T01:00Z; the real clock made them stale after 7 days.
+  return { calls, deps: { gh, git, classify, now: () => new Date(NOW) } };
 }
 const writes = (calls) =>
   calls.filter(

@@ -66,8 +66,13 @@ import type {
   ActivationPath,
   GalleryOpenTrigger,
   CodePanelToggleTrigger,
+  InlineEditDiagram,
+  InlineEditKind,
+  InlineEditRejection,
+  InlineEditUnavailableReason,
   SessionReplayEventSource,
   SessionReplayStartCallOutcome,
+  ClarityReplayOutcome,
   GraphEditorModeValue,
   EditorReplaceScope,
   EditorInputMethod,
@@ -241,6 +246,12 @@ export type AnalyticsProperties = {
   session_replay_source?: SessionReplayEventSource;
   session_replay_percent?: number;
   session_replay_start_call_outcome?: SessionReplayStartCallOutcome;
+  // Microsoft Clarity replay (editor + fullscreen iframes, behind the
+  // `clarity-replay-enabled` Forge flag). Registered as super-properties once
+  // per iframe, so no new event is sent. `clarity_session_id` joins a Mixpanel
+  // event to its Clarity recording; set only when the outcome is 'started'.
+  clarity_replay_outcome?: ClarityReplayOutcome;
+  clarity_session_id?: string;
   // Milliseconds from the first retained track call to Mixpanel init completion.
   // Registered once per iframe as a super-property (#707).
   analytics_init_ms?: number;
@@ -442,6 +453,25 @@ export type AnalyticsProperties = {
   preview_source_changed_in_window?: boolean;
   preview_window_completed?: boolean;
   preview_ms_since_editor_open?: number;
+  // editor_inline_edit_* only (Mermaid inline edit). Bounded values:
+  // never the edited text, the actor or node id, or the message index.
+  inline_edit_kind?: InlineEditKind;
+  /**
+   * All editor_inline_edit_* events: the diagram type being edited. Optional
+   * because events sent before flowchart inline edit carry none (read absent
+   * as 'sequence').
+   */
+  inline_edit_diagram?: InlineEditDiagram;
+  /** editor_inline_edit_unavailable: why it is read-only (absent on events sent before 2026-11-21). */
+  inline_edit_unavailable_reason?: InlineEditUnavailableReason;
+  /** editor_inline_edit_rejected: the EditRejection reason. */
+  inline_edit_rejection?: InlineEditRejection;
+  /** editor_inline_edit_cancelled: Esc, or the box closed with unchanged text. */
+  inline_edit_cancel_reason?: "escape" | "unchanged";
+  /** Participant edits only: the participant has an alias (`participant A as Alice`). */
+  inline_edit_had_alias?: boolean;
+  /** Time the text box was open, on succeeded / rejected / cancelled. */
+  inline_edit_ms_open?: number;
   change_kind?: "request" | "syntax_repair" | "undo" | "rollback";
   version_id?: string;
   version_number?: number;
@@ -627,6 +657,18 @@ export type AnalyticsProperties = {
   // Stripe returns it verbatim on the Checkout Session, so a $299 payment
   // joins back to the exact bundle CTA click without manual reconciliation.
   client_reference_id?: string;
+  // Bundle checkout funnel join key: a random id made when the checkout link is
+  // built, sent on paywall_bundle_cta_clicked and on every bundle_checkout_* event.
+  checkout_click_id?: string;
+  // Which Bundle CTA built the checkout link.
+  checkout_surface?: 'plan_usage' | 'upgrade_prompt';
+  // bundle_checkout_redirected: whether the handoff page was served.
+  handoff_outcome?: 'served' | 'invalid_ref';
+  // bundle_checkout_continued: what sent the buyer to Stripe.
+  checkout_trigger?: 'auto' | 'button';
+  countdown_stopped?: boolean;
+  // bundle_checkout_open_result: why router.open did not open the handoff page.
+  checkout_open_outcome?: 'declined' | 'error';
   // Cohort targeting (cohorts_refreshed). `cohorts` = comma-joined cohort list
   // the refresh resolved; empty string = user in no cohort (still a successful
   // refresh). `cohort_count` = same list's length, for numeric filtering.
@@ -939,6 +981,11 @@ export type AnalyticsProperties = {
   // 'swr_cache' (id-keyed content cache, the revisit fast path). Distinct from
   // cache_source (rendered-SVG cache). Absent when no content fetch was involved.
   content_source?: ContentSource;
+  // macro_viewed: the page that owns the custom content loaded by id. Differs
+  // from `page_id` (the page the macro is rendered on) for a macro on a copied
+  // page that still points at the source page's content. Absent when no by-id
+  // fetch completed before the event (e.g. a render from the content cache).
+  content_page_id?: string;
   duration_ms?: number;
   // Graph Diagram/Board chrome switch (graph_editor_mode_switch_*).
   // `from_mode` / `to_mode` are the chrome values, never document types.
@@ -1385,6 +1432,9 @@ export type AnalyticsProperties = {
   // `error_class` is 'structured' for a Confluence `{ errors: [...] }` body
   // and 'malformed' for a body with no `body.raw.value`. `http_status` /
   // `error_code` come from the first structured error.
+  // `page_id` is the page the macro is rendered on, when the Forge context
+  // has one; join it with `content_page_id` on macro_viewed for the same
+  // content id to tell a cross-page reference from a same-page one.
   load_status?: 'not_found' | 'other_error';
   // load_failed_shown (GenericViewer) reuses `error_class`, `http_status` and
   // `direct_fetch_status` from the store's load error, and adds 'thrown' for a

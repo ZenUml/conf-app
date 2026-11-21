@@ -10,10 +10,16 @@ on:
         type: string
         required: true
 
-# Only jobs that need staging belong here: this lock holds back the whole run.
+# Only jobs that need the PR slot belong here: this lock holds back the whole run.
 # Unit tests, the AsyncAPI build and the Viewer preview are in pr-checks.yml.
+#
+# PR runs have their own slot, so they no longer wait behind main and the daily
+# regression (which keep `conf-app-staging`):
+#   Forge environment `pr`  ->  lite-dev.atlassian.net  ->  conf-stg-lite-pr.zenuml.com
+#   (Pages project conf-stg-lite, preview branch `pr`; D1, KV and R2 are shared
+#   with staging). One slot means PR runs still queue behind one another.
 concurrency:
-  group: conf-app-staging
+  group: conf-app-pr-slot
   cancel-in-progress: false
   queue: max
 
@@ -63,9 +69,9 @@ jobs:
           echo "run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
       # This job starts once the run holds the staging lock, which can be many
       # minutes after the push. A run that a newer push overtook must not spend
-      # the shared slot on a commit nobody will merge. `concurrency` cannot do
-      # this for us: the group is repo-wide, so cancel-in-progress would cancel
-      # other PRs, main and the daily regression too.
+      # the PR slot on a commit nobody will merge. `concurrency` cannot do
+      # this for us: the group covers every PR, so cancel-in-progress would cancel
+      # other PRs' runs too.
       - id: current
         name: Skip if a newer push overtook this run
         env:
@@ -107,8 +113,8 @@ jobs:
     name: "E2E auth: Lite"
     uses: ./.github/workflows/e2e-auth.yml
     with:
-      app: zenuml-lite@stg
-      artifact-name: auth-state-pre-lite-stg
+      app: zenuml-lite@dev
+      artifact-name: auth-state-pre-lite-dev
     # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
@@ -169,8 +175,14 @@ jobs:
       ref: ${{ needs.gate.outputs.candidate }}
       variant: lite
       license: lite
+      # Same Pages project and GitHub environment as staging (candidate mode
+      # and the secrets depend on both); the slot differs in the four below.
       project: conf-stg-lite
       environment: staging-lite
+      pages-branch: pr
+      forge-environment: pr
+      forge-site: lite-dev.atlassian.net
+      backend-url: https://conf-stg-lite-pr.zenuml.com
     secrets: inherit
 
   pr-e2e-validation:
@@ -206,6 +218,10 @@ jobs:
           CHILD_WORKFLOW: pr-agent-e2e-validation.yml
           CHILD_TITLE: PR E2E
           CHILD_KIND: pr
+          # The child runs from the default branch; these select the PR slot.
+          CHILD_APP: zenuml-lite@dev
+          CHILD_AUTH_ARTIFACT: auth-state-pre-lite-dev
+          CHILD_BACKEND_URL: https://conf-stg-lite-pr.zenuml.com
           DISPATCH_REF: ${{ github.event.repository.default_branch }}
           SOURCE_SHA: ${{ needs.gate.outputs.candidate }}
           PR_NUMBER: ${{ needs.gate.outputs.pr-number }}

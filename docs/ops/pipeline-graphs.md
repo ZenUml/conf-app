@@ -2,7 +2,7 @@
 
 PR validation and main preparation have separate entry workflows.
 
-A PR push starts two workflows. Only `PR validation` takes the repo-wide `conf-app-staging` lock, because a workflow-level concurrency group holds back every job of its run.
+A PR push starts two workflows. Only `PR validation` takes a lock, `conf-app-pr-slot`, because a workflow-level concurrency group holds back every job of its run. That lock belongs to the PR slot (Forge environment `pr`, site `lite-dev`, backend `conf-stg-lite-pr.zenuml.com`); `main` and the daily regression use `conf-app-staging` and the staging slot, so PR runs and `main` runs do not wait for each other.
 
 ```mermaid
 flowchart LR

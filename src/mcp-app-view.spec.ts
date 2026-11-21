@@ -4,6 +4,7 @@ import {
   currentUserZoom,
   extractDiagram,
   fitScale,
+  mcpModeOf,
   fullscreenAvailable,
   onHostMessage,
   onKeyDown,
@@ -199,6 +200,15 @@ describe('extractDiagram', () => {
  * tool-result. These tests exist so that cannot regress silently: the previous
  * spec covered only extractDiagram, so the whole transport was untested.
  */
+describe('mcpModeOf', () => {
+  it('reads only the local stamp from structuredContent', () => {
+    expect(mcpModeOf({ structuredContent: { mcpMode: 'local' } })).toBe('local');
+    expect(mcpModeOf({ structuredContent: { mcpMode: 'render' } })).toBeNull();
+    expect(mcpModeOf({ structuredContent: {} })).toBeNull();
+    expect(mcpModeOf(undefined)).toBeNull();
+  });
+});
+
 describe('the host handshake', () => {
   let posted: Array<Record<string, unknown>>;
   let spy: ReturnType<typeof vi.spyOn>;
@@ -295,6 +305,23 @@ describe('drawing a PlantUML result', () => {
       path: '/mcp/view-event',
       body: { macro_type: 'plantuml', render_outcome: 'rendered', fullscreen_available: false, plantuml_renderer: 'local' },
     }]);
+  });
+
+  it('marks the report as local only when the result says the local server sent it', async () => {
+    const dsl = '@startuml\nAlice -> Bob: hi\n@enduml';
+    result({ diagramType: 'PlantUml', dsl, mcpMode: 'local' });
+    await vi.waitFor(() => expect(document.querySelector('#app img')).not.toBeNull());
+    (document.querySelector('#app img') as HTMLImageElement).onload?.(new Event('load'));
+    await vi.waitFor(() => expect(beacon).toHaveBeenCalledOnce());
+
+    // The next result, from a remote server, must not inherit the mode.
+    result({ diagramType: 'PlantUml', dsl });
+    await vi.waitFor(() => expect(renderPlantUmlLocally).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(document.querySelector('#app img')).not.toBeNull());
+    (document.querySelector('#app img') as HTMLImageElement).onload?.(new Event('load'));
+    await vi.waitFor(() => expect(beacon).toHaveBeenCalledTimes(2));
+
+    expect(reports().map((r) => r.body.mcp_mode)).toEqual(['local', undefined]);
   });
 
   it('shows the error and reports why when the engine cannot draw it, with no fallback', async () => {

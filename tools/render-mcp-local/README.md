@@ -50,7 +50,7 @@ The bundle leaves the parsers (`@zenuml/core`, `mermaid`, `linkedom`, `js-yaml`)
 | `GET /mcp-app/assets/*`, and for Graph `GET /drawio/*` (by the host's frame) | Nothing about the diagram. The renderer chunk that loads reveals the diagram **type** |
 | `POST /mcp/view-event` (by the view) | Enum-only render, zoom and fullscreen events (`functions/agent-link/viewEvent.ts`). These events cannot tell a local server from the public one |
 
-The source itself travels only from the agent to the host, to this process, back to the host and into the view's iframe. This process sends no analytics.
+The source itself travels only from the agent to the host, to this process, back to the host and into the view's iframe. This process sends no analytics. From 0.1.3 its results carry `mcpMode: 'local'`, so the view's events record `mcp_mode: 'local'` and local use can be counted apart from the remote server.
 
 ## Code
 
@@ -64,3 +64,7 @@ The source itself travels only from the agent to the host, to this process, back
 2. Push the tag `render-mcp-v<version>` on that `main` commit.
 
 `.github/workflows/render-mcp-npm-publish.yml` then tests, builds, installs the packed tarball, draws one diagram with it and publishes. It signs in to npm with Trusted Publishing (OIDC), so the repository holds no npm token. npm trusts the repository together with that workflow file name: if the file is renamed, update the trusted publisher of the package on npmjs.com (`npm trust list @zenuml/render-mcp` shows the current one).
+
+## License
+
+Apache-2.0, the same license as this repository. See `LICENSE`.

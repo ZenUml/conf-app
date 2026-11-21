@@ -672,7 +672,9 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
   /** Close and show the base picture again (the store never changed). */
   function restoreBase(s: Session): void {
     const teardown = endSession(s);
-    if (s.shownCode === s.baseCode) {
+    // A preview render that has started still draws its candidate after this
+    // point, so the base must be rendered again even though it is what shows now.
+    if (s.shownCode === s.baseCode && !s.rendering) {
       teardown();
       holdUntil(s, s.baseCode, null);
       releaseHold();
@@ -788,7 +790,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
   function abort(options: { restore?: boolean } = {}): void {
     const s = session;
     if (!s) return;
-    if (options.restore && s.shownCode !== s.baseCode && !destroyed) {
+    if (options.restore && (s.shownCode !== s.baseCode || s.rendering) && !destroyed) {
       restoreBase(s);
       return;
     }

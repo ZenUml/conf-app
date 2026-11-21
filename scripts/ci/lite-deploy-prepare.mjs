@@ -20,6 +20,31 @@ export function resolvePagesBranch(value) {
   return branch;
 }
 
+// Forge environment the staging deploy targets. 'staging' is the shared slot;
+// the PR validation slot passes its own environment name.
+export function resolveForgeEnvironment(value) {
+  const environment = value || 'staging';
+  if (!/^[a-z0-9_-]{1,32}$/.test(environment)) throw new Error('Invalid Forge environment');
+  return environment;
+}
+
+export const DEFAULT_BACKEND_URL = 'https://conf-stg-lite.zenuml.com';
+
+// Backend origin written to the Forge BACKEND_API_BASE_URL variable. Empty =
+// the shared Lite staging backend.
+export function resolveBackendUrl(value) {
+  const url = value || DEFAULT_BACKEND_URL;
+  if (!/^https:\/\/[a-z0-9.-]+\.zenuml\.com$/.test(url)) throw new Error('Invalid backend URL');
+  return url;
+}
+
+// Build-time frontend override (see forgeGlobal.ts). Only an explicitly
+// supplied backend URL is baked into the bundle; the default build is unchanged.
+export function buildEnvOverride(value, env = process.env) {
+  if (!value) return env;
+  return { ...env, VITE_REMOTE_BASE_URL_OVERRIDE: resolveBackendUrl(value) };
+}
+
 // Secrets of a preview deployment live in the preview environment.
 export function pagesSecretCommand(action, name, project, branch) {
   return ['wrangler', 'pages', 'secret', action, name, `--project-name=${project}`, ...(branch === 'production' ? [] : ['--env', 'preview'])];
@@ -30,6 +55,8 @@ async function main() {
     throw new Error('Parallel preparation is restricted to Lite staging');
   }
   const pagesBranch = resolvePagesBranch(process.env.DEPLOY_PAGES_BRANCH);
+  const forgeEnvironment = resolveForgeEnvironment(process.env.DEPLOY_FORGE_ENVIRONMENT);
+  const backendUrl = resolveBackendUrl(process.env.DEPLOY_BACKEND_URL);
   const secret = (action, name) => pagesSecretCommand(action, name, 'conf-stg-lite', pagesBranch);
   const timings = {};
   const command = (args, options = {}) => new Promise((resolve, reject) => {
@@ -47,7 +74,7 @@ async function main() {
     await runParallel([
       timed('build', async () => {
         await new Promise((resolve, reject) => {
-          const child = spawn('pnpm', ['build:lite'], { stdio: 'inherit', env: process.env });
+          const child = spawn('pnpm', ['build:lite'], { stdio: 'inherit', env: buildEnvOverride(process.env.DEPLOY_BACKEND_URL) });
           child.once('error', reject);
           child.once('close', code => code === 0 ? resolve() : reject(new Error('Lite build failed')));
         });
@@ -68,8 +95,8 @@ async function main() {
       }),
       timed('forge_configuration', async () => {
         await command(['forge', 'settings', 'set', 'usage-analytics', 'false']);
-        await command(['forge', 'variables', 'set', 'MIXPANEL_TOKEN', process.env.VITE_MIXPANEL_TOKEN, '-e', 'staging']);
-        await command(['forge', 'variables', 'set', 'BACKEND_API_BASE_URL', 'https://conf-stg-lite.zenuml.com', '-e', 'staging']);
+        await command(['forge', 'variables', 'set', 'MIXPANEL_TOKEN', process.env.VITE_MIXPANEL_TOKEN, '-e', forgeEnvironment]);
+        await command(['forge', 'variables', 'set', 'BACKEND_API_BASE_URL', backendUrl, '-e', forgeEnvironment]);
       }),
     ]);
   } finally {

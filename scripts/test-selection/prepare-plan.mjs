@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { scopedPlan, metricsSummary } from './scoped-plan.mjs';
 import { POLICY_VERSION } from './classify.mjs';
+import { variantForApp } from './app-variant.mjs';
 
 export const SUITES = {
   insert: ['auth', 'insert', 'feedback'],
@@ -18,7 +19,7 @@ export const SUITES = {
 const suite = process.env.TEST_SUITE || 'all';
 if (!SUITES[suite]) throw new Error('Unknown test suite');
 const app = process.env.APP;
-const variant = app === 'zenuml-lite@stg' ? 'lite' : app === 'zenuml-full@stg' ? 'full' : app?.split('@')[0];
+const variant = variantForApp(app);
 const args = ['exec', 'playwright', 'test', '--list', '--reporter=json', ...SUITES[suite].map(p => `--project=${p}`)];
 if (suite === 'graph-publish') args.push('tests/fullscreen/graph-edit.spec.ts');
 const cache = new Map();

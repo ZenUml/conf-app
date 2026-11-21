@@ -36,8 +36,8 @@ describe('Mixpanel deployment config', () => {
       .toContain('prepareMixpanelConfig(config, process.env.DEPLOY_ENVIRONMENT)');
     const stagingWorkflow = readFileSync('.github/workflows/staging-deploy.yml', 'utf8');
     expect(stagingWorkflow).toContain('mixpanel-staging-config.mjs; do');
-    expect(stagingWorkflow).toContain('forge variables set MIXPANEL_DISABLED true -e staging');
+    expect(stagingWorkflow).toContain('forge variables set MIXPANEL_DISABLED true -e "$FORGE_ENVIRONMENT"');
     expect(stagingWorkflow.indexOf('pnpm forge:deploy:disable-analytics'))
-      .toBeLessThan(stagingWorkflow.indexOf('forge variables set MIXPANEL_DISABLED true -e staging'));
+      .toBeLessThan(stagingWorkflow.indexOf('forge variables set MIXPANEL_DISABLED true -e "$FORGE_ENVIRONMENT"'));
   });
 });

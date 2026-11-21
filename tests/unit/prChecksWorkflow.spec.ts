@@ -152,13 +152,23 @@ describe('PR checks that do not touch staging', () => {
   });
 });
 
-describe('PR validation that owns staging', () => {
+describe('PR validation that owns the PR slot', () => {
   const validation = structure('pr-validation');
   const expectedSha = '${{ steps.gate.outputs.head-sha }}';
   const prNumber = '${{ github.event.pull_request.number || inputs.pr-number }}';
 
   it('keeps one queued, uncancelled lock across the deploy and the E2E run', () => {
-    expect(validation.concurrency).toEqual({ group: 'conf-app-staging', 'cancel-in-progress': false, queue: 'max' });
+    // PR runs hold the PR slot's lock, not the staging lock of main and daily.
+    expect(validation.concurrency).toEqual({ group: 'conf-app-pr-slot', 'cancel-in-progress': false, queue: 'max' });
+    expect(validation.jobs['staging-lite'].with).toMatchObject({
+      project: 'conf-stg-lite', environment: 'staging-lite', 'pages-branch': 'pr',
+      'forge-environment': 'pr', 'forge-site': 'lite-dev.atlassian.net', 'backend-url': 'https://conf-stg-lite-pr.zenuml.com',
+    });
+    expect(validation.jobs['e2e-auth-lite'].with).toMatchObject({ app: 'zenuml-lite@dev', 'artifact-name': 'auth-state-pre-lite-dev' });
+    const dispatch = validation.jobs['pr-e2e-validation'].steps.find((step: any) => step.env?.CHILD_KIND === 'pr');
+    expect(dispatch.env).toMatchObject({
+      CHILD_APP: 'zenuml-lite@dev', CHILD_AUTH_ARTIFACT: 'auth-state-pre-lite-dev', CHILD_BACKEND_URL: 'https://conf-stg-lite-pr.zenuml.com',
+    });
     expect(validation.jobs['staging-lite'].uses).toBe('./.github/workflows/staging-deploy.yml');
     expect(validation.jobs['pr-e2e-validation'].needs).toContain('staging-lite');
     expect(validation.jobs).not.toHaveProperty('build');

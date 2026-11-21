@@ -1,4 +1,3 @@
-import { devConnectKeyFor, devConnectKeysForApp } from '../utils/devConnectKeys';
 // Resolve the Forge macro identity — {appId, environmentId} — for one
 // Confluence site, so a HEADLESS create can write an `extensionKey` that the
 // installed app will actually render.
@@ -111,23 +110,9 @@ export const VARIANTS: readonly VariantProfile[] = [
   },
 ] as const;
 
-/**
- * `ac:<connectKey>:<contentKey>` — ApWrapper2.customContentType's shape, for a variant we are probing rather than running as.
- *
- * Includes the types of every development environment registered with its own
- * Connect key (functions/utils/devConnectKeys.ts), so discovery and the
- * "is this ours" filters see a site where only such an environment is
- * installed. Writing picks one key for one environment: customContentTypesForEnvironment.
- */
+/** `ac:<connectKey>:<contentKey>` — ApWrapper2.customContentType's shape, for a variant we are probing rather than running as. */
 export function customContentTypesFor(profile: VariantProfile): string[] {
-  return [profile.connectKey, ...devConnectKeysForApp(profile.appId)]
-    .flatMap((connectKey) => profile.contentKeys.map((key) => `ac:${connectKey}:${key}`));
-}
-
-/** The types ONE installed environment registers: its development key when it has one, else the variant's fixed key. */
-export function customContentTypesForEnvironment(profile: VariantProfile, environmentId: string): string[] {
-  const connectKey = devConnectKeyFor(profile.appId, environmentId) ?? profile.connectKey;
-  return profile.contentKeys.map((key) => `ac:${connectKey}:${key}`);
+  return profile.contentKeys.map((key) => `ac:${profile.connectKey}:${key}`);
 }
 
 /** A resolved identity: enough to compose any of this install's extension keys. */

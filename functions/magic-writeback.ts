@@ -1,7 +1,6 @@
 import { OkResponse, response } from './OkResponse';
 import type { ForgeRequestData } from './utils/authenticate';
 import { requireForgeUserToken } from './utils/forgeUserToken';
-import { devConnectKeyFor } from './utils/devConnectKeys';
 
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
@@ -10,6 +9,22 @@ const TYPES: Record<string, string[]> = {
   'd9e4002b-120b-426b-834b-402a4a5adce7': ['ac:com.zenuml.confluence-addon:zenuml-content-sequence'],
   '01ede8b1-4e88-451a-b9ef-89eeef93afaf': ['ac:gptdock-confluence:gpt-custom-content-key'],
 };
+const FIXED_KEYS = Object.values(TYPES).flat().map((t) => t.split(':')[1]);
+/**
+ * `ac:<key>-<suffix>:<content>` for a fixed `ac:<key>:<content>`: the dev-environment
+ * Connect key convention (docs/reference/dev-connect-key.md). A key belongs to the
+ * LONGEST fixed key it extends, so Full (`com.zenuml.confluence-addon`) never claims
+ * Lite's `com.zenuml.confluence-addon-lite…` types.
+ */
+function isDevKeyVariant(fixedType: string, type: string): boolean {
+  const fixed = /^ac:([^:]+):([^:]+)$/.exec(fixedType);
+  const candidate = /^ac:([^:]+):([^:]+)$/.exec(type);
+  if (!fixed || !candidate || candidate[2] !== fixed[2]) return false;
+  const [, key] = fixed;
+  const devKey = candidate[1];
+  if (!devKey.startsWith(`${key}-`) || !/^[a-z0-9][a-z0-9.-]{0,40}$/.test(devKey.slice(key.length + 1))) return false;
+  return !FIXED_KEYS.some((other) => other.length > key.length && (devKey === other || devKey.startsWith(`${other}-`)));
+}
 type Artifact = { sourceHash: string; svg: string; rulesVersion: 'magic-v1'; outcome: 'validated'; generatedAt?: string };
 type Delivery = { id: string; sourceHash: string };
 type Claimed = Delivery & { artifact: string };
@@ -57,11 +72,12 @@ export async function onRequest({ request, data, env }: {
   // target, so there is no fallback to the app token for that viewer.
   const user = requireForgeUserToken(request);
   if (!c.accountId || user instanceof Response) return response(403, 'no_user_credential');
+  const allowedTypes = [...TYPES[c.forgeAppId], `forge:${c.forgeAppId}:${environmentUuid}:${moduleKey}`];
   // A development environment deployed with its own Connect key stores under
-  // `ac:<that key>:…`. Only a verified DEVELOPMENT FIT may use the table.
-  const devKey = c.environmentType === 'DEVELOPMENT' ? devConnectKeyFor(c.forgeAppId, environmentUuid) : undefined;
-  const allowedTypes = [...TYPES[c.forgeAppId], `forge:${c.forgeAppId}:${environmentUuid}:${moduleKey}`,
-    ...(devKey ? [`ac:${devKey}:${moduleKey}`] : [])];
+  // `ac:<fixed key>-<suffix>:…` (naming convention, docs/reference/dev-connect-key.md).
+  // Only a verified DEVELOPMENT FIT may use it; staging and production keep the fixed key.
+  const isAllowedType = (type: unknown): boolean => typeof type === 'string' && (allowedTypes.includes(type)
+    || (c.environmentType === 'DEVELOPMENT' && TYPES[c.forgeAppId].some((fixed) => isDevKeyVariant(fixed, type))));
   const result = (outcome: string, artifact?: Artifact) => OkResponse({ outcome, ...(artifact ? { artifact } : {}) });
   // Reason codes are fixed strings or HTTP statuses only: no bodies, hashes, tokens or error text.
   const unavailable = (reason: string) => OkResponse({ outcome: 'unavailable', reason });
@@ -84,7 +100,7 @@ export async function onRequest({ request, data, env }: {
       const read = await confluence(`${url}?body-format=raw`, user);
       if (!read.ok) return unavailable(`read_${read.status}`);
       const doc = await jsonLimited(read);
-      if (String(doc.id) !== contentId || doc.status !== 'current' || !allowedTypes.includes(doc.type)
+      if (String(doc.id) !== contentId || doc.status !== 'current' || !isAllowedType(doc.type)
         || !Number.isSafeInteger(doc.version?.number) || doc.version.number < 1
         || typeof doc.body?.raw?.value !== 'string') return result('invalid_target');
       const body = JSON.parse(doc.body.raw.value);
@@ -134,7 +150,7 @@ export async function onRequest({ request, data, env }: {
         confirmed = await jsonLimited(confirmation);
       }
       const confirmedBody = JSON.parse(confirmed.body?.raw?.value ?? 'null');
-      if (String(confirmed.id) !== contentId || !allowedTypes.includes(confirmed.type) || confirmed.status !== 'current'
+      if (String(confirmed.id) !== contentId || !isAllowedType(confirmed.type) || confirmed.status !== 'current'
         || !confirmedBody || confirmedBody.mermaidCode !== body.mermaidCode
         || !artifactValid(confirmedBody.magic, hash) || confirmedBody.magic.svg !== artifact.svg
         || confirmedBody.magic.generatedAt !== artifact.generatedAt) return unavailable('confirm_mismatch');

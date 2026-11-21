@@ -13,20 +13,32 @@ Confluence allows one installation per Connect key on a site. Every environment 
 
 Custom content types are `ac:<connect key>:<content key>`, so an environment with its own key stores its diagrams under its own types. It does not see the diagrams of the other environment on the same site, and they do not see its diagrams. Everything else works the same.
 
-Development environments only. Staging and production keep each variant's fixed key; the backend ignores the table below unless the verified Forge invocation token says `DEVELOPMENT`.
+Development environments only. Staging and production keep each variant's fixed key.
+
+## Naming convention
+
+The key must be the variant's fixed key plus a suffix: `<fixed key>-<suffix>`, suffix lowercase `[a-z0-9.-]`, up to 41 characters.
+
+| Variant | Fixed key | Example development key |
+|---|---|---|
+| Lite | `com.zenuml.confluence-addon-lite` | `com.zenuml.confluence-addon-lite-alt` |
+| Full | `com.zenuml.confluence-addon` | `com.zenuml.confluence-addon-alt` |
+| Diagramly | `gptdock-confluence` | `gptdock-confluence-alt` |
+| AsyncAPI | `my-api` | `my-api-alt` |
+
+The backend recognises a development key by this shape, so no registration is needed. A key belongs to the longest fixed key it extends: Full may not use a key that starts with `com.zenuml.confluence-addon-lite`, because that would name Lite's types.
 
 ## Steps
 
-1. Create the environment and note its ID:
+1. Create the environment:
 
    ```bash
    forge environments create -e <env-name>
-   forge environments list          # the Environment ID column
    ```
 
-2. Pick a key: lowercase `[a-z0-9.-]`, 3-63 characters, not one of the four fixed keys. Convention: the variant's key plus a suffix, e.g. `com.zenuml.confluence-addon-lite-<name>`.
+2. Pick a key that follows the naming convention above.
 
-3. Register it in `functions/utils/devConnectKeys.ts` (`appId`, `environmentId`, `connectKey`) and get that change deployed to the backend your environment calls (`BACKEND_API_BASE_URL`; staging Pages for a dev environment). Until it is, magic-writeback refuses this environment's diagrams and the MCP headless tools cannot create on a site where only this environment is installed. Saving and loading diagrams in Confluence do not depend on it.
+3. Nothing to register on the backend: `functions/magic-writeback.ts` accepts `ac:<fixed key>-<suffix>:<content key>` when the verified Forge invocation token says `DEVELOPMENT`.
 
 4. Put the key in `.env.forge.local` next to `FORGE_ENV` and `ATLASSIAN_SITE`:
 
@@ -34,7 +46,7 @@ Development environments only. Staging and production keep each variant's fixed 
    CONNECT_KEY_OVERRIDE=com.zenuml.confluence-addon-lite-<name>
    ```
 
-5. Build with the same value. The build fails on a malformed key or a fixed key, and writes the value to `dist/connect-key-override.txt`:
+5. Build with the same value. The build fails on a key that does not follow the convention for its `PRODUCT_TYPE`, and writes the value to `dist/connect-key-override.txt`:
 
    ```bash
    CONNECT_KEY_OVERRIDE=com.zenuml.confluence-addon-lite-<name> pnpm build:lite
@@ -48,6 +60,6 @@ Development environments only. Staging and production keep each variant's fixed 
 |---|---|
 | Frontend custom-content types (`ApWrapper2.getCustomContentTypePrefix`) | build-time `CONNECT_KEY_OVERRIDE` (`vite.config.mjs`) |
 | `addonKey()` sent to the backend and to analytics | unchanged: stays the variant's fixed key, because the backend reads it as the variant's identity |
-| `functions/magic-writeback.ts` | `devConnectKeyFor(appId, environment)` for a `DEVELOPMENT` FIT |
-| Agent-link headless tools (`functions/agent-link/macroIdentity.ts`) | discovery and filters accept every registered key; a create uses the resolved environment's key |
+| `functions/magic-writeback.ts` | accepts the naming convention for a `DEVELOPMENT` FIT |
+| Agent-link headless MCP tools (`functions/agent-link/`) | not supported: they discover and create under the fixed keys only |
 | Production-only scheduled jobs (`src/macro-count-snapshot.ts`, `src/lite-full-conversion.ts`, `src/demoPageContent.js`) | not supported; they act on production data only |

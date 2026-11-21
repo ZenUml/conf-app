@@ -34,7 +34,6 @@ import {
 import { getAccessToken, type GrantEventSink, type GrantStore } from './tokenStore';
 import {
   customContentTypesFor,
-  customContentTypesForEnvironment,
   detectInstalledVariants,
   extensionKeyFor,
   NEWEST_FIRST,
@@ -523,11 +522,9 @@ function isZenUmlContentType(type: unknown): boolean {
 }
 
 /** The custom-content type this variant stores `diagramType` under. */
-function customContentTypeFor(identity: { variant: string; appId: string; environmentId: string }, diagramType: string): string {
+function customContentTypeFor(identity: { variant: string; appId: string }, diagramType: string): string {
   const profile = VARIANTS.find((v) => v.variant === identity.variant)!;
-  // The resolved environment's own types: a development environment deployed
-  // with its own Connect key cannot create content under the fixed key.
-  const types = customContentTypesForEnvironment(profile, identity.environmentId);
+  const types = customContentTypesFor(profile);
   const folded = diagramType.toLowerCase();
   // lite/full split sequence-family and graph across two types; diagramly and
   // asyncapi store everything under one, so `find` falling through to the

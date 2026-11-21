@@ -113,24 +113,42 @@ describe('reviewed Magic writeback', () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).type).toBe(type);
     expect(row()).toBeUndefined();
   });
-  describe('development environment with its own Connect key (functions/utils/devConnectKeys.ts)', () => {
-    const devCtx = { ...ctx, environmentType: 'DEVELOPMENT', environmentId: 'ari:cloud:ecosystem::environment/8ad26115-211f-4216-971b-0540f606303d/4d8bcead-f943-4b68-8298-648e626e6891' };
+  describe('development environment with its own Connect key (<fixed key>-<suffix> convention)', () => {
+    const devCtx = { ...ctx, environmentType: 'DEVELOPMENT' };
     const devType = 'ac:com.zenuml.confluence-addon-lite-alt:zenuml-content-sequence';
-    it('writes a diagram stored under the registered key of a DEVELOPMENT environment', async () => {
+    it('writes a diagram stored under the fixed key plus a suffix for a DEVELOPMENT FIT', async () => {
       enqueue(devCtx);
       fetchMock.mockResolvedValueOnce(reply({ ...doc(), type: devType })).mockResolvedValueOnce(reply({ ...saved(), type: devType }));
       expect(await (await invoke(request(), devCtx)).json()).toEqual({ outcome: 'written', artifact });
       expect(JSON.parse(fetchMock.mock.calls[1][1].body).type).toBe(devType);
     });
-    it('refuses that key when the verified FIT is not DEVELOPMENT, or names another environment', async () => {
-      for (const context of [
-        { ...devCtx, environmentType: 'STAGING' },
-        { ...devCtx, environmentId: ctx.environmentId },
-      ]) {
-        enqueue(context, Date.now() + 86400000, `delivery-${context.environmentType}-${context.environmentId.slice(-4)}`);
-        fetchMock.mockResolvedValueOnce(reply({ ...doc(), type: devType }));
+    it('refuses the convention for a STAGING FIT and refuses keys outside it', async () => {
+      const cases: Array<[typeof devCtx, string]> = [
+        [{ ...devCtx, environmentType: 'STAGING' }, devType],
+        [devCtx, 'ac:com.zenuml.confluence-addon-lite.alt:zenuml-content-sequence'],
+        [devCtx, 'ac:com.zenuml.confluence-addon-lite-:zenuml-content-sequence'],
+        [devCtx, 'ac:com.zenuml.confluence-addon-lite-alt:zenuml-content-graph'],
+      ];
+      enqueue(devCtx);
+      for (const [context, type] of cases) {
+        fetchMock.mockResolvedValueOnce(reply({ ...doc(), type }));
         expect(await (await invoke(request(), context)).json()).toEqual({ outcome: 'invalid_target' });
       }
+    });
+    it('never lets a Full development FIT claim Lite types, whose key extends Full\'s', async () => {
+      const fullCtx = {
+        ...devCtx,
+        forgeAppId: 'd9e4002b-120b-426b-834b-402a4a5adce7',
+        environmentId: devCtx.environmentId.replace('8ad26115-211f-4216-971b-0540f606303d', 'd9e4002b-120b-426b-834b-402a4a5adce7'),
+      };
+      enqueue(fullCtx, Date.now() + 86400000, 'delivery-full');
+      for (const type of [devType, 'ac:com.zenuml.confluence-addon-lite:zenuml-content-sequence']) {
+        fetchMock.mockResolvedValueOnce(reply({ ...doc(), type }));
+        expect(await (await invoke(request(), fullCtx)).json()).toEqual({ outcome: 'invalid_target' });
+      }
+      const fullDev = 'ac:com.zenuml.confluence-addon-alt:zenuml-content-sequence';
+      fetchMock.mockResolvedValueOnce(reply({ ...doc(), type: fullDev })).mockResolvedValueOnce(reply({ ...saved(), type: fullDev }));
+      expect(await (await invoke(request(), fullCtx)).json()).toEqual({ outcome: 'written', artifact });
     });
   });
   it('rejects malformed or cross-app verified environment ARIs before accessing pending work', async () => {

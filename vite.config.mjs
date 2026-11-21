@@ -91,13 +91,26 @@ function getHtmlFiles(dir, { isBuild = false } = {}) {
   return htmlFiles;
 }
 
-// Same shape Forge accepts for app.connect.key, and never one of the four fixed
-// keys: an override equal to a shipped key would silently write into that
-// variant's types on any site that has both installed.
+// A development environment's own Connect key must be the variant's fixed key
+// plus a suffix (`com.zenuml.confluence-addon-lite-<name>`): the backend
+// recognises dev keys by that convention (functions/magic-writeback.ts), and a
+// key belongs to the LONGEST fixed key it extends, so a Full build may not use
+// a `…-lite-…` key. See docs/reference/dev-connect-key.md.
+const FIXED_CONNECT_KEYS = {
+  full: 'com.zenuml.confluence-addon',
+  lite: 'com.zenuml.confluence-addon-lite',
+  diagramly: 'gptdock-confluence',
+  asyncapi: 'my-api',
+}
 const CONNECT_KEY_OVERRIDE = process.env.CONNECT_KEY_OVERRIDE || ''
-if (CONNECT_KEY_OVERRIDE && (!/^[a-z0-9][a-z0-9.-]{2,62}$/.test(CONNECT_KEY_OVERRIDE)
-  || ['com.zenuml.confluence-addon', 'com.zenuml.confluence-addon-lite', 'gptdock-confluence', 'my-api'].includes(CONNECT_KEY_OVERRIDE))) {
-  throw new Error(`CONNECT_KEY_OVERRIDE "${CONNECT_KEY_OVERRIDE}" must be lowercase [a-z0-9.-], 3-63 chars, and not a shipped variant key`)
+if (CONNECT_KEY_OVERRIDE) {
+  const fixed = FIXED_CONNECT_KEYS[process.env.PRODUCT_TYPE || 'full']
+  const suffix = fixed && CONNECT_KEY_OVERRIDE.startsWith(`${fixed}-`) ? CONNECT_KEY_OVERRIDE.slice(fixed.length + 1) : ''
+  const claimedByLonger = Object.values(FIXED_CONNECT_KEYS).some((other) => other.length > (fixed || '').length
+    && (CONNECT_KEY_OVERRIDE === other || CONNECT_KEY_OVERRIDE.startsWith(`${other}-`)))
+  if (!/^[a-z0-9][a-z0-9.-]{0,40}$/.test(suffix) || claimedByLonger) {
+    throw new Error(`CONNECT_KEY_OVERRIDE "${CONNECT_KEY_OVERRIDE}" must be "${fixed}-<suffix>" (suffix lowercase [a-z0-9.-], up to 41 chars) for PRODUCT_TYPE=${process.env.PRODUCT_TYPE || 'full'}`)
+  }
 }
 
 export default defineConfig(({ command }) => ({

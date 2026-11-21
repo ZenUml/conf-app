@@ -21,6 +21,7 @@ export function feedbackSurfaceForContext(context: ForgeLikeContext): FeedbackSu
     || moduleKey === 'zenuml-page-banner'
     || moduleKey === 'zenuml-unplaced-banner'
     || macroMode === 'feedback'
+    || macroMode === 'comments'
   ) return null
 
   if (feedbackSurface === 'png_export') return 'png_export'

@@ -10,6 +10,7 @@ import { DiagramType, DataSource } from '@/model/Diagram/Diagram'
 import EventBus from '@/EventBus'
 import { trackAnalyticsEvent, trackAnalyticsEventBeforeUnload } from '@/utils/analytics/trackAnalyticsEvent'
 import { isArchitectureTokensEnabled, isCreateGuideEnabled, isNoLicenseNoticeEnabled } from '@/apis/aiTitleFeatureFlag'
+import { readCommentsContext, resetCommentsContext } from '@/features/diagramComments/commentsContextStore'
 import { openCreateGuide } from '@/features/createGuide/openCreateGuide'
 import globals from '@/model/globals'
 import forgeRuntime, { openUrl } from '@/model/globals/forgeGlobal'
@@ -2771,6 +2772,34 @@ describe('GenericViewer (chrome-less)', () => {
     })
   })
 
+  describe('Diagram comments context (#1047)', () => {
+    // The Comments button lives in the edge host, which is installed before the
+    // content loads. The viewer publishes what only it knows; the host reads it at click time.
+    beforeEach(() => resetCommentsContext())
+
+    it('publishes the diagram id, version, title, last editor and macro type for the edge host', async () => {
+      store.commit('updateTitle', 'Order flow')
+      const wrapper = mountViewer()
+      store.commit('setDiagramAttribution', {
+        customContentId: 'content-123', version: 6, lastUpdatedByAccountId: 'acc-editor',
+      } as any)
+      await flushPromises()
+      expect(readCommentsContext()).toMatchObject({
+        diagramId: 'content-123', diagramVersion: 6, diagramTitle: 'Order flow', lastModifierId: 'acc-editor',
+      })
+      wrapper.unmount()
+      store.commit('setDiagramAttribution', null)
+    })
+
+    it('draws no Comments control of its own: the entry is the edge button', async () => {
+      const wrapper = mountViewer()
+      await flushPromises()
+      expect(wrapper.find('[data-testid="diagram-comments-btn"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="diagram-comments-rail"]').exists()).toBe(false)
+      wrapper.unmount()
+    })
+  })
+
   // Live Agent Link (docs/superpowers/specs/2026-07-08-live-agent-link-design.md).
   // Connect MCP shows on every app since agent-link-enabled was retired
   // (2026-11-14); relay sessions stay behind RELAY_SESSIONS_ENABLED.
@@ -3791,5 +3820,19 @@ describe('GenericViewer license notice (Lite, per-site enforcement)', () => {
     expect(initialize).not.toHaveBeenCalled()
     expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
     wrapper.unmount()
+  })
+})
+
+describe('GenericViewer template references', () => {
+  it('renders without touching properties the component does not define', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const wrapper = mountViewer()
+    await flushPromises()
+    const undefinedAccess = warn.mock.calls
+      .map((args) => String(args[0]))
+      .filter((msg) => msg.includes('was accessed during render but is not defined'))
+    wrapper.unmount()
+    warn.mockRestore()
+    expect(undefinedAccess).toEqual([])
   })
 })

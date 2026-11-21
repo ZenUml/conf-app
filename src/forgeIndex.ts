@@ -1,6 +1,7 @@
 import { withPlantUmlViewerFallback } from '@/utils/analytics/contentState';
 import { getDiagramData } from '@/model/Diagram/DiagramTypeConfig';
 import globals from '@/model/globals';
+import { isCommentsModalContext } from '@/features/diagramComments/commentsMode';
 import { CREATE_GUIDE_MACRO_MODE } from '@/features/createGuide/constants';
 import { TITLE_DRAFT_MACRO_MODE } from '@/features/titleDraft/constants';
 import { PLACEMENT_PICKER_MACRO_MODE } from '@/utils/byline/placementPicker';
@@ -105,6 +106,15 @@ async function initializeCriticalPath() {
   if (context.extension?.modal?.macroMode === 'feedback') {
     const { mountFeedbackModal } = await import('@/features/feedback/mountFeedback');
     mountFeedbackModal(context);
+    return { macroData: null, feedbackHandled: true };
+  }
+
+  // The Comments modal (#1047, src/features/diagramComments). It loads resource 'main', so
+  // THIS entry runs again inside it: dispatch it here, before the viewer and the
+  // edge host, or the modal would boot a viewer that opens another modal.
+  if (isCommentsModalContext(context)) {
+    const { mountCommentsModal } = await import('@/features/diagramComments/mountComments');
+    mountCommentsModal(context);
     return { macroData: null, feedbackHandled: true };
   }
 
@@ -1170,6 +1180,51 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
 }
 
 /**
+ * A page opened from a diagram-comment link (#1047): scroll to this macro and ring
+ * it when the link's `zenumlLocal` is this macro's own localId. The macro reads its
+ * page URL, query string included, from forgeContext.extension.location. Run from
+ * main() after the viewer has loaded, because loadHeavyComponents returns early for
+ * a sequence-family diagram rendered from the content cache. Not behind the comments
+ * flag: a reader following a link someone else posted should land on the diagram.
+ */
+async function revealFromCommentLink() {
+  try {
+    const { runCommentLinkReveal } = await import('@/features/diagramComments/runCommentLinkReveal');
+    let storage: Storage | undefined;
+    try {
+      storage = window.sessionStorage;
+    } catch {
+      storage = undefined;
+    }
+    await runCommentLinkReveal({
+      isFullscreen: async () => !!(await isFullscreenMode()),
+      isEditor: async () => !!(await isEditorMode()),
+      context: forgeGlobal.forgeContext as { localId?: string; extension?: { location?: string } } | undefined,
+      storage,
+      settled: () => settled(),
+      reveal: () => {
+        void import('@/utils/byline/revealDiagram').then(m => m.revealThisMacro());
+      },
+      track: () => {
+        void Promise.all([
+          import('@/utils/analytics/trackAnalyticsEvent'),
+          import('@/utils/byline/pageDiagrams'),
+        ]).then(([{ trackAnalyticsEvent }, { toMacroType }]) => {
+          const type = store.state.diagram?.diagramType;
+          trackAnalyticsEvent('diagram_comment_link_revealed', {
+            feature_area: 'diagram_comments',
+            surface: 'viewer',
+            ...(type ? { macro_type: toMacroType(type) as MacroTypeValue } : {}),
+          });
+        });
+      },
+    });
+  } catch (e) {
+    console.debug('[comment-link reveal] skipped', e);
+  }
+}
+
+/**
  * The receiving half of the one-click place (see utils/byline/revealDiagram.ts
  * for why a focus is what scrolls Confluence).
  *
@@ -1231,6 +1286,7 @@ async function main() {
   // Phase 2: Load heavy components
   try {
     await loadHeavyComponents(criticalData);
+    if (!criticalData.feedbackHandled) void revealFromCommentLink();
     if (!criticalData.feedbackHandled) {
       const context = await initForgeContext();
       const { installFeedbackHost } = await import('@/features/feedback/mountFeedback');

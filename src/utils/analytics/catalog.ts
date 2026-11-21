@@ -34,7 +34,32 @@ export type FeatureArea =
   // Full variant: the "no active license" watermark and upgrade strip in the
   // viewer. Its own area because it measures a licensing notice, not a macro
   // lifecycle step.
-  | "license_notice";
+  | "license_notice"
+  // Reader-to-author discussion about one diagram, stored as Confluence page
+  // footer comments (#1047). Comment text, authors and account ids are never
+  // sent; only counts and closed vocabularies.
+  | "diagram_comments";
+
+/** Why a diagram-comment read or post did not complete. Closed vocabulary. */
+export type DiagramCommentFailureReason =
+  | "unauthenticated"
+  | "permission_denied"
+  | "rate_limited"
+  | "network"
+  | "unavailable"
+  | "unknown";
+
+/** Whether a posted comment starts a thread or answers one. */
+export type DiagramCommentThreadAction = "root" | "reply";
+
+/** What the viewer was when they clicked Comments. `unknown` = not resolved yet; never blocks the click. */
+export type DiagramCommentViewerKind = "licensed" | "guest" | "unknown";
+
+/** The edge feedback button's label at open time: renamed when Comments sits above it. */
+export type FeedbackEntryLabel = "feedback" | "report_a_bug";
+
+/** The action behind diagram_comment_native_opened. */
+export type DiagramCommentNativeAction = "reply";
 
 /** What the draft lookup found for this page. */
 export type TitleDraftLookupStatus = "pending" | "ready" | "no_diagram";
@@ -205,7 +230,10 @@ export type Surface =
   // Not a UI surface: the iframe's own analytics bootstrap (_initMixpanel).
   // Used by analytics_init_degraded, which fires before any surface is known.
   // Segment by the `module_key` property to see which iframe degraded.
-  | "iframe_bootstrap";
+  | "iframe_bootstrap"
+  // The Comments modal opened from the right-edge button (#1047). Its iframe
+  // is a different extension instance from the macro, so it needs its own value.
+  | "comments_modal";
 
 export type EntryPoint =
   | "page_view"
@@ -1477,6 +1505,26 @@ export type AnalyticsEventName =
   // the round trip took; a value near the TTL is a page slow enough that the
   // next one would have missed it.
   | "diagram_revealed"
+  // Diagram comments (#1047, feature_area "diagram_comments"). Funnel:
+  // entry_clicked (Comments button on the right edge) -> panel_opened (modal) ->
+  // load_completed (read the page's footer comments for this diagram) ->
+  // submit_requested -> submit_succeeded | submit_failed. dismissed fires when
+  // the panel closes. link_revealed fires in the macro that a comment link
+  // pointed at, after the page has scrolled to it. The measure that matters is
+  // submit_succeeded per panel_opened, and link_revealed per submit_succeeded:
+  // whether a comment brings the reader back to the diagram. planned
+  // recipients are the people we asked Confluence to notify; they are not a
+  // delivery count, and nothing here says a notification arrived.
+  | "diagram_comment_entry_clicked"
+  | "diagram_comment_panel_opened"
+  | "diagram_comment_load_completed"
+  | "diagram_comment_submit_requested"
+  | "diagram_comment_submit_succeeded"
+  | "diagram_comment_submit_failed"
+  | "diagram_comment_dismissed"
+  // "Reply in Confluence": the reader left our panel for the native thread.
+  | "diagram_comment_native_opened"
+  | "diagram_comment_link_revealed"
   // Two independent producers, disambiguated by `failure_stage` (reliability
   // audit 2026-08-06 §3/§4/§12 items 1-2, conf-app#149/#150):
   // - unset/'syntax': GenericViewer's `$store.state.error` watcher — client-

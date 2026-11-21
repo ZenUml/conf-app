@@ -6,6 +6,7 @@ import FeedbackHost from './FeedbackHost.vue'
 import { deriveFeedbackContext, feedbackSurfaceForContext } from './feedbackContext'
 import { requestFeedbackCapture } from './feedbackBridge'
 import { createFeedbackTransport } from './feedbackTransport'
+import { createCommentsEntry, resolveCommentsEntry } from '@/features/diagramComments/resolveCommentsEntry'
 import { registerAnalyticsSuperProperties } from '@/utils/analytics/trackAnalyticsEvent'
 import type { FeedbackContext } from './feedbackSession'
 
@@ -17,7 +18,15 @@ export function installFeedbackHost(forgeContext: Record<string, any>): void {
   container.id = HOST_ID
   document.body.appendChild(container)
   const context = deriveFeedbackContext(forgeContext, store.state.diagram)
-  createApp(FeedbackHost, { context }).mount(container)
+  // Comments (#1047) belongs to the viewer surface only. The flag and the viewer
+  // kind resolve in the background; the diagram's own facts come from the viewer
+  // through commentsContextStore and are read when the reader clicks.
+  let comments: ReturnType<typeof createCommentsEntry> | undefined
+  if (context.surface === 'viewer') {
+    comments = createCommentsEntry(forgeContext)
+    void resolveCommentsEntry(comments)
+  }
+  createApp(FeedbackHost, { context, ...(comments ? { comments } : {}) }).mount(container)
 }
 
 function isFeedbackContext(value: unknown): value is FeedbackContext {

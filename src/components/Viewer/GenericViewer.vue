@@ -583,6 +583,7 @@ import { callRemote } from '@/utils/requestUtil'
 import { magicGenerationKey, readMagicPreference, readMagicFeedback, writeMagicPreference, writeMagicFeedback } from '@/utils/magic/localPreference'
 import { claimInlineMagicWriteback } from '@/utils/magic/inlineWriteback'
 import { viewerAccountKind } from '@/utils/magic/viewerAccount'
+import { publishCommentsContext } from '@/features/diagramComments/commentsContextStore'
 import { parseMermaidFlowchart } from '@/utils/mermaid/renderMermaid'
 import { normalizeMermaidWhitespace } from '@/utils/mermaid/normalizeWhitespace'
 import { attachPreparedSvgHighlights } from '../../../tools/mermaid-highlights/src/mermaid-highlights.mjs'
@@ -903,6 +904,17 @@ export default {
       return this.isFullscreenMode
         && window.forgeGlobal?.forgeContext?.extension?.modal?.openExport === true;
     },
+    // What the Comments modal needs (#1047). The edge host reads it at click time
+    // through commentsContextStore; this viewer is the only place that knows it.
+    commentsContextFields() {
+      return {
+        diagramId: this.relatedCustomContentId || undefined,
+        diagramVersion: this.diagramAttribution?.version,
+        diagramTitle: this.title || undefined,
+        lastModifierId: this.diagramAttribution?.lastUpdatedByAccountId || undefined,
+        macroType: this.diagramType ?? 'none',
+      };
+    },
     // Mermaid-only fullscreen fix. In the fullscreen modal `wide` is false (it's
     // wired to autoResize), so the frame is .viewer-frame--auto (width: fit-content).
     // ONLY mermaid breaks there: its SVG is width:100% with no intrinsic px, so in a
@@ -1193,6 +1205,10 @@ export default {
     },
   },
   watch: {
+    commentsContextFields: {
+      immediate: true,
+      handler(fields) { publishCommentsContext(fields); },
+    },
     showExportModal: {
       flush: 'sync',
       handler(active) {

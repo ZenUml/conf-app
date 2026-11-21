@@ -14,12 +14,13 @@
       :macro-type="macroType"
       :label="label"
       :ready="!!panZoom"
+      :can-zoom-in="room.in"
+      :can-zoom-out="room.out"
       @zoom-in="zoomIn"
       @zoom-out="zoomOut"
       @fit-height="fitAxis('height')"
       @fit-width="fitAxis('width')"
     />
-    <ViewportZoomHint v-if="isInteractive" ref="zoomHint" :macro-type="macroType" />
   </div>
 </template>
 
@@ -41,10 +42,20 @@ import svgPanZoom from 'svg-pan-zoom';
 import Hammer from 'hammerjs';
 import DiagramViewportToolbar from '@/components/Viewer/DiagramViewportToolbar.vue';
 import { hasSvgLayout } from '@/utils/mermaid/viewportLayout';
-import { createGestureGate, createWheelStepper, createZoomHintTrigger, isZoomIntent } from '@/utils/viewport/wheelZoom';
+import {
+  alignOf, axisOffset, bindSafariPinch, classifyWheel, createGestureGate, zoomLimits, zoomRoom,
+} from '@/utils/viewport/wheelZoom';
 import { trackViewportControl } from '@/utils/viewport/trackViewportControl';
+import { endFullscreenZoomSession, rebaseFullscreenZoom, startFullscreenZoomSession } from '@/utils/viewport/fullscreenZoomSummary';
 import { wheelFallsThroughToPage } from '@/utils/viewport/surface';
-import ViewportZoomHint from '@/components/Viewer/ViewportZoomHint.vue';
+
+/**
+ * svg-pan-zoom's own limits, relative to its fit. Wide while reset() lays the
+ * diagram out (zoom(0.875) and clampUpscale must not be clipped by the last
+ * diagram's limits); applyLimits() then narrows them to opening..natural size.
+ */
+const LAYOUT_MIN_ZOOM = 0.01;
+const LAYOUT_MAX_ZOOM = 100;
 
 /** A CSS length in px, or null for `none`, a percentage, or anything else. */
 function readPxLength(value) {
@@ -54,7 +65,7 @@ function readPxLength(value) {
 
 export default {
   name: 'DiagramViewport',
-  components: { DiagramViewportToolbar, ViewportZoomHint },
+  components: { DiagramViewportToolbar },
   props: {
     /** The renderer's SVG markup, injected verbatim (both callers produce a string). */
     html: {
@@ -88,11 +99,25 @@ export default {
       panZoomDirty: false,
       panZoomResizeObserver: null,
       wheelHandler: null,
+      unbindPinch: null,
+      // Where a diagram smaller than the box sits in it (0 start .. 1 end).
+      alignX: 0.5,
+      alignY: 0.5,
+      // svg-pan-zoom's relative zoom and the limits applyLimits() set, mirrored
+      // for the toolbar: Zoom in is disabled at the ceiling, Zoom out at the floor.
+      zoomRelative: 1,
+      zoomMin: 0,
+      zoomMax: Infinity,
       inlineAspectRatio: null,
       inlineMaxWidth: null,
+      // Mermaid inline edit: see holdView().
+      viewHeld: false,
     };
   },
   computed: {
+    room() {
+      return zoomRoom(this.zoomRelative, { min: this.zoomMin, max: this.zoomMax });
+    },
     isDisplayMode() {
       return this.$store.getters.isDisplayMode;
     },
@@ -111,6 +136,7 @@ export default {
     this.bindWheelZoom();
   },
   beforeUnmount() {
+    endFullscreenZoomSession();
     this.unbindWheelZoom();
     this.detach();
   },
@@ -183,20 +209,36 @@ export default {
           destroy: () => hammer?.destroy(),
         },
         fit: true,
-        maxZoom: 12,
-        minZoom: 0.2,
+        maxZoom: LAYOUT_MAX_ZOOM,
+        minZoom: LAYOUT_MIN_ZOOM,
         // Off in favour of bindWheelZoom(): svg-pan-zoom zooms on a plain wheel
         // with no option to require a modifier, which is how a Mermaid or
         // PlantUML diagram used to swallow the page's scroll.
         mouseWheelZoomEnabled: false,
         onPan: () => { this.panZoomDirty = true; },
-        onZoom: () => { this.panZoomDirty = true; },
+        onZoom: (zoom) => {
+          this.panZoomDirty = true;
+          this.zoomRelative = zoom;
+        },
         panEnabled: true,
         zoomEnabled: true,
       });
       this.panZoomSvg = svgElement;
       this.panZoom.disableDblClickZoom();
-      this.reset();
+      if (this.viewHeld) {
+        // Inline edit session: the caller restores zoom and pan right
+        // after this returns, in the same task. No refit, no limits, and dirty
+        // so the ResizeObserver's first callback does not reset() either.
+        this.releaseLimits();
+        this.panZoomDirty = true;
+      } else {
+        this.reset();
+      }
+      // No-op outside Fullscreen; see fullscreenZoomSummary.ts.
+      startFullscreenZoomSession({
+        macroType: this.macroType,
+        readScale: () => this.panZoom?.getSizes().realZoom ?? 1,
+      });
 
       if (typeof ResizeObserver !== 'undefined') {
         this.panZoomResizeObserver = new ResizeObserver(() => {
@@ -219,56 +261,67 @@ export default {
       this.panZoomResizeObserver.observe(this.$refs.viewport);
     },
     /**
-     * Ctrl/Cmd + wheel to zoom, the rule all four diagram types share.
+     * The wheel rule all four diagram types share (see `classifyWheel`): on the
+     * page viewer only Ctrl/Cmd + wheel zooms and a plain wheel scrolls the
+     * page; in Fullscreen and the editor preview a plain wheel zooms and Shift
+     * or a sideways swipe pans. Zoom is at the pointer.
      *
      * Bound to the viewport rather than handed to svg-pan-zoom because its own
      * `mouseWheelZoomEnabled` cannot be told to require a modifier. Bound once on
      * mount rather than per attach(): the element outlives every re-render, and
      * `panZoom` is read at call time, so a diagram that has not attached yet (or
      * has detached) simply does nothing.
-     *
-     * Zooms about the box centre, like the toolbar buttons and the other two
-     * engines, rather than svg-pan-zoom's old zoom-at-pointer.
      */
     bindWheelZoom() {
       const viewport = this.$refs.viewport;
       if (!viewport || !this.isInteractive || this.wheelHandler) return;
       const startsGesture = createGestureGate();
-      const step = createWheelStepper((direction) => {
-        if (direction > 0) this.panZoom?.zoomIn();
-        else this.panZoom?.zoomOut();
-        // One event per gesture, not per step: the gate stays shut for the
-        // rest of a continuous scroll, so a wheel zoom costs the same one event
-        // as a button click and the two can be compared.
+      this.wheelHandler = (event) => {
+        if (!this.panZoom) return;
+        const action = classifyWheel(event, {
+          plainWheelZooms: !wheelFallsThroughToPage(this.isDisplayMode),
+          pageHeight: viewport.clientHeight,
+          pageWidth: viewport.clientWidth,
+        });
+        // A plain wheel on the page viewer is the page's to scroll.
+        if (action.kind === 'pass') return;
+        event.preventDefault();
+        if (action.kind === 'pan') {
+          this.panZoom.panBy({ x: action.dx, y: action.dy });
+          return;
+        }
+        this.zoomAtClient(action.factor, event.clientX, event.clientY);
+        // One event per gesture, not per wheel event: the gate stays shut for
+        // the rest of a continuous scroll, so a wheel zoom costs the same one
+        // event as a button click and the two can be compared.
         if (!startsGesture()) return;
         trackViewportControl({
           macroType: this.macroType,
-          viewportAction: direction > 0 ? 'zoom_in' : 'zoom_out',
+          viewportAction: action.factor > 1 ? 'zoom_in' : 'zoom_out',
           viewportInput: 'wheel',
+          wheelModifier: action.modifier,
           isDisplayMode: this.isDisplayMode,
         });
-      });
-      const hint = createZoomHintTrigger(() => this.$refs.zoomHint?.show() ?? false);
-      this.wheelHandler = (event) => {
-        if (!this.panZoom) return;
-        if (!isZoomIntent(event)) {
-          // The wheel is on its way to the page -- unless this surface has no
-          // page to give it to, in which case it did nothing and the reader
-          // deserves to be told why.
-          if (!wheelFallsThroughToPage(this.isDisplayMode)) hint(event, viewport.clientHeight);
-          return;
-        }
-        event.preventDefault();
-        step(event, viewport.clientHeight);
       };
       // Not passive: a zoom has to take the event away from page scroll. Only
-      // the zoom branch above does, so an ungated wheel still reaches the page.
+      // the zoom and pan branches do, so a page-viewer plain wheel still scrolls.
       viewport.addEventListener('wheel', this.wheelHandler, { passive: false });
+      this.unbindPinch = bindSafariPinch(viewport, (factor, clientX, clientY) => {
+        if (this.panZoom) this.zoomAtClient(factor, clientX, clientY);
+      });
+    },
+    /** Zoom keeping the SVG point under (clientX, clientY) under it. */
+    zoomAtClient(factor, clientX, clientY) {
+      const rect = this.panZoomSvg?.getBoundingClientRect();
+      if (!rect) return;
+      this.panZoom.zoomAtPointBy(factor, { x: clientX - rect.left, y: clientY - rect.top });
     },
     unbindWheelZoom() {
       if (!this.wheelHandler) return;
       this.$refs.viewport?.removeEventListener('wheel', this.wheelHandler);
       this.wheelHandler = null;
+      this.unbindPinch?.();
+      this.unbindPinch = null;
     },
     detach() {
       this.panZoomResizeObserver?.disconnect();
@@ -315,6 +368,10 @@ export default {
     },
     reset() {
       if (!this.panZoom) return;
+      // Lay out with no limits in the way; applyLimits() sets them from the result.
+      this.panZoom.setBeforePan(null);
+      this.panZoom.setMinZoom(LAYOUT_MIN_ZOOM);
+      this.panZoom.setMaxZoom(LAYOUT_MAX_ZOOM);
       this.panZoom.reset();
       // Match Mermaid Live: leave breathing room for the floating toolbar — but
       // only on the surfaces whose box is bigger than the drawing. The inline box
@@ -322,7 +379,53 @@ export default {
       // diagram on the page 12.5% smaller than it did before this viewport existed.
       if (this.isFullscreenMode || !this.isDisplayMode) this.panZoom.zoom(0.875);
       this.clampUpscale();
+      this.applyLimits();
       this.panZoomDirty = false;
+      rebaseFullscreenZoom();
+    },
+    /**
+     * Zoom from the opening size up to natural size (see `zoomLimits`), and keep
+     * the diagram in view when panned (see `axisOffset`).
+     *
+     * svg-pan-zoom's min/max are relative to its own fit, not to natural size,
+     * so they are converted here: `realZoom` is SVG pixels per natural pixel,
+     * `getZoom()` the same state relative to the fit. The pan limit goes in
+     * after the opening layout, so the opening position is untouched by it.
+     */
+    applyLimits(openScale) {
+      const sizes = this.panZoom.getSizes();
+      const real = sizes?.realZoom;
+      const relative = this.panZoom.getZoom();
+      if (!(real > 0) || !(relative > 0)) return;
+      // The current view is always inside the limits, so nothing jumps.
+      const limits = zoomLimits(openScale > 0 ? openScale : real);
+      const min = Math.min(limits.min, real);
+      const max = Math.max(limits.max, real);
+      this.zoomMin = min * relative / real;
+      this.zoomMax = max * relative / real;
+      this.zoomRelative = relative;
+      this.panZoom.setMinZoom(this.zoomMin);
+      this.panZoom.setMaxZoom(this.zoomMax);
+      const viewBox = sizes.viewBox;
+      if (viewBox?.width > 0 && sizes.width > 0) {
+        const pan = this.panZoom.getPan();
+        this.alignX = alignOf(pan.x + viewBox.x * real, viewBox.width * real, sizes.width);
+        this.alignY = alignOf(pan.y + viewBox.y * real, viewBox.height * real, sizes.height);
+      }
+      this.panZoom.setBeforePan((_old, next) => this.limitPan(next));
+    },
+    /** svg-pan-zoom `beforePan`: the pan clamped so the diagram stays in view. */
+    limitPan(next) {
+      const sizes = this.panZoom?.getSizes();
+      const viewBox = sizes?.viewBox;
+      const real = sizes?.realZoom;
+      if (!(viewBox?.width > 0) || !(real > 0) || !(sizes.width > 0)) return true;
+      const left = viewBox.x * real;
+      const top = viewBox.y * real;
+      return {
+        x: axisOffset(next.x + left, viewBox.width * real, sizes.width, this.alignX) - left,
+        y: axisOffset(next.y + top, viewBox.height * real, sizes.height, this.alignY) - top,
+      };
     },
     /**
      * `fit: true` scales to fill the container in BOTH axes, so a small diagram in
@@ -341,6 +444,60 @@ export default {
       const realZoom = this.panZoom?.getSizes?.().realZoom;
       if (!(realZoom > 1)) return;
       this.panZoom.zoom(this.panZoom.getZoom() / realZoom);
+    },
+    /**
+     * Mermaid inline edit: while held, attach() keeps the new SVG at
+     * svg-pan-zoom's initial state instead of reset(), and zoom/pan limits are
+     * off, so the caller can put the edited text back where it was on screen.
+     * Releasing re-applies the opening..natural limits of the diagram now shown
+     * (widened to the current view), not limits around the view the edit ended
+     * in: released at natural size, those would be 1..1 and pin the zoom.
+     */
+    holdView(held) {
+      this.viewHeld = !!held;
+      if (!this.panZoom) return;
+      if (this.viewHeld) this.releaseLimits();
+      else this.applyLimits(this.openingScale());
+    },
+    /** The realZoom reset() would open the current diagram at (fit, 0.875 here, never above 1). */
+    openingScale() {
+      const real = this.panZoom?.getSizes().realZoom;
+      const relative = this.panZoom?.getZoom();
+      if (!(real > 0) || !(relative > 0)) return null;
+      const fit = real / relative;
+      return Math.min(1, (this.isFullscreenMode || !this.isDisplayMode) ? fit * 0.875 : fit);
+    },
+    releaseLimits() {
+      this.panZoom.setBeforePan(null);
+      this.panZoom.setMinZoom(LAYOUT_MIN_ZOOM);
+      this.panZoom.setMaxZoom(LAYOUT_MAX_ZOOM);
+    },
+    /** SVG px per natural px (svg-pan-zoom's getZoom() is relative to its fit). */
+    getRealZoom() {
+      return this.panZoom?.getSizes().realZoom ?? null;
+    },
+    setRealZoom(realZoom) {
+      const current = this.getRealZoom();
+      if (!this.panZoom || !(current > 0) || !(realZoom > 0)) return;
+      this.panZoom.zoom(this.panZoom.getZoom() * realZoom / current);
+    },
+    panByScreen(dx, dy) {
+      if (this.panZoom && (dx || dy)) this.panZoom.panBy({ x: dx, y: dy });
+    },
+    /**
+     * svg-pan-zoom keeps zoom/pan in a shadow state and writes the transform on
+     * the next animation frame (ShadowViewport.updateCTMOnNextFrame), so the DOM
+     * cannot be measured right after zoom()/panBy(). Write the same matrix now,
+     * in the same format; the pending frame then writes an identical value.
+     */
+    flushView() {
+      const g = this.panZoomSvg?.querySelector('.svg-pan-zoom_viewport');
+      const zoom = this.panZoom?.getSizes().realZoom;
+      if (!g || !(zoom > 0)) return;
+      const pan = this.panZoom.getPan();
+      const matrix = `matrix(${zoom},0,0,${zoom},${pan.x},${pan.y})`;
+      g.setAttributeNS(null, 'transform', matrix);
+      g.style.transform = matrix;
     },
     zoomIn() {
       this.panZoom?.zoomIn();

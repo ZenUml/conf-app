@@ -103,6 +103,7 @@
                 @keydown.enter.prevent="commitRename"
                 @keydown.esc.prevent="cancelRename"
                 @blur="onRenameBlur"
+                @copy="renameHadCopy = true"
               />
               <span v-else class="viewer-title" :title="title">{{ title }}</span>
               <!-- Fullscreen: multi-page navigation (Graph) sits beside the title. -->
@@ -163,7 +164,7 @@
               <span v-if="isFullscreenMode && diagramType === 'mermaid' && (magicAvailable || magicActive)" class="viewer-header-sep" aria-hidden="true"></span>
               <span :ref="setZoomHeaderTarget" class="viewer-header-zoom"></span>
               <!-- View Source (#333): visible to ALL viewers, including users without
-                   edit permission. Text-DSL types only (sequence / mermaid / plantuml). -->
+                   edit permission. Text types only (sequence / mermaid / plantuml / markdown / openapi). -->
               <button
                 v-if="showViewSource"
                 type="button"
@@ -387,7 +388,7 @@
             </div>
             <!-- Full variant, license explicitly inactive, flag on. Sibling of
                  the capture node on purpose: exports never contain it. -->
-            <LicenseWatermark v-if="showLicenseNotice" />
+            <LicenseWatermark v-if="showLicenseNotice" v-bind="licenseWatermarkText" />
             <!-- Canvas overlay anchor: a zero-height block between the diagram
                  and the footer row. Slot content (the Mermaid highlight feedback
                  pill) positions itself against this box, so it floats over the
@@ -425,6 +426,9 @@
               :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
               :macro-type="diagramType ?? 'none'"
               :basis="licenseNoticeBasis"
+              :count="siteNotice?.count"
+              :limit="siteNotice?.limit"
+              :stage="siteNotice?.stage"
             />
             <!-- Onboarding funnel "second diagram" prompt — build-time-gated,
                  defaults OFF (VITE_SECOND_DIAGRAM_PROMPT_ENABLED in
@@ -493,6 +497,8 @@
           :content-id="connectMcpTarget.contentId"
           @close="closeConnectMcpDialog"
           @copy="onConnectMcpCopied"
+          @select-client="onConnectMcpClientSelected"
+          @install="onConnectMcpInstall"
         />
         <!-- MCP promo, Fullscreen: a dismissible corner card (Figma "ZenUML –
              MCP promo mockups" #1). Display rules in mcpPromo.ts. -->
@@ -541,7 +547,7 @@ import { buildAndDownloadDebugBundle } from '@/services/debugBundle'
 import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
 import McpPromoCard from '@/components/AgentLink/McpPromoCard.vue'
 import { createMcpPromoState } from '@/composables/agentLink/mcpPromo'
-import { RELAY_SESSIONS_ENABLED } from '@/composables/agentLink/connectInstructions'
+import { RELAY_SESSIONS_ENABLED, rememberedMcpClient } from '@/composables/agentLink/connectInstructions'
 import { createConnectMcpShownRecord } from '@/composables/agentLink/connectMcpShown'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
 import LinkStatusChip from '@/components/AgentLink/LinkStatusChip.vue'
@@ -553,7 +559,9 @@ import { createForgeAgentLinkBridge } from '@/composables/agentLink/forgeBridge'
 import { readSession, readAnySession } from '@/composables/agentLink/sessionHandoff'
 import { isArchitectureTokensEnabled, isCreateGuideEnabled, isNoLicenseNoticeEnabled } from '@/apis/aiTitleFeatureFlag'
 import { resolveLicenseNotice as evaluateLicenseNotice, readMockLicenseInactive } from '@/features/licenseNotice/licenseNotice'
+import { siteEnforcementNotice } from '@/features/licenseNotice/siteEnforcementNotice'
 import { loadLicenseNoticeEvidence } from '@/features/licenseNotice/loadEvidence'
+import { currentLicenseNoticeOccurrence } from '@/features/licenseNotice/noticeOccurrence'
 import LicenseWatermark from '@/components/Viewer/LicenseWatermark.vue'
 import LicenseNoticeStrip from '@/components/Viewer/LicenseNoticeStrip.vue'
 import { createGuideVariant } from '@/features/createGuide/createGuideVariant'
@@ -581,6 +589,16 @@ import { attachPreparedSvgHighlights } from '../../../tools/mermaid-highlights/s
 import { controlsWidth, maxHeaderStage, moreMenuItems, pickHeaderStage } from '@/utils/viewerHeaderLayout'
 
 const DEFAULT_TITLE = 'Untitled diagram'
+// Where the click that opened an inline rename landed (rename_trigger).
+// A click synthesised by Enter/Space on the focused button has detail 0.
+function renameTriggerFromClick(event) {
+  if (!event || typeof event.detail !== 'number') return 'unknown';
+  if (event.detail === 0) return 'keyboard';
+  const target = event.target;
+  if (target?.closest?.('.viewer-title-pencil')) return 'pencil';
+  if (target?.closest?.('.viewer-title-text')) return 'title_text';
+  return 'title_edge';
+}
 // Inline title rename input sizing (see startRename / updateRenameWidth).
 // MAX mirrors .viewer-title's max-width; CHROME is the input's horizontal
 // padding (6px × 2) + border (1px × 2) plus a few px so the caret has room
@@ -680,9 +698,13 @@ export default {
     // is dropped instead of reporting a viewer that no longer exists.
     connectMcpUnmounted: false,
     connectMcpOpenedAt: 0,
+    // The client tab showing in the dialog, for its analytics rows.
+    connectMcpClient: 'claude_code',
     architectureTokensEnabled: false,
     // Full variant 'no active license' notice; resolved off the render path.
     licenseNoticeActive: false,
+    // Lite per-site enforcement: { count, limit, stage } while the notice shows.
+    siteNotice: null,
     licenseNoticeBasis: null,
     licenseNoticeRequestId: 0,
     licenseNoticeExpiryTimer: null,
@@ -706,6 +728,12 @@ export default {
     renameError: false,
     renameInputWidth: 0,
     renameMinWidth: 0,
+    // Analytics only (rename_trigger / had_input / had_copy on every viewer_rename_*
+    // event): set when a rename opens and NOT cleared on exit, so the final
+    // event of the session still carries them.
+    renameTrigger: 'unknown',
+    renameHadInput: false,
+    renameHadCopy: false,
     magicActive: false,
     magicSvg: null,
     magicHighlightController: null,
@@ -822,6 +850,17 @@ export default {
       if (this.isCustomContent && this.deeplinkHost) actions.push({ id: 'diagram-link', label: 'Diagram link', icon: ICON_PATHS.share });
       actions.push({ id: 'export-png', label: 'Export PNG', icon: ICON_PATHS.download });
       return actions;
+    },
+    // Lite copy only; undefined props keep LicenseWatermark's Full defaults.
+    licenseWatermarkText() {
+      if (!this.siteNotice) return {};
+      return {
+        headline: 'UPGRADE REQUIRED',
+        lines: [
+          `${this.siteNotice.count.toLocaleString('en-US')} of ${this.siteNotice.limit.toLocaleString('en-US')} Lite diagrams in this space`,
+          'Ask your Confluence admin to upgrade',
+        ],
+      };
     },
     showLicenseNotice() {
       return this.licenseNoticeActive && !this.isLoadFailed;
@@ -975,10 +1014,13 @@ export default {
     connectMcpSupported() {
       return !!this.diagramType && this.diagramType !== DiagramType.Unknown;
     },
-    // View Source (#333): text-DSL types only. NOT gated on canUserEdit — the
-    // audience includes readers without edit permission.
+    // View Source (#333): text types only. NOT gated on canUserEdit — the
+    // audience includes readers without edit permission. OpenAPI added
+    // 2026-11-18 (P4): readers opened the editor only to read the spec. The
+    // panel shows the stored text unchanged (YAML or JSON). Graph (DrawIO XML)
+    // and AsyncAPI (own viewer) stay out.
     showViewSource() {
-      return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown].includes(this.diagramType);
+      return [DiagramType.Sequence, DiagramType.Mermaid, DiagramType.PlantUml, DiagramType.Markdown, DiagramType.OpenApi].includes(this.diagramType);
     },
     // agent_link_mcp_button_shown: the button is rendered for a viewer.
     connectMcpShownEligible() {
@@ -1002,6 +1044,7 @@ export default {
     viewSourceDslLabel() {
       switch (this.diagramType) {
         case DiagramType.Markdown: return 'Markdown';
+        case DiagramType.OpenApi: return 'OpenAPI';
         case DiagramType.Mermaid: return 'Mermaid';
         case DiagramType.PlantUml: return 'PlantUML';
         case DiagramType.Sequence:
@@ -1308,6 +1351,7 @@ export default {
     document.addEventListener('keydown', this.onEscapeKeydown, true);
     this.startHeaderLayout();
     this.resolveLicenseNotice();
+    this.resolveSiteEnforcementNotice();
     // Export entry (see openExport): the modal was opened BY the Export PNG
     // button, so the dialog opens here on arrival. On 'diagramLoaded', not on
     // mount — the dialog captures its preview off the `visible` watcher, and
@@ -1836,7 +1880,7 @@ export default {
       if (this.isRenaming) return;
       if (this.$refs.moreMenu?.open) return;
       if (this.showConnectMcpDialog) {
-        this.closeConnectMcpDialog();
+        this.closeConnectMcpDialog('escape');
         return;
       }
       if (!this.showSourcePanel) return;
@@ -2050,8 +2094,11 @@ export default {
     // viewer_rename_cancelled; a blank Enter stays put with the error state so
     // the user sees why nothing happened. The store's title changes only on a
     // landed write; every other exit leaves it exactly as it was.
-    startRename() {
+    startRename(event) {
       if (!this.canRename || this.isRenaming) return;
+      this.renameTrigger = renameTriggerFromClick(event);
+      this.renameHadInput = false;
+      this.renameHadCopy = false;
       this.renameDraft = visibleDiagramTitle(this.diagram?.title).trim();
       this.renameError = false;
       // The input opens at exactly the title's rendered width (never
@@ -2072,6 +2119,7 @@ export default {
     },
     onRenameInput(e) {
       this.renameDraft = e.target.value;
+      this.renameHadInput = true;
       if (this.renameError && this.renameDraft.trim()) this.renameError = false;
       this.$nextTick(this.updateRenameWidth);
     },
@@ -2187,13 +2235,20 @@ export default {
           }, Math.max(0, Date.parse(decision.expiresAt) - Date.now()));
         }
         if (decision.outcome !== 'disabled') {
-          trackAnalyticsEvent('license_notice_evaluated', {
-            feature_area: 'license_notice',
-            surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
-            macro_type: this.diagramType ?? 'none',
-            license_notice_outcome: activeNow ? 'active' : decision.outcome,
-            ...(this.licenseNoticeBasis ? { license_notice_basis: this.licenseNoticeBasis } : {}),
-          });
+          const outcome = activeNow ? 'active' : decision.outcome;
+          const surface = this.isFullscreenMode ? 'fullscreen' : 'viewer';
+          // `shown` repeats are sampled per browser x macro x UTC day.
+          const occurrence = outcome === 'shown' ? currentLicenseNoticeOccurrence('evaluated', surface) : {};
+          if (occurrence) {
+            trackAnalyticsEvent('license_notice_evaluated', {
+              feature_area: 'license_notice',
+              surface,
+              macro_type: this.diagramType ?? 'none',
+              license_notice_outcome: outcome,
+              ...(this.licenseNoticeBasis ? { license_notice_basis: this.licenseNoticeBasis } : {}),
+              ...occurrence,
+            });
+          }
         }
       } catch {
         if (requestId !== this.licenseNoticeRequestId) return;
@@ -2207,6 +2262,36 @@ export default {
         });
       }
     },
+    // Lite per-site enforcement. Fire-and-forget after mount, so the diagram
+    // never waits on it; any failure means no notice. The server decides
+    // (`enforcement.effects.watermark`): no count or clock check here.
+    async resolveSiteEnforcementNotice() {
+      if (import.meta.env.PRODUCT_TYPE !== 'lite') return;
+      const requestId = ++this.licenseNoticeRequestId;
+      try {
+        const { useCustomerSuccessService } = await import('@/composables/useCustomerSuccessService');
+        const customerSuccess = useCustomerSuccessService();
+        await customerSuccess.initialize();
+        if (requestId !== this.licenseNoticeRequestId) return;
+        const notice = siteEnforcementNotice({
+          productType: import.meta.env.PRODUCT_TYPE,
+          enforcement: customerSuccess.siteEnforcement.value,
+        });
+        if (!notice) return;
+        this.siteNotice = { count: notice.count, limit: notice.limit, stage: notice.stage };
+        this.licenseNoticeBasis = notice.basis;
+        this.licenseNoticeActive = true;
+        // No `license_notice_evaluated` here: the only outcome is `shown`, and
+        // the watermark and strip render under one condition, so the strip's
+        // `license_notice_shown` (with enforcement_stage and macro_count) is the
+        // exposure event. The duplicate was ~5,000 events a day (2026-11-18).
+      } catch {
+        if (requestId !== this.licenseNoticeRequestId) return;
+        this.siteNotice = null;
+        this.licenseNoticeActive = false;
+        this.licenseNoticeBasis = null;
+      }
+    },
     trackRename(eventName, extra = {}) {
       const id = String(this.diagram?.id ?? '');
       trackAnalyticsEvent(eventName, {
@@ -2215,6 +2300,9 @@ export default {
         macro_type: this.diagramType ?? 'none',
         custom_content_id: id,
         content_id: id,
+        rename_trigger: this.renameTrigger,
+        had_input: this.renameHadInput,
+        had_copy: this.renameHadCopy,
         ...extra,
       });
     },
@@ -2238,6 +2326,7 @@ export default {
         surface: 'viewer',
         macro_type: this.diagramType ?? 'none',
         has_edit_permission: !!this.canUserEdit,
+        is_fullscreen: !!this.isFullscreenMode,
         ...(actionLocation ? { action_location: actionLocation } : {}),
       });
     },
@@ -2283,7 +2372,9 @@ export default {
       if (this.showConnectMcpDialog) return;
       this.showConnectMcpDialog = true;
       this.connectMcpOpenedAt = Date.now();
+      this.connectMcpClient = rememberedMcpClient();
       trackAnalyticsEvent('agent_link_mcp_dialog_opened', this.connectMcpAnalytics({
+        mcp_client_choice: this.connectMcpClient,
         mcp_button_reveal: this.connectMcpEffectiveReveal,
         ...(where === 'header_more_menu' ? { action_location: where, mcp_button_placement: 'more_menu' } : {}),
         ...(where === 'fullscreen_card' ? { mcp_button_placement: where } : {}),
@@ -2300,20 +2391,31 @@ export default {
         mcp_button_placement: placement,
       }));
     },
-    closeConnectMcpDialog() {
+    closeConnectMcpDialog(source = 'close_button') {
       if (!this.showConnectMcpDialog) return;
       this.showConnectMcpDialog = false;
       trackAnalyticsEvent('agent_link_mcp_dialog_closed', this.connectMcpAnalytics({
         dwell_ms: Date.now() - this.connectMcpOpenedAt,
+        mcp_close_source: source,
+        mcp_client_choice: this.connectMcpClient,
       }));
     },
-    onConnectMcpCopied(target, ok) {
+    onConnectMcpClientSelected(client) {
+      this.connectMcpClient = client;
+      trackAnalyticsEvent('agent_link_mcp_client_selected', this.connectMcpAnalytics({ mcp_client_choice: client }));
+    },
+    onConnectMcpInstall(client) {
+      this.mcpPromoState?.markEngaged();
+      trackAnalyticsEvent('agent_link_mcp_install_clicked', this.connectMcpAnalytics({ mcp_client_choice: client }));
+    },
+    onConnectMcpCopied(target, ok, client = this.connectMcpClient) {
       if (ok) {
         this.mcpPromoState?.markEngaged();
         this.mcpPromoHidden = true;
       }
       trackAnalyticsEvent('agent_link_mcp_dialog_copied', this.connectMcpAnalytics({
         mcp_copy_target: target,
+        mcp_client_choice: client,
         outcome: ok ? 'copied' : 'clipboard_failed',
       }));
     },

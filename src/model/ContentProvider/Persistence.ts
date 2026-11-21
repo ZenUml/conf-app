@@ -15,6 +15,8 @@ import { getEditorMutationSummary } from '@/utils/analytics/editorMutationTeleme
 import { markEditorSaved } from '@/utils/analytics/editorCloseOutcome';
 import { recordPublishStep } from '@/utils/analytics/publishTiming';
 import { toMacroType } from '@/utils/byline/pageDiagrams';
+import { activateEditRecoveryAfterSave } from '@/utils/paywall/editRecoveryActivation';
+import { isFirstSave } from './saveMode';
 
 // ZEN-1170 Defect 1: thrown by saveToPlatform when the loaded doc carries
 // the legacyLoadBlocked sentinel. Editor save handlers should catch this
@@ -83,8 +85,7 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
     || macroData?.uuid
     || '';
 
-  let isNew;
-  isNew = !diagram.id;
+  const isNew = isFirstSave(diagram);
 
   // Analytics: embed editor handles its own tracking
   if (diagram.diagramType !== DiagramType.Embed) {
@@ -211,6 +212,10 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
   const mirrorSyncStartedAt = performance.now();
   await syncCustomContent(customContent, diagram.diagramType, macroUuid);
   recordPublishStep('mirror_sync_ms', mirrorSyncStartedAt);
+
+  // First successful save after an edit request starts the 7-day edit grant. Bounded and
+  // swallowed inside: it must never fail or noticeably delay a save that already succeeded.
+  try { await activateEditRecoveryAfterSave(); } catch { /* never fails a save */ }
 
   return String(customContent.id);
 }

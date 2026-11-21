@@ -324,6 +324,15 @@ about how often a diagram is viewed, which is `macro_viewed` in Mixpanel.
    renderer release), so the flag occasionally does not reach a load. Daily
    volume matched the prior weekdays (873 views on Monday Nov 2); no spike.
    Full is not enabled; it has no release containing the renderer.
+   **Flag retired in code (2026-11-18).** The flag served Everyone 100% on Lite
+   and Diagramly production from 2026-10-31, and Lite had reached its 10-flag
+   cap. `utils/plantuml/renderer.ts` now fixes the choice per variant: Lite and
+   Diagramly `local`, Full and AsyncAPI `server` (they never had the flag, so
+   they always read it as off), `server` outside Forge. The `localStorage`
+   override stays. Consequence: no Console kill switch for the engine; turning
+   it off now needs a release. The Console flag is deleted only after this
+   change is in the production builds that serve traffic (owner confirms the
+   delete). Moving Full stays a separate step.
 6. **Export.** **Done in code (2026-10-31).** `utils/plantuml/png.ts` produces
    the backup PNG (`model/Attachment.ts`), the Export PNG and its preview
    (`ExportModal/`). With the `local` renderer it draws the engine's SVG on a

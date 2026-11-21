@@ -23,7 +23,7 @@ vi.mock('@/model/globals', () => ({
 vi.mock('@/components/Viewer/GenericViewer.vue', () => ({
   default: {
     name: 'GenericViewer',
-    template: '<div class="generic-viewer"><div class="header-nav-slot"><slot name="header-nav" /></div><slot /></div>',
+    template: '<div class="generic-viewer"><div class="header-nav-slot"><slot name="header-nav" /></div><div class="viewer-canvas"><slot /></div></div>',
   },
 }));
 
@@ -236,38 +236,58 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
   });
 
   describe('pan and zoom controls', () => {
-    const graphStub = () => ({
-      zoomIn: vi.fn(),
-      zoomOut: vi.fn(),
-      setPanning: vi.fn(),
-      panningHandler: { useLeftButtonForPanning: false, ignoreCell: false },
-      getGraphBounds: () => ({ width: 200, height: 120 }),
-      view: { scale: 1 },
-      border: 10,
-    });
+    /** Opens at half natural size; scaleAndTranslate moves the view like mxGraph. */
+    const graphStub = () => {
+      const view = {
+        scale: 0.5,
+        translate: { x: 0, y: 0 },
+        scaleAndTranslate: vi.fn((scale: number, x: number, y: number) => {
+          view.scale = scale;
+          view.translate = { x, y };
+        }),
+        setTranslate: vi.fn((x: number, y: number) => {
+          view.translate = { x, y };
+        }),
+      };
+      return {
+        setPanning: vi.fn(),
+        panningHandler: { useLeftButtonForPanning: false, ignoreCell: false, panGraph: vi.fn() },
+        panGraph: vi.fn(),
+        // 400 x 240 natural, drawn at the view's scale.
+        getGraphBounds: () => ({
+          x: view.translate.x * view.scale, y: view.translate.y * view.scale,
+          width: 400 * view.scale, height: 240 * view.scale,
+        }),
+        view,
+        border: 0,
+      };
+    };
+    const mountGraph = async (graph: ReturnType<typeof graphStub>) => {
+      // @ts-expect-error window.GraphViewer is injected by the drawio bundle
+      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
+      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
+      await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalled());
+      const canvas = wrapper.get('.graph-viewer-canvas');
+      Object.defineProperties(canvas.element, {
+        clientWidth: { value: 200, configurable: true }, clientHeight: { value: 120, configurable: true },
+      });
+      return { wrapper, canvas };
+    };
 
     afterEach(() => {
       delete (window as { forgeGlobal?: unknown }).forgeGlobal;
     });
 
-    it('drives mxGraph\'s own zoom from the shared toolbar', async () => {
+    it('zooms from the shared toolbar, about the box centre', async () => {
       const graph = graphStub();
-      // @ts-ignore
-      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
-
-      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
-      await vi.waitFor(() => {
-        expect(wrapper.find('[aria-label="Zoom in"]').exists()).toBe(true);
-      });
+      const { wrapper } = await mountGraph(graph);
       expect(wrapper.get('[role="toolbar"]').attributes('aria-label')).toBe('Graph zoom controls');
 
       await wrapper.get('[aria-label="Zoom in"]').trigger('click');
+      expect(graph.view.scale).toBeCloseTo(0.6, 5);
       await wrapper.get('[aria-label="Zoom out"]').trigger('click');
+      expect(graph.view.scale).toBeCloseTo(0.5, 5);
 
-      // Not svg-pan-zoom: GraphViewer owns its layout, so zooming goes through
-      // the same mxGraph calls DrawIO's own toolbar makes.
-      expect(graph.zoomIn).toHaveBeenCalledTimes(1);
-      expect(graph.zoomOut).toHaveBeenCalledTimes(1);
       expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewport_control_used', {
         feature_area: 'macro',
         surface: 'viewer',
@@ -279,88 +299,154 @@ describe('ForgeGraphViewer render-failure telemetry', () => {
 
     it('turns on drag-to-pan once the graph is rendered', async () => {
       const graph = graphStub();
-      // @ts-ignore
-      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
-
-      mount(ForgeGraphViewer, { global: { plugins: [store] } });
-
-      await vi.waitFor(() => {
-        expect(graph.setPanning).toHaveBeenCalledWith(true);
-      });
+      await mountGraph(graph);
+      expect(graph.setPanning).toHaveBeenCalledWith(true);
       expect(graph.panningHandler.useLeftButtonForPanning).toBe(true);
     });
 
     it('zooms on Ctrl/Cmd + wheel, the way the other three viewports do', async () => {
       const graph = graphStub();
-      // @ts-expect-error window.GraphViewer is injected by the drawio bundle
-      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
-
-      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
-      await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalled());
-      const canvas = wrapper.get('.graph-viewer-canvas');
+      const { canvas } = await mountGraph(graph);
 
       wheel(canvas.element, { deltaY: -100, ctrlKey: true });
-      expect(graph.zoomIn).toHaveBeenCalledTimes(1);
-
-      wheel(canvas.element, { deltaY: 100, ctrlKey: true });
-      expect(graph.zoomOut).toHaveBeenCalledTimes(1);
+      expect(graph.view.scale).toBeCloseTo(0.5 * Math.exp(0.1), 5);
 
       // macOS holds Cmd, and a trackpad pinch arrives as a ctrlKey wheel.
-      wheel(canvas.element, { deltaY: -100, metaKey: true });
-      expect(graph.zoomIn).toHaveBeenCalledTimes(2);
+      wheel(canvas.element, { deltaY: 100, metaKey: true });
+      expect(graph.view.scale).toBeCloseTo(0.5, 5);
+    });
+
+    it('zooms at the pointer, keeping the point under it still', async () => {
+      const graph = graphStub();
+      const { canvas } = await mountGraph(graph);
+
+      // Model x under the pointer: 150 / 0.5 - 0 = 300.
+      wheel(canvas.element, { deltaY: -100, ctrlKey: true, clientX: 150, clientY: 60 });
+      const { scale, translate } = graph.view;
+      expect((300 + translate.x) * scale).toBeCloseTo(150, 3);
     });
 
     it('leaves a plain wheel to the page rather than zooming', async () => {
       const graph = graphStub();
-      // @ts-expect-error window.GraphViewer is injected by the drawio bundle
-      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
-
-      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
-      await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalled());
+      const { canvas } = await mountGraph(graph);
 
       // The page viewer's Forge iframe is sized to the diagram, so a tall graph
       // covers the reading area: taking the wheel there traps the reader.
-      const event = wheel(wrapper.get('.graph-viewer-canvas').element, { deltaY: -400 });
+      const event = wheel(canvas.element, { deltaY: -400 });
 
-      expect(graph.zoomIn).not.toHaveBeenCalled();
+      expect(graph.view.scaleAndTranslate).not.toHaveBeenCalled();
       expect(event.defaultPrevented).toBe(false);
     });
 
-    it('spends a trackpad\'s small deltas one zoom step at a time', async () => {
+    it('zooms on a plain wheel in Fullscreen, which has no page to scroll', async () => {
+      (window as { forgeGlobal?: unknown }).forgeGlobal = {
+        forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } },
+      };
       const graph = graphStub();
-      // @ts-expect-error window.GraphViewer is injected by the drawio bundle
-      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
+      const { canvas } = await mountGraph(graph);
 
-      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
-      await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalled());
-      const canvas = wrapper.get('.graph-viewer-canvas');
+      const event = wheel(canvas.element, { deltaY: -100 });
 
-      // A two-finger swipe is a stream of these; one step per notch-worth, not
-      // one per event, or the diagram rockets through the zoom range.
-      for (let i = 0; i < 9; i += 1) {
-        wheel(canvas.element, { deltaY: -10, ctrlKey: true });
-      }
-      expect(graph.zoomIn).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(true);
+      expect(graph.view.scale).toBeCloseTo(0.5 * Math.exp(0.1), 5);
+      const zooms = vi.mocked(trackAnalyticsEvent).mock.calls
+        .filter(([name, props]) => name === 'viewport_control_used' && props?.viewport_input === 'wheel');
+      expect(zooms[0][1]).toMatchObject({ surface: 'fullscreen', wheel_modifier: 'none' });
+    });
 
+    it('zooms on a wheel over the blank canvas around a short diagram in Fullscreen', async () => {
+      (window as { forgeGlobal?: unknown }).forgeGlobal = {
+        forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } },
+      };
+      const graph = graphStub();
+      const { wrapper } = await mountGraph(graph);
+
+      // The graph container is only as tall as the diagram; the Fullscreen
+      // canvas around it is taller. A wheel above or below the diagram must
+      // zoom too, or most of the screen ignores the wheel.
+      const event = wheel(wrapper.get('.viewer-canvas').element, { deltaY: -100 });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(graph.view.scale).toBeCloseTo(0.5 * Math.exp(0.1), 5);
+    });
+
+    it('zooms a little on each small trackpad delta', async () => {
+      const graph = graphStub();
+      const { canvas } = await mountGraph(graph);
+
+      // A pinch is a stream of small Ctrl deltas; each one zooms a little, so the
+      // view follows the fingers instead of jumping a step at a time.
       wheel(canvas.element, { deltaY: -10, ctrlKey: true });
-      expect(graph.zoomIn).toHaveBeenCalledTimes(1);
+      expect(graph.view.scale).toBeCloseTo(0.5 * Math.exp(0.1), 5);
+    });
+
+    it('never zooms out past the opening size or in past natural size', async () => {
+      const graph = graphStub();
+      const { wrapper } = await mountGraph(graph);
+
+      await wrapper.get('[aria-label="Zoom out"]').trigger('click');
+      expect(graph.view.scale).toBeCloseTo(0.5, 5);
+
+      for (let i = 0; i < 10; i += 1) await wrapper.get('[aria-label="Zoom in"]').trigger('click');
+      expect(graph.view.scale).toBeCloseTo(1, 5);
+    });
+
+    it('disables Zoom in at natural size and Zoom out at the opening size', async () => {
+      const graph = graphStub();
+      const { wrapper } = await mountGraph(graph);
+      const button = (name: string) => wrapper.get(`[aria-label="${name}"]`);
+
+      // Opened at 0.5: room to zoom in, none to zoom out.
+      expect(button('Zoom in').attributes('disabled')).toBeUndefined();
+      expect(button('Zoom out').attributes('disabled')).toBeDefined();
+
+      for (let i = 0; i < 10; i += 1) await button('Zoom in').trigger('click');
+      expect(button('Zoom in').attributes('disabled')).toBeDefined();
+      expect(button('Zoom out').attributes('disabled')).toBeUndefined();
+    });
+
+    it('offers no Zoom in for a graph that opens at natural size', async () => {
+      const graph = graphStub();
+      graph.view.scale = 1;
+      const { wrapper } = await mountGraph(graph);
+      await wrapper.vm.$nextTick();
+      expect(wrapper.get('[aria-label="Zoom in"]').attributes('disabled')).toBeDefined();
+      expect(wrapper.get('[aria-label="Zoom out"]').attributes('disabled')).toBeDefined();
+    });
+
+    it('stops a drag at the diagram edge', async () => {
+      const graph = graphStub();
+      // mxGraph's own pan calls, kept before the viewer wraps them.
+      const previewPan = graph.panGraph;
+      const endPan = graph.panningHandler.panGraph;
+      const { wrapper } = await mountGraph(graph);
+      for (let i = 0; i < 10; i += 1) await wrapper.get('[aria-label="Zoom in"]').trigger('click');
+      // At 1:1 the graph is 400 x 240 in a 200 x 120 box.
+      expect(graph.view.scale).toBeCloseTo(1, 5);
+
+      // The drag's end state is a translate: the left/top edge stops at the box edge.
+      graph.panningHandler.panGraph(500, 500);
+      expect(endPan).toHaveBeenLastCalledWith(0, 0);
+
+      // The live preview (screen px from the current translate) is limited too.
+      const left = graph.getGraphBounds().x;
+      graph.panGraph(-900, 0);
+      const [dx, dy] = previewPan.mock.calls.at(-1) ?? [];
+      expect(left + dx).toBeCloseTo(-200, 5);
+      expect(dy).toBeCloseTo(0, 5);
     });
 
     it('does not stack wheel listeners when the diagram re-renders', async () => {
       const graph = graphStub();
-      // @ts-expect-error window.GraphViewer is injected by the drawio bundle
-      window.GraphViewer = vi.fn(() => ({ graph, diagrams: [{}], currentPage: 0 }));
-
-      const wrapper = mount(ForgeGraphViewer, { global: { plugins: [store] } });
-      await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalled());
+      const { canvas } = await mountGraph(graph);
 
       // container.innerHTML is cleared on re-render but the container element
-      // itself survives, so a listener bound per render would multiply the step.
+      // itself survives, so a listener bound per render would double the zoom.
       store.state.diagram = { ...store.state.diagram, graphXml: '<mxGraphModel><root/></mxGraphModel>' };
       await vi.waitFor(() => expect(graph.setPanning).toHaveBeenCalledTimes(2));
 
-      wheel(wrapper.get('.graph-viewer-canvas').element, { deltaY: -100, ctrlKey: true });
-      expect(graph.zoomIn).toHaveBeenCalledTimes(1);
+      wheel(canvas.element, { deltaY: -100, ctrlKey: true });
+      expect(graph.view.scaleAndTranslate).toHaveBeenCalledTimes(1);
     });
 
     it('keeps the controls off the Export PNG surface', async () => {

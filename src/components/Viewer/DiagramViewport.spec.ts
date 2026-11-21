@@ -6,6 +6,7 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({
   trackAnalyticsEvent: vi.fn(),
+  trackAnalyticsEventBeforeUnload: vi.fn(() => Promise.resolve()),
 }));
 
 const panZoom = vi.hoisted(() => ({
@@ -18,6 +19,12 @@ const panZoom = vi.hoisted(() => ({
   zoom: vi.fn(),
   zoomIn: vi.fn(),
   zoomOut: vi.fn(),
+  zoomAtPointBy: vi.fn(),
+  panBy: vi.fn(),
+  getPan: vi.fn(() => ({ x: 0, y: 0 })),
+  setMinZoom: vi.fn(),
+  setMaxZoom: vi.fn(),
+  setBeforePan: vi.fn(),
   center: vi.fn(),
 }));
 vi.mock('svg-pan-zoom', () => ({ default: vi.fn(() => panZoom) }));
@@ -55,7 +62,7 @@ describe('DiagramViewport initial zoom', () => {
     panZoom.getZoom.mockReturnValue(1);
     // jsdom lays nothing out and attach() refuses a 0 x 0 SVG.
     vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
-      width: 322, height: 243,
+      width: 322, height: 243, left: 0, top: 0,
     } as DOMRect);
   });
 
@@ -151,7 +158,7 @@ describe('DiagramViewport wheel zoom', () => {
     panZoom.getSizes.mockReturnValue({ realZoom: 1 });
     panZoom.getZoom.mockReturnValue(1);
     vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
-      width: 322, height: 243,
+      width: 322, height: 243, left: 0, top: 0,
     } as DOMRect);
   });
 
@@ -168,15 +175,15 @@ describe('DiagramViewport wheel zoom', () => {
     expect(options).toMatchObject({ mouseWheelZoomEnabled: false });
   });
 
-  it('reports one event for a wheel gesture, not one per step', async () => {
+  it('reports one event for a wheel gesture, not one per wheel event', async () => {
     const wrapper = mountViewport(true);
     await wrapper.vm.attach();
     const viewport = wrapper.get('.diagram-viewport').element;
 
-    // A trackpad emits a stream; this is six zoom steps in one continuous push.
+    // A trackpad emits a stream; this is six wheel events in one continuous push.
     for (let i = 0; i < 6; i += 1) wheel(viewport, { deltaY: -100, ctrlKey: true });
 
-    expect(panZoom.zoomIn).toHaveBeenCalledTimes(6);
+    expect(panZoom.zoomAtPointBy).toHaveBeenCalledTimes(6);
     const zooms = vi.mocked(trackAnalyticsEvent).mock.calls
       .filter(([name]) => name === 'viewport_control_used');
     // One act of intent, costing the same one event as a button click.
@@ -185,22 +192,25 @@ describe('DiagramViewport wheel zoom', () => {
       macro_type: 'plantuml',
       viewport_action: 'zoom_in',
       viewport_input: 'wheel',
+      wheel_modifier: 'ctrl_meta',
       surface: 'viewer',
     });
   });
 
-  it('zooms on Ctrl/Cmd + wheel', async () => {
+  it('zooms on Ctrl/Cmd + wheel, at the pointer', async () => {
     const wrapper = mountViewport(true);
     await wrapper.vm.attach();
     const viewport = wrapper.get('.diagram-viewport').element;
 
-    // 100px of wheel is one notch.
-    wheel(viewport, { deltaY: -100, ctrlKey: true });
-    expect(panZoom.zoomIn).toHaveBeenCalledTimes(1);
+    wheel(viewport, { deltaY: -100, ctrlKey: true, clientX: 120, clientY: 40 });
+    const [factor, point] = panZoom.zoomAtPointBy.mock.calls[0];
+    expect(factor).toBeCloseTo(Math.exp(0.1));
+    // Relative to the SVG box, which svg-pan-zoom zooms in.
+    expect(point).toEqual({ x: 120, y: 40 });
 
     // macOS holds Cmd, and a trackpad pinch arrives as a ctrlKey wheel.
     wheel(viewport, { deltaY: 100, metaKey: true });
-    expect(panZoom.zoomOut).toHaveBeenCalledTimes(1);
+    expect(panZoom.zoomAtPointBy.mock.calls[1][0]).toBeCloseTo(Math.exp(-0.1));
   });
 
   it('leaves a plain wheel to the page rather than zooming', async () => {
@@ -211,8 +221,115 @@ describe('DiagramViewport wheel zoom', () => {
     // of diagrams the reader's scroll stopped wherever the pointer landed.
     const event = wheel(wrapper.get('.diagram-viewport').element, { deltaY: -400 });
 
-    expect(panZoom.zoomIn).not.toHaveBeenCalled();
+    expect(panZoom.zoomAtPointBy).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('zooms on a plain wheel in the editor preview, which has no page to scroll', async () => {
+    const wrapper = mountViewport(false);
+    await wrapper.vm.attach();
+
+    const event = wheel(wrapper.get('.diagram-viewport').element, { deltaY: -100 });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(panZoom.zoomAtPointBy).toHaveBeenCalledTimes(1);
+    const zooms = vi.mocked(trackAnalyticsEvent).mock.calls
+      .filter(([name]) => name === 'viewport_control_used');
+    expect(zooms[0][1]).toMatchObject({ surface: 'editor', wheel_modifier: 'none' });
+  });
+
+  it('pans on Shift + wheel in the editor preview', async () => {
+    const wrapper = mountViewport(false);
+    await wrapper.vm.attach();
+
+    wheel(wrapper.get('.diagram-viewport').element, { deltaY: 60, shiftKey: true });
+
+    expect(panZoom.zoomAtPointBy).not.toHaveBeenCalled();
+    expect(panZoom.panBy).toHaveBeenCalledWith({ x: -60, y: 0 });
+  });
+
+  it('limits zoom to the opening size and natural size', async () => {
+    // Opened at half natural size (realZoom 0.5), 0.875 of svg-pan-zoom's fit.
+    panZoom.getSizes.mockReturnValue({ realZoom: 0.5 });
+    panZoom.getZoom.mockReturnValue(0.875);
+    const wrapper = mountViewport(false);
+    await wrapper.vm.attach();
+
+    // svg-pan-zoom's limits are relative to its fit: 0.875 per 0.5 natural.
+    expect(panZoom.setMinZoom).toHaveBeenLastCalledWith(0.875);
+    expect(panZoom.setMaxZoom).toHaveBeenLastCalledWith(1.75);
+  });
+
+  it('after an inline edit at natural size, the limits are still the opening size and natural size', async () => {
+    // Opened at half natural size, 0.875 of the fit (fit = 0.5 / 0.875 natural).
+    panZoom.getSizes.mockReturnValue({ realZoom: 0.5 });
+    panZoom.getZoom.mockReturnValue(0.875);
+    const wrapper = mountViewport(false);
+    await wrapper.vm.attach();
+    // The user zooms in to natural size and edits in place; the edit releases the hold there.
+    wrapper.vm.holdView(true);
+    panZoom.getSizes.mockReturnValue({ realZoom: 1 });
+    panZoom.getZoom.mockReturnValue(1.75);
+    wrapper.vm.holdView(false);
+
+    // Zoom out must still reach the opening size, not stop at the view the edit ended in.
+    expect(panZoom.setMinZoom).toHaveBeenLastCalledWith(0.875);
+    expect(panZoom.setMaxZoom).toHaveBeenLastCalledWith(1.75);
+  });
+
+  it('disables Zoom in at natural size and Zoom out at the opening size', async () => {
+    panZoom.getSizes.mockReturnValue({ realZoom: 0.5 });
+    panZoom.getZoom.mockReturnValue(0.875);
+    const wrapper = mountViewport(false);
+    await wrapper.vm.attach();
+    await wrapper.vm.$nextTick();
+    const button = (name: string) => wrapper.get(`[aria-label="${name}"]`);
+
+    expect(button('Zoom in').attributes('disabled')).toBeUndefined();
+    expect(button('Zoom out').attributes('disabled')).toBeDefined();
+
+    // svg-pan-zoom reports each zoom through onZoom, relative to its fit.
+    const [, options] = vi.mocked(svgPanZoom).mock.calls.at(-1)!;
+    options!.onZoom!(1.75);
+    await wrapper.vm.$nextTick();
+    expect(button('Zoom in').attributes('disabled')).toBeDefined();
+    expect(button('Zoom out').attributes('disabled')).toBeUndefined();
+  });
+
+  it('offers no Zoom in for a diagram that opens at natural size', async () => {
+    panZoom.getSizes.mockReturnValue({ realZoom: 1 });
+    panZoom.getZoom.mockReturnValue(1);
+    const wrapper = mountViewport(true);
+    await wrapper.vm.attach();
+    await wrapper.vm.$nextTick();
+    expect(wrapper.get('[aria-label="Zoom in"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('[aria-label="Zoom out"]').attributes('disabled')).toBeDefined();
+  });
+
+  it('keeps the diagram edge at the box edge when panned', async () => {
+    panZoom.getSizes.mockReturnValue({
+      realZoom: 2, width: 400, height: 300, viewBox: { x: 0, y: 0, width: 322, height: 243 },
+    });
+    const wrapper = mountViewport(false);
+    await wrapper.vm.attach();
+
+    const beforePan = panZoom.setBeforePan.mock.calls.at(-1)?.[0];
+    // 644 x 486 in a 400 x 300 box: the left edge stops at 0, the right at 400.
+    expect(beforePan({ x: 0, y: 0 }, { x: 90, y: -900 })).toEqual({ x: 0, y: -186 });
+    expect(beforePan({ x: 0, y: 0 }, { x: -100, y: -50 })).toEqual({ x: -100, y: -50 });
+  });
+
+  it('cancels a Safari pinch and zooms the diagram instead', async () => {
+    const wrapper = mountViewport(true);
+    await wrapper.vm.attach();
+    const viewport = wrapper.get('.diagram-viewport').element;
+
+    viewport.dispatchEvent(new Event('gesturestart', { cancelable: true }));
+    const change = Object.assign(new Event('gesturechange', { cancelable: true }), { scale: 1.2, clientX: 5, clientY: 6 });
+    viewport.dispatchEvent(change);
+
+    expect(change.defaultPrevented).toBe(true);
+    expect(panZoom.zoomAtPointBy.mock.calls[0][0]).toBeCloseTo(1.2);
   });
 
   it('names the wheel shortcut on the zoom buttons', async () => {
@@ -224,26 +341,42 @@ describe('DiagramViewport wheel zoom', () => {
     // ...but the accessible name stays the bare action.
     expect(wrapper.get('[aria-label="Zoom in"]').attributes('aria-label')).toBe('Zoom in');
   });
+});
 
-  it('hints at the modifier on the editor, where a plain wheel does nothing', async () => {
-    const wrapper = mountViewport(false);
-    await wrapper.vm.attach();
-
-    // The editor pane is overflow:hidden, so that wheel went nowhere.
-    wheel(wrapper.get('.diagram-viewport').element, { deltaY: -400 });
-    await wrapper.vm.$nextTick();
-
-    expect(wrapper.find('.viewport-zoom-hint').exists()).toBe(true);
+describe('DiagramViewport Fullscreen zoom summary', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    panZoom.getSizes.mockReturnValue({ realZoom: 0.5 });
+    panZoom.getZoom.mockReturnValue(1);
+    vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 322, height: 243,
+    } as DOMRect);
+    vi.spyOn(Math, 'random').mockReturnValue(0.05); // a sampled view
+    (window as { forgeGlobal?: unknown }).forgeGlobal = {
+      forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } },
+    };
   });
 
-  it('stays quiet on the page viewer, where a plain wheel scrolls the page', async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    delete (window as { forgeGlobal?: unknown }).forgeGlobal;
+  });
+
+  it('reports toolbar clicks and the scale the reader ended at, relative to the opening scale', async () => {
     const wrapper = mountViewport(true);
     await wrapper.vm.attach();
+    panZoom.zoomIn.mockImplementation(() => panZoom.getSizes.mockReturnValue({ realZoom: 0.55 }));
 
-    // Here the wheel did exactly what the reader wanted; a hint would be noise.
-    wheel(wrapper.get('.diagram-viewport').element, { deltaY: -400 });
-    await wrapper.vm.$nextTick();
+    await wrapper.get('button[aria-label="Zoom in"]').trigger('click');
+    vi.advanceTimersByTime(10_000);
 
-    expect(wrapper.find('.viewport-zoom-hint').exists()).toBe(false);
+    const rows = vi.mocked(trackAnalyticsEvent).mock.calls
+      .filter(([name]) => name === 'fullscreen_zoom_summary');
+    expect(rows).toHaveLength(1);
+    expect(rows[0][1]).toMatchObject({ surface: 'fullscreen', macro_type: 'plantuml', zoom_in_clicks: 1, sample_rate: 0.1 });
+    expect(rows[0][1].zoom_ratio_end).toBeCloseTo(1.1, 5);
+    wrapper.unmount();
   });
 });

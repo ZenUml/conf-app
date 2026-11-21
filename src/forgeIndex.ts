@@ -34,6 +34,7 @@ import { refreshUserCohortsIfStale } from '@/utils/cohorts/userCohorts';
 import { markWhatsNewAudience } from '@/utils/whatsNew/state';
 import { isPrefetchDue } from '@/utils/prefetch/throttle';
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
+import { isFirstSave } from '@/model/ContentProvider/saveMode';
 import { markPublishClicked, trackPublishCompleted, recordPublishStep, recordPublishFlag } from '@/utils/analytics/publishTiming'
 import { notifyAiTitleSaved } from '@/composables/useAutoTitle';
 import { handleCreateDemoPageRoute } from './routes/createDemoPage';
@@ -1378,6 +1379,9 @@ EventBus.$on('save', async () => {
   notifyAiTitleSaved({ title: store.state.diagram.title, contentId: store.state.diagram.id })
 
   const isNewSequence = !store.state.diagram.id && store.state.diagram.diagramType === "sequence"
+  // Same predicate saveToPlatform uses to pick macro_create_succeeded vs
+  // macro_save_succeeded; read before the save runs.
+  const firstSave = isFirstSave(store.state.diagram);
   store.state.diagram.isNew = false;
 
   // Captured before save runs. After save, if the returned id differs from
@@ -1558,10 +1562,16 @@ EventBus.$on('save', async () => {
     // publish-latency clock here so it captures the full user-perceived wait.
     trackPublishCompleted({
       macro_type: store.state.diagram.diagramType as MacroTypeValue,
-      operation_mode: inserting ? 'create' : 'edit',
+      operation_mode: firstSave ? 'create' : 'edit',
       content_id: String(id),
       custom_content_id: String(id),
     });
+    // The editor clears its local draft NOW, synchronously: view.submit /
+    // view.close below can tear the iframe down before their promise settles,
+    // so 'saved' (emitted after the await) is not a reliable place to clear.
+    // A failure below emits 'publish-commit-failed', and the editor writes the
+    // draft back as the retry anchor.
+    EventBus.$emit('publish-committing', id);
     try {
       if (needsWriteback && !isValidCustomContentId(id)) {
         // conf-app#320 defense-in-depth: never write a garbage customContentId
@@ -1599,6 +1609,7 @@ EventBus.$on('save', async () => {
       // The 'saved' event is intentionally NOT emitted here so the local
       // draft survives as a retry anchor.
       console.error('view.submit/close failed after save', error);
+      EventBus.$emit('publish-commit-failed', error);
       // The dialog didn't close — release the Publish button (Header.vue).
       EventBus.$emit('save-error', error);
       trackEvent('save_failed', 'view_submit_failed', 'error', {

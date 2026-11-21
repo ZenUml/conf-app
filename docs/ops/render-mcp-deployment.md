@@ -9,6 +9,7 @@ The public diagram server and its MCP Apps view have their own Cloudflare Worker
 | `https://zenuml.com/mcp-app/*` and `/drawio/*` | Assets bundled with the public Worker |
 | `https://conf-lite.zenuml.com/mcp-app/*` | Existing Pages assets, retained for authenticated Confluence MCP clients |
 | `/agent-link/mcp` | Existing authenticated Confluence integration; not part of this deployment |
+| `tools/render-mcp-local` | Same tool as a local stdio server; loads the view from `https://zenuml.com`, so a production deploy changes its view too |
 
 This table describes the configured deployment. Confirm the live cutover with the health and protocol checks below; a merged PR alone is not production evidence.
 

@@ -314,4 +314,26 @@ describe('DiagramAttributionFooter viewport dwell gate', () => {
       expect.anything(),
     )
   })
+  // A creator's own view answers 200 with excluded_contributor and writes no
+  // audience row; without the backend result the succeeded event looked the
+  // same as a counted registration.
+  it.each(['new_unique', 'repeat', 'excluded_contributor'] as const)(
+    'carries the backend result %s on the succeeded event',
+    async (result) => {
+      vi.mocked(registerDiagramImpactView).mockResolvedValue({ audienceCount: 3, result })
+      const diagram = document.createElement('div')
+      mountFooter({ ready: true, diagramHost: () => diagram })
+      await flushPromises()
+
+      const observer = FakeIntersectionObserver.instances[0]
+      vi.useFakeTimers()
+      observer.callback([dwellEntry({ isIntersecting: true, intersectionHeight: 300, boundingHeight: 300 })])
+      await vi.advanceTimersByTimeAsync(3000)
+
+      expect(trackAnalyticsEvent).toHaveBeenCalledWith(
+        'diagram_audience_registration_succeeded',
+        expect.objectContaining({ result }),
+      )
+    },
+  )
 })

@@ -82,6 +82,7 @@ export function completedSnapshotEvent(input: SnapshotCompletedInput): MixpanelS
     openapi_count: input.counts.openapi,
     mermaid_count: input.counts.mermaid,
     plantuml_count: input.counts.plantuml,
+    markdown_count: input.counts.markdown,
     unknown_count: input.counts.unknown,
     type_request_count: input.typeRequestCount,
     chunk_count: input.chunkCount,

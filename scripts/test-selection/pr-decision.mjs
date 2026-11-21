@@ -10,7 +10,7 @@ import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config
 import { POLICY_VERSION, EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from './classify.mjs';
 import { selectAgentFloor } from '../e2e-select.mjs';
 import { resolveSelection } from './resolve.mjs';
-import { SCENARIO_COVERAGE, API_LANES, hasPrCoverage } from '../../tests/e2e-tests/config/scenario-coverage.mjs';
+import { SCENARIO_COVERAGE, SCENARIO_COVERAGE_FINGERPRINT, API_LANES, hasPrCoverage } from '../../tests/e2e-tests/config/scenario-coverage.mjs';
 import { FEATURES, INTERFACES, SCENARIOS, scenarioKey, validScenarios, PRODUCT_IMPACT_FINGERPRINT } from '../../tests/e2e-tests/config/product-impact.mjs';
 
 export const MARKER = '<!-- pr-test-decision:v2 -->';
@@ -24,7 +24,7 @@ export const catalog = {
   category_version: CATEGORY_VERSION,
   category_catalog_fingerprint: createHash('sha256').update(JSON.stringify(CATEGORIES)).digest('hex'),
   product_impact_fingerprint: PRODUCT_IMPACT_FINGERPRINT,
-  scenario_coverage_fingerprint: createHash('sha256').update(JSON.stringify({ browser: SCENARIO_COVERAGE, api: API_LANES })).digest('hex'),
+  scenario_coverage_fingerprint: SCENARIO_COVERAGE_FINGERPRINT,
   policy_version: POLICY_VERSION,
   selector_catalog_version: EXECUTION_SELECTOR_CATALOG_VERSION,
   selector_catalog_fingerprint: EXECUTION_SELECTOR_CATALOG_FINGERPRINT,
@@ -246,6 +246,9 @@ export function selectionFromDecision(context, result, candidate, tree) {
     head_sha: candidate, tested_tree: tree, source_paths: context.paths, removed_paths: context.removed_paths, source: d.source,
     mode: d.mode, execution_mode: 'enabled', decision_schema_version: 2, scenarios: d.scenarios, categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { selected: false }])),
     required: ['smoke'], full_reason: d.full_reason ?? null, reason: d.reason, evidence: d.evidence,
+    // The exact preimage of scenario_coverage_fingerprint, so a candidate that
+    // only adds scenario tests can prove it is a superset (see resolve.mjs).
+    trusted_scenario_coverage: { browser: SCENARIO_COVERAGE, api: API_LANES },
     model: null, request: { outcome: 'not-requested', source: 'agent-skill' }, fallback_reason: null, diff_complete: true,
   };
 }

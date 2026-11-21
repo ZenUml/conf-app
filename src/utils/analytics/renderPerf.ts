@@ -16,6 +16,7 @@ export type RenderPhase = 'context' | 'fetch' | 'render' | 'cc_fetch' | 'adf_sca
 const durations: Partial<Record<RenderPhase, number>> = {};
 let bootstrapMs: number | undefined;
 let contentSource: ContentSource | undefined;
+let contentPageId: string | undefined;
 let layoutWaitMs: number | undefined;
 
 // Sticky "was the tab ever hidden during this load" flag. Tab-backgrounding
@@ -58,6 +59,19 @@ export function markAppEntry(): void {
  */
 export function markContentSource(src: ContentSource): void {
   contentSource = src;
+}
+
+/**
+ * Record the page that OWNS the custom content loaded by id, so
+ * `trackRenderTime` can tag `macro_viewed` with `content_page_id`. Compared
+ * with `page_id` (the page the macro is rendered on) it marks a macro on a
+ * copied page that still points at the source page's content: the case where
+ * a restricted or deleted source page turns the by-id fetch into a 404 for
+ * other viewers. Last wins; a response without an owner page changes nothing.
+ */
+export function markContentPageId(pageId: string | number | undefined | null): void {
+  if (pageId === undefined || pageId === null || pageId === '') return;
+  contentPageId = String(pageId);
 }
 
 /**
@@ -104,6 +118,7 @@ export interface RenderTimings {
   measured_sum_ms?: number;
   tab_hidden?: boolean;
   content_source?: ContentSource;
+  content_page_id?: string;
   layout_wait_ms?: number;
 }
 
@@ -128,6 +143,7 @@ export function getTimings(): RenderTimings {
     measured_sum_ms: measured.length ? measured.reduce((a, b) => a + b, 0) : undefined,
     tab_hidden: everHidden,
     content_source: contentSource,
+    content_page_id: contentPageId,
     layout_wait_ms: layoutWaitMs,
   };
 }
@@ -141,6 +157,7 @@ export function _resetForTesting(): void {
   delete durations.adf_scan;
   bootstrapMs = undefined;
   contentSource = undefined;
+  contentPageId = undefined;
   layoutWaitMs = undefined;
   everHidden = typeof document !== 'undefined' ? document.hidden : false;
 }

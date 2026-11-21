@@ -10,6 +10,7 @@ import {
   applyViewerLoadOutcome,
   getForgeCustomContentId,
   mapThrownViewerLoadError,
+  normalizeCompressedGraphDoc,
   publishDiagramAttribution,
   publishLoadedDiagram,
   setViewerLoadState,
@@ -125,16 +126,17 @@ export async function bootstrapForgeViewer(options: ViewerBootstrapOptions): Pro
         const cached = getCachedContent(customContentId);
         if (cached) {
           try {
-            const cachedDoc = JSON.parse(cached.doc) as Diagram;
+            // The cache stores the RAW fetched doc (see the putCachedContent
+            // call below), so a legacy compressed graph body is still
+            // LZUTF8-Base64 here. Decompress it BEFORE mounting: mountRoot
+            // writes the doc to the store and the viewer renders it
+            // synchronously in mounted(), so publishing a normalized copy
+            // afterwards was too late — GraphViewer got Base64 and threw
+            // "Not a diagram file" on every revisit of a legacy graph macro.
+            const cachedDoc = normalizeCompressedGraphDoc(JSON.parse(cached.doc) as Diagram) as Diagram;
             if (isBoardGraph && getBoardDocumentLoadError(cachedDoc)) {
               throw new Error('cached Board document is not renderable');
             }
-            // Mount the cached doc instead of the NULL_DIAGRAM shell, then
-            // publish it through the SAME normalization path a live fetch
-            // uses (normalizeCompressedGraphDoc) — the cache stores the RAW
-            // doc (see the putCachedContent call below), so a legacy
-            // compressed graph body is decompressed here exactly as it would
-            // be on a live load.
             mountRoot(cachedDoc, options.content, options.contentProps);
             publishLoadedDiagram(cachedDoc);
             renderPerf.markContentSource('swr_cache');

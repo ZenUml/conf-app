@@ -21,6 +21,8 @@ import type {
   RenderGateOutcome,
   CacheState,
   ContentState,
+  PasteFenceLanguage,
+  DiagramPasteAction,
   CacheSource,
   PlantUmlRenderer,
   McpViewPlantUmlRenderer,
@@ -55,6 +57,8 @@ import type {
   AgentLinkMcpButtonPlacement,
   AgentLinkMcpButtonReveal,
   AgentLinkMcpCopyTarget,
+  AgentLinkMcpClientChoice,
+  AgentLinkMcpCloseSource,
   AgentLinkMcpMode,
   AgentLinkMcpToolOutcome,
   AgentLinkRenderValidation,
@@ -63,8 +67,13 @@ import type {
   ActivationPath,
   GalleryOpenTrigger,
   CodePanelToggleTrigger,
+  InlineEditDiagram,
+  InlineEditKind,
+  InlineEditRejection,
+  InlineEditUnavailableReason,
   SessionReplayEventSource,
   SessionReplayStartCallOutcome,
+  ClarityReplayOutcome,
   GraphEditorModeValue,
   EditorReplaceScope,
   EditorInputMethod,
@@ -73,6 +82,8 @@ import type {
   CreateNotFoundShape,
   SaveFailureProbeStatus,
   ArchitectureTokenLookupOutcome,
+  ArchitectureTokenStaleReason,
+  ArchitectureTokenIndexSource,
   AuthoringOutcome,
   MagicFailureReason,
   FeedbackCaptureMethod,
@@ -90,15 +101,16 @@ import type {
 
 export type AnalyticsProperties = {
   /** Fullscreen contact recovery. Identifiers are opaque; no email or free text. */
-  feature?: 'fullscreen';
-  policy_version?: 'fullscreen-contact-v1';
+  feature?: 'fullscreen' | 'edit';
+  policy_version?: 'fullscreen-contact-v1' | 'edit-contact-v1';
   attempt_id?: string;
   recovery_request_id?: string;
   recovery_grant_id?: string;
   recovery_state?: 'disabled' | 'not_requested' | 'pending_activation' | 'active' | 'expired' | 'unavailable';
   recovery_action?: 'contact_support' | 'plan_usage' | 'return_inline' | 'continue_request' | 'dismiss_notice';
   recovery_outcome?: 'created' | 'reused' | 'activated' | 'already_active' | 'extended' | 'already_applied';
-  scenario_codes?: Array<'inspect_details' | 'present' | 'discuss' | 'other'>;
+  scenario_codes?: Array<'inspect_details' | 'present' | 'discuss' | 'other'
+    | 'fix_or_update' | 'keep_current' | 'prepare_review' | 'other'>;
   access_source?: 'existing' | 'temporary' | 'fail_open';
   duration_days?: number;
   mail_state?: 'queued' | 'accepted' | 'delivered' | 'bounced' | 'failed' | 'delivery_unknown';
@@ -190,6 +202,10 @@ export type AnalyticsProperties = {
   // the same one event and the two are directly comparable.
   // `keyboard` only from the MCP Apps view (agent_link_app_view_zoomed).
   viewport_input?: "toolbar" | "wheel" | "keyboard";
+  // `viewport_input: wheel` only: whether the gesture held Ctrl/Cmd (a trackpad
+  // pinch arrives as Ctrl too) or was a plain wheel. A plain wheel zooms only in
+  // Fullscreen and the editor preview; on the page it scrolls and is not sent.
+  wheel_modifier?: "none" | "ctrl_meta";
   entry_point?: EntryPoint;
   // Create funnel only (macro_create_started / macro_create_succeeded /
   // macro_create_cancelled). `creation_origin` names the surface that started
@@ -231,6 +247,12 @@ export type AnalyticsProperties = {
   session_replay_source?: SessionReplayEventSource;
   session_replay_percent?: number;
   session_replay_start_call_outcome?: SessionReplayStartCallOutcome;
+  // Microsoft Clarity replay (editor + fullscreen iframes, behind the
+  // `clarity-replay-enabled` Forge flag). Registered as super-properties once
+  // per iframe, so no new event is sent. `clarity_session_id` joins a Mixpanel
+  // event to its Clarity recording; set only when the outcome is 'started'.
+  clarity_replay_outcome?: ClarityReplayOutcome;
+  clarity_session_id?: string;
   // Milliseconds from the first retained track call to Mixpanel init completion.
   // Registered once per iframe as a super-property (#707).
   analytics_init_ms?: number;
@@ -329,6 +351,7 @@ export type AnalyticsProperties = {
   openapi_count?: number;
   mermaid_count?: number;
   plantuml_count?: number;
+  markdown_count?: number;
   unknown_count?: number;
   type_request_count?: number;
   chunk_count?: number;
@@ -346,6 +369,8 @@ export type AnalyticsProperties = {
   current_mermaid_count?: number;
   previous_plantuml_count?: number;
   current_plantuml_count?: number;
+  previous_markdown_count?: number;
+  current_markdown_count?: number;
   previous_unknown_count?: number;
   current_unknown_count?: number;
   failure_stage?: string;
@@ -415,6 +440,39 @@ export type AnalyticsProperties = {
   // often the panel is hidden vs. which control gets reached for — and only
   // 'gutter_drag' is one-way (there is no drag-open).
   code_panel_trigger?: CodePanelToggleTrigger;
+  // editor_preview_element_clicked only (P6 measurement). The first element
+  // clicked in the editor preview, what came before it, and what followed it
+  // inside the 10 s window.
+  preview_target_kind?: "node" | "cluster" | "edge" | "label";
+  preview_zoomed_in_before?: boolean;
+  preview_code_panel_hidden?: boolean;
+  preview_drag_count_before?: number;
+  preview_background_click_count_before?: number;
+  preview_click_count_in_window?: number;
+  preview_double_click_count_in_window?: number;
+  preview_source_focused_in_window?: boolean;
+  preview_source_changed_in_window?: boolean;
+  preview_window_completed?: boolean;
+  preview_ms_since_editor_open?: number;
+  // editor_inline_edit_* only (Mermaid inline edit). Bounded values:
+  // never the edited text, the actor or node id, or the message index.
+  inline_edit_kind?: InlineEditKind;
+  /**
+   * All editor_inline_edit_* events: the diagram type being edited. Optional
+   * because events sent before flowchart inline edit carry none (read absent
+   * as 'sequence').
+   */
+  inline_edit_diagram?: InlineEditDiagram;
+  /** editor_inline_edit_unavailable: why it is read-only (absent on events sent before 2026-11-21). */
+  inline_edit_unavailable_reason?: InlineEditUnavailableReason;
+  /** editor_inline_edit_rejected: the EditRejection reason. */
+  inline_edit_rejection?: InlineEditRejection;
+  /** editor_inline_edit_cancelled: Esc, or the box closed with unchanged text. */
+  inline_edit_cancel_reason?: "escape" | "unchanged";
+  /** Participant edits only: the participant has an alias (`participant A as Alice`). */
+  inline_edit_had_alias?: boolean;
+  /** Time the text box was open, on succeeded / rejected / cancelled. */
+  inline_edit_ms_open?: number;
   change_kind?: "request" | "syntax_repair" | "undo" | "rollback";
   version_id?: string;
   version_number?: number;
@@ -519,6 +577,17 @@ export type AnalyticsProperties = {
   same_space?: boolean;                // clicked page in the same space as the viewer's page
   same_page?: boolean;                 // the opened participant also appears in another diagram on this page
   error_kind?: string;                 // 'timeout' | 'network' | 'http_<status>' | body error_kind
+  // related_diagrams_lookup_failed with error_kind 'stale_index' only. That one kind covers
+  // three cases, told apart here: 'version_mismatch' (the live diagram is at another version
+  // than its index rows), 'not_in_live_read' (the viewer's live read did not return the
+  // diagram at all), 'no_page_container' (it was returned, but without a pageId).
+  // Absent on events from a backend deployed before 2026-11-18.
+  stale_reason?: ArchitectureTokenStaleReason;
+  indexed_version?: number;            // the version the index rows were written for
+  live_version?: number;               // the live version; only with 'version_mismatch'
+  // Which writer produced the stale index rows: 'save' | 'heal' | 'backfill' | 'unknown'.
+  // Absent on events from a backend that does not send it.
+  index_source?: ArchitectureTokenIndexSource;
   // Join key on every `attachment_upload_*` event (model/Attachment.ts
   // UploadContext), mirroring the backend joinKeyProps() in src/export.js so
   // analysts can left-join uploads -> exports on (cloud_id, custom_content_id,
@@ -562,6 +631,10 @@ export type AnalyticsProperties = {
   // Advertised annual price on the bundle CTA at click time (USD, per space).
   // Recorded on the event so a later price change stays comparable.
   bundle_price_usd?: number;
+  /** Confirmed unpaid rows offering a one-space checkout on Plan and usage. */
+  purchasable_space_count?: number;
+  /** Per-space Lite limit at the time of a checkout action. */
+  macro_limit?: number;
   // JSM Apply Extension automation. `extension_action` is the fixed policy
   // command, never an arbitrary duration. Initial grants are requester-only
   // for 7 days; feedback grants renew the same requester for 60 days.
@@ -585,6 +658,18 @@ export type AnalyticsProperties = {
   // Stripe returns it verbatim on the Checkout Session, so a $299 payment
   // joins back to the exact bundle CTA click without manual reconciliation.
   client_reference_id?: string;
+  // Bundle checkout funnel join key: a random id made when the checkout link is
+  // built, sent on paywall_bundle_cta_clicked and on every bundle_checkout_* event.
+  checkout_click_id?: string;
+  // Which Bundle CTA built the checkout link.
+  checkout_surface?: 'plan_usage' | 'upgrade_prompt';
+  // bundle_checkout_redirected: whether the handoff page was served.
+  handoff_outcome?: 'served' | 'invalid_ref';
+  // bundle_checkout_continued: what sent the buyer to Stripe.
+  checkout_trigger?: 'auto' | 'button';
+  countdown_stopped?: boolean;
+  // bundle_checkout_open_result: why router.open did not open the handoff page.
+  checkout_open_outcome?: 'declined' | 'error';
   // Cohort targeting (cohorts_refreshed). `cohorts` = comma-joined cohort list
   // the refresh resolved; empty string = user in no cohort (still a successful
   // refresh). `cohort_count` = same list's length, for numeric filtering.
@@ -739,11 +824,34 @@ export type AnalyticsProperties = {
   // `viewer_source_opened` / `viewer_source_copied` so read-only vs editor
   // audience for the View Source panel (#333) can be split.
   has_edit_permission?: boolean;
+  // `viewer_source_opened`: true when the panel was opened in the Fullscreen
+  // viewer, false in the inline page viewer. `surface` stays 'viewer' in both
+  // places so existing reports keep working. Added 2026-11-18; before that the
+  // split could only be inferred from session_replay_source.
+  is_fullscreen?: boolean;
   // Inline title rename from the viewer (viewer_rename_cancelled): why edit
   // mode was left without a write. 'escape' = Esc pressed; 'unchanged' =
   // committed the same title; 'empty' = committed a blank title (refused,
   // the previous title stands).
   rename_exit_reason?: 'escape' | 'unchanged' | 'empty';
+  // Inline title rename, on all four viewer_rename_* events: where the click
+  // that opened the rename landed, and whether the field changed before the
+  // exit. Together with the next action (Edit click, a new start) they split
+  // cancels into "clicked the title text / the pencil and typed nothing"
+  // (likely not a rename) and "typed, then left" (a rename that stopped).
+  // rename_trigger: 'title_text' = the title's text span; 'pencil' = the
+  // pencil icon; 'title_edge' = the button's padding outside both;
+  // 'keyboard' = Enter or Space on the focused button (click with
+  // event.detail 0); 'unknown' = started with no click event.
+  rename_trigger?: 'title_text' | 'pencil' | 'title_edge' | 'keyboard' | 'unknown';
+  // had_input (declared below with the editor's input summary, same meaning:
+  // at least one input event) is also sent on viewer_rename_*: true once the
+  // field changed after it opened. Deletion counts, so every 'empty' exit is
+  // had_input=true — true means "touched the field", not "typed a new name".
+  // viewer_rename_*: true once a `copy` event fired in the open rename field
+  // (Cmd/Ctrl+C or the context menu). Tests whether some title clicks are an
+  // attempt to copy the title. The copied text is never read.
+  had_copy?: boolean;
   // Copy outcome, shared by the "Copy diagram link" action (deeplink_copied —
   // catalog.ts), viewer_source_copied and the Connect MCP dialog copies:
   // 'copied' = clipboard write succeeded, 'clipboard_failed' = the write
@@ -874,6 +982,11 @@ export type AnalyticsProperties = {
   // 'swr_cache' (id-keyed content cache, the revisit fast path). Distinct from
   // cache_source (rendered-SVG cache). Absent when no content fetch was involved.
   content_source?: ContentSource;
+  // macro_viewed: the page that owns the custom content loaded by id. Differs
+  // from `page_id` (the page the macro is rendered on) for a macro on a copied
+  // page that still points at the source page's content. Absent when no by-id
+  // fetch completed before the event (e.g. a render from the content cache).
+  content_page_id?: string;
   duration_ms?: number;
   // Graph Diagram/Board chrome switch (graph_editor_mode_switch_*).
   // `from_mode` / `to_mode` are the chrome values, never document types.
@@ -891,10 +1004,12 @@ export type AnalyticsProperties = {
   // render-time comparisons use a measured signal rather than inferring cache
   // state from duration magnitude. See utils/analytics/trackRenderTime.ts.
   cache_state?: CacheState;
-  // macro_viewed only: whether this browser already reported this macro on this
-  // surface today (UTC). `first` is always emitted; `repeat` is emitted at
-  // MACRO_VIEWED_REPEAT_SAMPLE_RATE and carries `sample_rate`. Absent when the
-  // browser cannot remember (no storage, no macro id): that event is emitted.
+  // macro_viewed, license_notice_shown, license_notice_evaluated (outcome
+  // `shown`): whether this browser already reported this macro on this surface
+  // today (UTC). `first` is always emitted; `repeat` is emitted at
+  // MACRO_VIEWED_REPEAT_SAMPLE_RATE / LICENSE_NOTICE_REPEAT_SAMPLE_RATE and
+  // carries `sample_rate`. Absent when the browser cannot remember (no storage,
+  // no macro id): that event is emitted.
   view_of_day?: "first" | "repeat";
   // #113: body classification at render time (default starter / authored / empty). Wipe detection.
   content_state?: ContentState;
@@ -902,7 +1017,9 @@ export type AnalyticsProperties = {
   // and whenever Forge supplies no boolean; Forge also reports false for free apps.
   license_active?: boolean;
   // Why the Full license notice was shown; missing license fields alone are never evidence.
-  license_notice_basis?: "forge_inactive" | "forge_legacy_free" | "marketplace_legacy_free" | "development_mock";
+  license_notice_basis?: "forge_inactive" | "forge_legacy_free" | "marketplace_legacy_free" | "development_mock" | "site_policy_limit_reached";
+  // Per-site paywall enforcement stage from /api/space-status `enforcement.stage`.
+  enforcement_stage?: "notice" | "watermark" | "block_create" | "block_edit";
   // Full viewer evaluation completed, including hidden and unavailable decisions.
   license_notice_outcome?: "shown" | "active" | "unknown" | "disabled" | "unavailable";
   transfer_bytes?: number;
@@ -1022,6 +1139,17 @@ export type AnalyticsProperties = {
   // analysis extrapolates true volume as `count / sample_rate`. Absent ⇒ 1.0
   // (every occurrence emitted).
   sample_rate?: number;
+  // --- fullscreen_zoom_summary (utils/viewport/fullscreenZoomSummary.ts) ---
+  zoom_session_id?: string;
+  summary_seq?: number;
+  summary_trigger?: 'idle' | 'unload';
+  zoom_in_clicks?: number;
+  zoom_out_clicks?: number;
+  fit_clicks?: number;
+  wheel_gestures?: number;
+  zoom_ratio_end?: number;
+  zoom_ratio_max?: number;
+  session_ms?: number;
   // Live Agent Link (see catalog.ts agent_link_* events). `time_to_connect_ms`
   // = waiting→connected latency (agent_link_agent_connected); `render_ok` /
   // `dsl_len_delta` characterize an applied edit (agent_link_edit_applied);
@@ -1132,6 +1260,10 @@ export type AnalyticsProperties = {
   // `outcome` field ('copied' | 'clipboard_failed'); dwell rides `dwell_ms`.
   mcp_mode?: AgentLinkMcpMode;
   mcp_copy_target?: AgentLinkMcpCopyTarget;
+  // The client tab showing in step 1 (opened / copied / closed /
+  // client_selected / install_clicked), and how the dialog closed (closed).
+  mcp_client_choice?: AgentLinkMcpClientChoice;
+  mcp_close_source?: AgentLinkMcpCloseSource;
   // agent_link_mcp_button_shown (and `mcp_button_reveal` on _dialog_opened):
   // where the button sat and whether it was visible at rest. Inline shown
   // events also carry `header_stage`.
@@ -1201,6 +1333,13 @@ export type AnalyticsProperties = {
   // reusing MacroTypeValue rather than inventing a parallel enum since the
   // detectable dialects are already macro types users can switch to.
   detected_dialect?: MacroTypeValue;
+  // Paste handling (diagram_paste_handled, diagram_paste_move_undone) and the
+  // foreign-dialect hint events. `has_markdown_fence`: the source or paste
+  // carried a Markdown code fence. No property here carries diagram text.
+  has_markdown_fence?: boolean;
+  fence_language?: PasteFenceLanguage;
+  paste_action?: DiagramPasteAction;
+  paste_chars?: number;
   // convert_to_png toPng_failed / toPng_timeout (#1061). Bounded: no diagram
   // text, data URL or query string. See CaptureFailureStage in catalog.ts.
   capture_failure_stage?: CaptureFailureStage;
@@ -1301,6 +1440,9 @@ export type AnalyticsProperties = {
   // `error_class` is 'structured' for a Confluence `{ errors: [...] }` body
   // and 'malformed' for a body with no `body.raw.value`. `http_status` /
   // `error_code` come from the first structured error.
+  // `page_id` is the page the macro is rendered on, when the Forge context
+  // has one; join it with `content_page_id` on macro_viewed for the same
+  // content id to tell a cross-page reference from a same-page one.
   load_status?: 'not_found' | 'other_error';
   // load_failed_shown (GenericViewer) reuses `error_class`, `http_status` and
   // `direct_fetch_status` from the store's load error, and adds 'thrown' for a

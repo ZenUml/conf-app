@@ -41,6 +41,10 @@ Inspect current schema/migrations and deployed query access first. `FeedbackRepo
 4. Link records only using a verified shared report/message reference. Same user/site/time is at most a suspected association. A D1 report plus a Mixpanel submit-success with no shared reference stays one explicit report and one possibly related process event; do not count the latter as a second opinion or silently merge it.
 5. Behaviour can suggest what to ask, not why a customer cancelled. For example, successful PNG download and failed email export are different actions; neither proves the reason for an unmet-needs response.
 
+## Handled items
+
+Before writing the report, read `private/operations/customer-feedback-handled.json`. Leave out every record whose source ID is listed there, and say in one line how many were left out. A message, comment or report on the same thread or ticket that is newer than its `handled_at` is reported again. Gather sources as usual: the ledger filters the report and does not replace any query. When the owner says items are handled, add them to the ledger. For a Fullscreen request, also record its `supportOutcome` through the support CLI (`outcome`, dry run first), so that `list` stops returning it.
+
 ## Return
 
 Return the shared signal fields plus feedback category, original-text reference, resolution/reply evidence, and relationship to other records (`verified`, `suspected`, `unrelated`). Separate explicit feedback totals from behaviour/process events. Include per-source freshness and successful-empty / failed / unavailable / not-queried coverage. Do not summarise missing sources as "no feedback".

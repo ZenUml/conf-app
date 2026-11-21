@@ -11,6 +11,7 @@ import type { AnalyticsProperties } from "./types";
 import type { SpaceAdmin } from "@/model/SpaceAdmin";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
 import { getSessionReplayConfig } from "./sessionReplayFlags";
+import { startClarityReplay } from "./clarityReplay";
 import { decideSample } from "./eventSampling";
 import { normalizeProductType } from "./productType";
 import {
@@ -121,6 +122,12 @@ const NOVEMBER_FULLSCREEN_REPLAY_RATE = 0.1;
 // We never stop an already-running recording at that boundary.
 let _authoringReplayDraw: number | null = null;
 
+// Set once a first_authoring recording has started in this iframe. Later
+// authoring events must then neither report skipped_sampled (95% of first
+// sessions would read as "no replay") nor re-register `authoring` (5% would be
+// relabelled), or the first_authoring source could not be measured.
+let _firstAuthoringReplayStarted = false;
+
 function _shouldRecordAuthoring(): boolean {
   if (_authoringReplayDraw === null) {
     _authoringReplayDraw = Math.random();
@@ -148,12 +155,12 @@ function _fullscreenReplayConfig() {
 
 // Events that always start a recording, whatever the baseline cohort decided.
 //
-// `license_notice_shown`: the Full "No active license" notice is new and goes
-// only to sites without a license (a handful, gated by the
-// `no-license-notice-enabled` Forge flag), so every such session is worth
-// watching while we learn how users react to it. Hardcoded rather than a new
-// Forge flag: the notice flag already scopes who sees it, and a second flag
-// would have to be kept in step with it by hand.
+// `license_notice_shown`: the Full "No active license" notice (gated by the
+// `no-license-notice-enabled` Forge flag) and the Lite site-policy notice (per
+// site enforcement policy) are worth watching while we learn how users react.
+// Since 2026-11-17 this records once per browser per site per UTC day, not per
+// notice (_claimLicenseNoticeReplayOfDay below). Hardcoded rather than a new
+// Forge flag: the notice gates already scope who sees it.
 const FORCED_REPLAY_SOURCES: Partial<
   Record<AnalyticsEventName, SessionReplayEventSource>
 > = {
@@ -162,11 +169,61 @@ const FORCED_REPLAY_SOURCES: Partial<
   title_draft_preview_mounted: "title_draft_preview",
 };
 
+// The license notice forces at most one replay per browser per site per UTC
+// day. The notice is mounted in every macro iframe, and each iframe has its own
+// Mixpanel instance, so a per-event force meant one recording per diagram view:
+// on 2026-11-16 one enforced Lite site produced 20,888 replays from 285 users
+// (15,440 notices), more than the whole 20,000/month quota in a day. The first
+// notice of the day still records, which is the evidence the force exists for.
+//
+// The day lives in localStorage, shared by every macro iframe of the app. Two
+// iframes claiming at the same instant can both win; that errs toward one
+// extra recording. A browser that cannot remember the day does not record:
+// without the record every iframe would record again.
+const LICENSE_NOTICE_REPLAY_DAY_KEY = "zenuml.licenseNoticeReplayDay";
+
+function _claimLicenseNoticeReplayOfDay(): boolean {
+  try {
+    const key = `${LICENSE_NOTICE_REPLAY_DAY_KEY}:${getClientDomain() || "-"}`;
+    const today = new Date(Date.now()).toISOString().slice(0, 10);
+    if (window.localStorage.getItem(key) === today) return false;
+    window.localStorage.setItem(key, today);
+    return window.localStorage.getItem(key) === today;
+  } catch {
+    return false;
+  }
+}
+
+// Forced by the event's properties rather than its name alone: the editor opens
+// the template gallery by itself once per browser per site per diagram type, on
+// the first empty new macro (autoOpenMarker.ts). A brand-new user's first
+// editor session would otherwise have no replay 19 times in 20 (5% authoring
+// sampling in November 2026). A manual gallery open must not force one.
+// Bound: an estimated 663 auto-first-open events per 14 days fleet-wide (from
+// 78 raw events sampled at 10%, so a rough figure), about 1.4k replays a month
+// against the 20,000 a month replay quota.
+function _forcedReplaySource(
+  eventName: AnalyticsEventName,
+  callerProps: Partial<AnalyticsProperties>
+): SessionReplayEventSource | undefined {
+  if (
+    eventName === "editor_template_gallery_opened" &&
+    callerProps.template_gallery_trigger === "auto_first_open"
+  ) {
+    return "first_authoring";
+  }
+  return FORCED_REPLAY_SOURCES[eventName];
+}
+
 function _startExplicitReplay(
-  eventName: AnalyticsEventName
+  eventName: AnalyticsEventName,
+  callerProps: Partial<AnalyticsProperties> = {}
 ): Partial<ExplicitReplayProperties> {
-  const forcedSource = FORCED_REPLAY_SOURCES[eventName];
+  const forcedSource = _forcedReplaySource(eventName, callerProps);
   if (forcedSource) {
+    if (forcedSource === "license_notice" && !_claimLicenseNoticeReplayOfDay()) {
+      return { session_replay_start_call_outcome: "skipped_daily_cap" };
+    }
     try {
       mixpanel.start_session_recording();
       const replayProperties: ExplicitReplayProperties = {
@@ -178,6 +235,9 @@ function _startExplicitReplay(
         session_replay_percent: replayProperties.session_replay_percent,
         session_replay_source: replayProperties.session_replay_source,
       });
+      if (forcedSource === "first_authoring") {
+        _firstAuthoringReplayStarted = true;
+      }
       return replayProperties;
     } catch (error) {
       console.error(
@@ -193,6 +253,14 @@ function _startExplicitReplay(
     eventName !== "macro_edit_started"
   ) {
     return {};
+  }
+
+  if (_firstAuthoringReplayStarted) {
+    return {
+      session_replay_source: "first_authoring",
+      session_replay_percent: 100,
+      session_replay_start_call_outcome: "returned",
+    };
   }
 
   // Outside the sample: leave the Forge-flag cohort's decision untouched. Not
@@ -322,6 +390,16 @@ function _initMixpanel(): Promise<void> {
       mixpanel.register({
         session_replay_percent: percent,
         session_replay_source: source,
+      });
+      // Clarity replay (editor + fullscreen, flag- and geo-gated). Not awaited:
+      // its flag and geo checks must not delay Mixpanel. Events sent before it
+      // settles carry no clarity_* property.
+      void startClarityReplay().then(({ outcome, sessionId }) => {
+        mixpanel.register(
+          sessionId
+            ? { clarity_replay_outcome: outcome, clarity_session_id: sessionId }
+            : { clarity_replay_outcome: outcome },
+        );
       });
       if (replayConfigTimedOut) {
         // Fired after init so it actually leaves; not awaited because it
@@ -534,7 +612,10 @@ export async function _awaitableTrackAnalyticsEvent(
 
     await _initMixpanel();
     _identify();
-    const explicitReplayProperties = _startExplicitReplay(eventName);
+    const explicitReplayProperties = _startExplicitReplay(
+      eventName,
+      callerProps
+    );
 
     const contentIds = _getContentIdentifiers();
 
@@ -660,4 +741,5 @@ export function _resetForTesting(): void {
   _initPromise = null;
   _identified = false;
   _authoringReplayDraw = null;
+  _firstAuthoringReplayStarted = false;
 }

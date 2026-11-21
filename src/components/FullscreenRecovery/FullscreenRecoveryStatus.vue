@@ -2,22 +2,24 @@
   <aside v-if="message" class="status" role="status" aria-live="polite" data-testid="fullscreen-recovery-status">
     <span>{{ message }}</span>
     <button v-if="snapshot.state === 'active' || snapshot.state === 'expired'" type="button" @click="$emit('continueRequest')">Continue request</button>
-    <button v-if="snapshot.state === 'expired'" type="button" aria-label="Dismiss Fullscreen access notice" @click="$emit('dismiss')">Dismiss</button>
+    <button v-if="snapshot.state === 'expired'" type="button" :aria-label="copy.dismissLabel" @click="$emit('dismiss')">Dismiss</button>
   </aside>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { RecoverySnapshot } from '../../../shared/fullscreenRecovery'
-import { fullLocalDate } from './recoveryPresentation'
+import type { RecoveryFeature, RecoverySnapshot } from '../../../shared/fullscreenRecovery'
+import { fullLocalDate, recoveryCopy } from './recoveryPresentation'
 
-const props = defineProps<{ snapshot: RecoverySnapshot }>()
+const props = withDefaults(defineProps<{ snapshot: RecoverySnapshot; feature?: RecoveryFeature }>(), { feature: 'fullscreen' })
 defineEmits<{ (event: 'continueRequest'): void; (event: 'dismiss'): void }>()
+const copy = computed(() => recoveryCopy[props.feature])
 const message = computed(() => {
   const snapshot = props.snapshot
-  if (snapshot.state === 'pending_activation') return 'Your 7 days of Fullscreen begin when the diagram first opens successfully.'
-  if (snapshot.state === 'active' && snapshot.grant?.expiresAt) return `Temporary Fullscreen access ends ${fullLocalDate(snapshot.grant.expiresAt)}.`
-  if (snapshot.state === 'expired' && snapshot.grant?.expiresAt) return `Temporary Fullscreen access ended ${fullLocalDate(snapshot.grant.expiresAt)}. This open view can continue; access is checked next time you open Fullscreen.`
+  const text = recoveryCopy[props.feature]
+  if (snapshot.state === 'pending_activation') return text.statusPending
+  if (snapshot.state === 'active' && snapshot.grant?.expiresAt) return text.statusActive(fullLocalDate(snapshot.grant.expiresAt))
+  if (snapshot.state === 'expired' && snapshot.grant?.expiresAt) return text.statusExpired(fullLocalDate(snapshot.grant.expiresAt))
   return ''
 })
 </script>

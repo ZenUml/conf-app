@@ -215,20 +215,155 @@ export function selectToolHint(diagramType: string | undefined | null): string |
   return GUIDES[sel].hint;
 }
 
-/** All three dialect guides advertised on resources/list (always all three, so the agent can pull whichever matches). */
-export function listGuideResources(): Array<{ uri: string; name: string; mimeType: string; description: string }> {
+/**
+ * Which server serves the guide:
+ *   • 'edit'   — the Confluence relay (mcp.ts): read_diagram + update_diagram on
+ *                one bound diagram. The guides are written for this.
+ *   • 'render' — the render servers (renderMcp.ts at zenuml.com/mcp and the
+ *                local @zenuml/render-mcp package): one tool, render_diagram,
+ *                no bound diagram. Those servers have no read_diagram or
+ *                update_diagram, so the edit-loop wording would send the agent
+ *                to tools that do not exist ("Unknown tool: update_diagram").
+ */
+export type GuideSurface = 'edit' | 'render';
+
+interface Rewrite {
+  from: string;
+  to: string;
+}
+
+// Render-surface rewrites. Only the sentences that name the edit loop change;
+// the failure-ranked rules, examples and minimal-edit contract stay byte-for-byte
+// the eval-tested text. Every `from` must match: dslGuides.spec.ts fails when a
+// guide edit leaves one unmatched, so the render text can't silently fall back
+// to update_diagram wording.
+const RENDER_INTRO_COMMON: Rewrite[] = [
+  {
+    from: 'You are REPAIRING, not redesigning. Change ONLY what makes it parse, then STOP.',
+    to:
+      'This applies when render_diagram reported errors for a source you are fixing:\n' +
+      'you are REPAIRING, not redesigning. Change ONLY what makes it parse, then STOP.',
+  },
+];
+
+const RENDER_REWRITES: Record<GuideDialect, Rewrite[]> = {
+  zenuml: [
+    { from: '# Writing ZenUML sequence DSL for update_diagram', to: '# Writing ZenUML sequence DSL for render_diagram' },
+    {
+      from:
+        'The bound diagram type is "sequence" → the `dsl` you pass to update_diagram\n' +
+        'must be **ZenUML** sequence DSL. Call read_diagram first, then send the FULL\n' +
+        'replacement DSL. `rendered:true` means the DSL PARSED, not that it says what\n' +
+        'you meant — for a complex diagram, read it back and confirm the nesting.',
+      to:
+        'With diagramType "sequence", the `source` you pass to render_diagram must be\n' +
+        '**ZenUML** sequence DSL. Send the complete source on every call. A result that\n' +
+        'says the source parsed means it PARSED, not that it says what you meant — for a\n' +
+        'complex diagram, check the nesting.',
+    },
+    {
+      from: '- If the bound diagram type is actually "mermaid" or "plantuml", ignore all of\n  the above',
+      to: '- If the diagram is actually Mermaid or PlantUML, ignore all of\n  the above',
+    },
+  ],
+  mermaid: [
+    { from: '# Writing Mermaid DSL for update_diagram', to: '# Writing Mermaid DSL for render_diagram' },
+    {
+      from:
+        'The bound diagram type is "mermaid" → the `dsl` you pass to update_diagram must\n' +
+        'be **Mermaid** DSL. Call read_diagram first, then send the FULL replacement DSL.',
+      to:
+        'With diagramType "mermaid", the `source` you pass to render_diagram must be\n' +
+        '**Mermaid** DSL. Send the complete source on every call.',
+    },
+    {
+      from: '- If the bound diagram type is actually "sequence" (ZenUML) or "plantuml",\n  ignore all of the above',
+      to: '- If the diagram is actually ZenUML (diagramType "sequence") or PlantUML,\n  ignore all of the above',
+    },
+  ],
+  plantuml: [
+    { from: '# Writing PlantUML DSL for update_diagram', to: '# Writing PlantUML DSL for render_diagram' },
+    {
+      from:
+        'The bound diagram type is "plantuml" → the `dsl` you pass to update_diagram\n' +
+        'must be **PlantUML** DSL. Call read_diagram first, then send the FULL\n' +
+        'replacement DSL.',
+      to:
+        'With diagramType "plantuml", the `source` you pass to render_diagram must be\n' +
+        '**PlantUML** DSL. Send the complete source on every call.',
+    },
+    {
+      from: '- If the bound diagram type is actually "sequence" (ZenUML) or "mermaid",\n  ignore all of the above',
+      to: '- If the diagram is actually ZenUML (diagramType "sequence") or Mermaid,\n  ignore all of the above',
+    },
+  ],
+  openapi: [
+    { from: '# Writing OpenAPI/Swagger specs for update_diagram', to: '# Writing OpenAPI/Swagger specs for render_diagram' },
+    {
+      from:
+        'The bound diagram type is "openapi" → the `dsl` you pass to update_diagram is\n' +
+        'the FULL OpenAPI 3.x (or Swagger 2.0) document',
+      to:
+        'With diagramType "openapi", the `source` you pass to render_diagram is\n' +
+        'the FULL OpenAPI 3.x (or Swagger 2.0) document',
+    },
+    {
+      from: 'Call read_diagram first, then send the\nFULL replacement document.',
+      to: 'Send the complete\ndocument on every call.',
+    },
+    {
+      from: '- If the bound diagram type is actually "sequence"/"mermaid"/"plantuml", ignore\n  all of the above',
+      to: '- If the diagram is actually ZenUML, Mermaid or PlantUML, ignore\n  all of the above',
+    },
+  ],
+};
+
+/** Apply a dialect's render rewrites. `missed` lists any `from` not found (a test asserts it is empty). */
+export function renderGuideText(dialect: GuideDialect): { text: string; missed: string[] } {
+  let text = GUIDES[dialect].guide;
+  const missed: string[] = [];
+  for (const { from, to } of [...RENDER_REWRITES[dialect], ...RENDER_INTRO_COMMON]) {
+    if (!text.includes(from)) {
+      missed.push(from);
+      continue;
+    }
+    text = text.split(from).join(to);
+  }
+  return { text, missed };
+}
+
+const renderCache = new Map<GuideDialect, string>();
+function guideFor(dialect: GuideDialect, surface: GuideSurface): string {
+  if (surface === 'edit') return GUIDES[dialect].guide;
+  let text = renderCache.get(dialect);
+  if (text === undefined) {
+    text = renderGuideText(dialect).text;
+    renderCache.set(dialect, text);
+  }
+  return text;
+}
+
+function descriptionFor(dialect: GuideDialect, surface: GuideSurface): string {
+  const d = GUIDES[dialect].resourceDescription;
+  return surface === 'edit' ? d : d.replace(' for update_diagram', ' for render_diagram');
+}
+
+/** All dialect guides advertised on resources/list (always all of them, so the agent can pull whichever matches). */
+export function listGuideResources(
+  surface: GuideSurface = 'edit',
+): Array<{ uri: string; name: string; mimeType: string; description: string }> {
   return (Object.keys(GUIDES) as GuideDialect[]).map((k) => ({
     uri: GUIDES[k].uri,
     name: GUIDES[k].resourceName,
     mimeType: 'text/markdown',
-    description: GUIDES[k].resourceDescription,
+    description: descriptionFor(k, surface),
   }));
 }
 
 /** Resolve a resource URI (resources/read) to its guide text, or undefined if unknown. */
-export function getGuideByUri(uri: string): { uri: string; text: string } | undefined {
+export function getGuideByUri(uri: string, surface: GuideSurface = 'edit'): { uri: string; text: string } | undefined {
   for (const k of Object.keys(GUIDES) as GuideDialect[]) {
-    if (GUIDES[k].uri === uri) return { uri, text: GUIDES[k].guide };
+    if (GUIDES[k].uri === uri) return { uri, text: guideFor(k, surface) };
   }
   return undefined;
 }

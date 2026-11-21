@@ -66,6 +66,9 @@ describe('local render MCP server', () => {
     const handle = createLocalServer({ fetchImpl: viewFetch() });
     const guide = await handle({ jsonrpc: '2.0', id: 7, method: 'resources/read', params: { uri: 'zenuml://dsl-guide' } });
     expect((guide?.result as { contents: Array<{ mimeType: string }> }).contents[0].mimeType).toBe('text/markdown');
+    const text = (guide?.result as { contents: Array<{ text: string }> }).contents[0].text;
+    expect(text).toContain('render_diagram');
+    expect(text).not.toMatch(/update_diagram|read_diagram/);
     const unknown = await handle({ jsonrpc: '2.0', id: 8, method: 'resources/read', params: { uri: 'file:///etc/passwd' } });
     expect(unknown?.error?.code).toBe(-32602);
   });

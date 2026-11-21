@@ -79,7 +79,12 @@ export const invokeRemote = async (opts: { path: string; method?: string; body?:
 export const invoke = async (_name: string, _payload?: any) => ({})
 
 export class Modal {
-  constructor(_opts: any) {}
+  /** Options of the most recently constructed Modal, so a story can fire its
+   *  `onClose` the way Forge does when the modal editor closes. */
+  static lastOptions: any = undefined
+  constructor(opts: any) {
+    Modal.lastOptions = opts
+  }
   open() {}
   close() {}
 }

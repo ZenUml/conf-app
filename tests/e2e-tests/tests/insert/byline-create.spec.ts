@@ -187,7 +187,13 @@ test.describe(`Byline create path - ${testConfig.productType}`, { tag: ['@test:b
       byline.locator('[data-testid="byline-open-editor"]'),
       'offered to open the editor to a user already in it',
     ).toHaveCount(0);
-    await expect(byline.locator('[data-testid="byline-created-done"]')).toHaveText('Done');
+    // The primary button copies inside its own click. Its label depends on
+    // whether the save-time auto copy already landed ("Done") or not ("Copy
+    // link & close"), which is browser policy in the Forge iframe, not product
+    // behaviour, so either label passes.
+    await expect(byline.locator('[data-testid="byline-created-done"]')).toHaveText(
+      /^(Done|Copy link & close)$/,
+    );
     await expect(byline.locator('[data-testid="byline-created-sub-editing"]')).toContainText(
       'Paste the link where you want it',
     );

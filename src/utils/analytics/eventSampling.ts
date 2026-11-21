@@ -292,6 +292,9 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   "unplaced_banner_evaluated",
   "unplaced_banner_shown",
   "unplaced_banner_dismissed",
+  // Byline post-save link copy is rare and is the only evidence that the
+  // create-to-paste handoff works; sampling it hid a 12-of-14 failure rate.
+  "advocacy_message_copied",
 ]);
 
 // Explicit conf-app browser success/info allowlist. Core lifecycle, paywall,
@@ -335,7 +338,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "magic_view_restored",
   "magic_preference_changed",
   "space_admin_active",
-  "advocacy_message_copied",
   "advocacy_draft_preview_clicked",
   "extension_request_clicked",
   "extension_action_requested",

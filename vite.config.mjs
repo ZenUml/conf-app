@@ -61,6 +61,55 @@ const DEV_ONLY_HTML_ENTRIES = new Set([
   'sandbox.html',
 ]);
 
+// Stable libraries get chunks of their own, so a release that changes only our
+// code leaves their file names (content hashes) unchanged and browsers keep
+// their cached copies. Rollup's hash covers a chunk's imports too: before this,
+// Vue + mixpanel shared a chunk with src/utils/window.ts, which inlines
+// VITE_APP_VERSION, and the Rollup commonjs helper sat in that chunk as well.
+// Every release therefore renamed that chunk and, through the import, the
+// 3.5 MB zenuml.esm chunk and the @forge/bridge chunk that import it.
+// Measured on the full variant: a build differing only in VITE_APP_VERSION
+// renamed 69 files / 16.6 MB of 24.5 MB of assets.
+//
+// Only modules every page already loads eagerly (Vue, @forge, mixpanel) or a
+// package entry that is lazy as a whole (zenuml.esm) are grouped: a rule that
+// matched a package's lazily imported files would make them eager. Rollup also
+// moves a grouped module's unassigned dependencies into its chunk, so anything
+// an eager chunk shares with zenuml.esm must be assigned elsewhere first — see
+// manualChunks below and the lazy-chunk-guard plugin.
+const VENDOR_CHUNKS = [
+  ['vendor-vue', /[\\/]node_modules[\\/](?:@vue[\\/](?:shared|reactivity|runtime-core|runtime-dom)|vue)[\\/]/],
+  ['vendor-forge', /[\\/]node_modules[\\/]@forge[\\/]/],
+  ['vendor-mixpanel', /[\\/]node_modules[\\/]mixpanel-browser[\\/]/],
+];
+// Our own @zenuml/core version only. @mermaid-js/mermaid-zenuml and the editor
+// bundle other @zenuml/core versions; folding those in would make the sequence
+// renderer download all of them. The name keeps the `zenuml.esm-` prefix that
+// the prefetch-manifest plugin below matches.
+const ZENUML_CORE_ENTRY = path.join(
+  fs.realpathSync(path.join(__dirname, 'node_modules/@zenuml/core')),
+  'dist',
+  'zenuml.esm.mjs',
+);
+
+function manualChunks(id) {
+  // Rollup/Vite helpers that library chunks import. Left unassigned they are
+  // hoisted into a chunk that also holds app code. __vite-browser-external is
+  // the empty stand-in for a Node builtin (the @zenuml/core parser's antlr4
+  // imports one); it used to land in the main entry chunk. The node-polyfills
+  // shims (lite/asyncapi) are injected into @zenuml/core and the entries
+  // alike; left unassigned, the process shim joined zenuml.esm and every entry
+  // imported that 3.5 MB chunk to get it.
+  if (
+    id === '\0vite/preload-helper.js' ||
+    id === '\0commonjsHelpers.js' ||
+    id.includes('__vite-browser-external') ||
+    /[\\/]node_modules[\\/]vite-plugin-node-polyfills[\\/]shims[\\/]/.test(id)
+  ) return 'runtime';
+  if (id === ZENUML_CORE_ENTRY) return 'zenuml.esm';
+  return VENDOR_CHUNKS.find(([, re]) => re.test(id))?.[0];
+}
+
 function getHtmlFiles(dir, { isBuild = false } = {}) {
   const htmlFiles = [];
   const files = fs.readdirSync(dir);
@@ -161,7 +210,8 @@ export default defineConfig(({ command }) => ({
   },
   build: {
     rollupOptions: {
-      input: getHtmlFiles('./', { isBuild: command === 'build' })
+      input: getHtmlFiles('./', { isBuild: command === 'build' }),
+      output: { manualChunks },
     },
 
     // @asyncapi/parser's transitive deps (qs, avsc, readable-stream, …)
@@ -296,6 +346,30 @@ export default defineConfig(({ command }) => ({
     gzipSize: true,
     brotliSize: true,
   })] : []),
+  // Build-only: fail the build when an HTML entry's static import graph reaches
+  // a chunk that must stay lazy. manualChunks can do that silently (see the
+  // node-polyfills note in manualChunks): the bundle still works, it just
+  // downloads 3.5 MB of renderer on every page.
+  {
+    name: 'lazy-chunk-guard',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      const LAZY_ONLY = [/^assets\/zenuml\.esm-/];
+      for (const entry of Object.values(bundle)) {
+        if (entry.type !== 'chunk' || !entry.isEntry) continue;
+        const seen = new Set();
+        const walk = (fileName) => {
+          if (seen.has(fileName)) return;
+          seen.add(fileName);
+          if (LAZY_ONLY.some((re) => re.test(fileName))) {
+            this.error(`${entry.fileName} statically imports ${fileName}, which must load lazily`);
+          }
+          for (const dep of bundle[fileName]?.imports || []) walk(dep);
+        };
+        walk(entry.fileName);
+      }
+    },
+  },
   // Build-only: emit dist/prefetch-manifest.json mapping renderer family →
   // hashed chunk paths (entry chunk + static import closure + CSS), consumed
   // by the idle renderer prefetch (src/utils/prefetch/prefetchAssets.ts).

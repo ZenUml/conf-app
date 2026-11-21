@@ -120,7 +120,7 @@ test('main, PR, daily, rerun and manual defaults resolve safely for current and 
     assert.equal(caller.with['candidate-runner'], undefined);
   }
   assert.equal(transaction.jobs.deploy.with['workflow-ref'], '${{ inputs.workflow-ref }}');
-  assert.deepEqual(Object.keys(deploy.on.workflow_dispatch.inputs), ['variant', 'pages-branch'], 'only the optional Pages branch is an extra manual control');
+  assert.deepEqual(Object.keys(deploy.on.workflow_dispatch.inputs), ['variant', 'pages-branch', 'forge-environment', 'forge-site', 'backend-url'], 'only the optional Pages branch and dedicated-slot controls are extra manual inputs');
   await withResolver(async resolve => {
     for (const caller of [main.jobs['staging-lite'], pr.jobs['staging-lite']]) for (const app of [current, old]) {
       const result = await resolve({ VARIANT: caller.with.variant, IN_LICENSE: caller.with.license, IN_PROJECT: caller.with.project,
@@ -281,4 +281,40 @@ test('resolver defaults the Pages branch to production and accepts only a safe p
       assert.equal(result.values, '', 'no output is written for ' + bad);
     }
   });
+});
+
+test('resolver defaults the dedicated-slot inputs to the shared staging slot and validates them', async () => {
+  await withResolver(async resolve => {
+    const ordinary = await resolve({});
+    assert.equal(ordinary.status, 0);
+    assert.equal(ordinary.outputs['forge-environment'], 'staging');
+    assert.equal(ordinary.outputs['forge-site'], '');
+    assert.equal(ordinary.outputs['backend-url'], '');
+    const unset = await resolve({ IN_FORGE_ENVIRONMENT: undefined, IN_FORGE_SITE: undefined, IN_BACKEND_URL: undefined });
+    assert.equal(unset.status, 0);
+    assert.equal(unset.outputs['forge-environment'], 'staging');
+    const slot = await resolve({ IN_FORGE_ENVIRONMENT: 'pr', IN_FORGE_SITE: 'lite-dev.atlassian.net', IN_BACKEND_URL: 'https://conf-stg-lite-pr.zenuml.com' });
+    assert.equal(slot.status, 0);
+    assert.equal(slot.outputs['forge-environment'], 'pr');
+    assert.equal(slot.outputs['forge-site'], 'lite-dev.atlassian.net');
+    assert.equal(slot.outputs['backend-url'], 'https://conf-stg-lite-pr.zenuml.com');
+    assert.equal(slot.outputs['preparation-mode'], 'candidate');
+    for (const bad of [{ IN_FORGE_ENVIRONMENT: 'PR' }, { IN_FORGE_ENVIRONMENT: 'a b' }, { IN_FORGE_ENVIRONMENT: 'x'.repeat(33) }, { IN_FORGE_ENVIRONMENT: '$(id)' },
+      { IN_FORGE_SITE: 'evil.example.com' }, { IN_FORGE_SITE: 'a.atlassian.net.evil.com' }, { IN_FORGE_SITE: 'a;b.atlassian.net' },
+      { IN_BACKEND_URL: 'http://x.zenuml.com' }, { IN_BACKEND_URL: 'https://x.example.com' }, { IN_BACKEND_URL: 'https://x.zenuml.com/path' }, { IN_BACKEND_URL: 'https://x.zenuml.com:1' },
+      { IN_FORGE_ENVIRONMENT: 'pr\nx' }]) {
+      const result = await resolve(bad);
+      assert.notEqual(result.status, 0, JSON.stringify(bad));
+      assert.equal(result.values, '', 'nothing is published for a rejected input');
+    }
+    for (const variant of ['full', 'diagramly', 'asyncapi']) {
+      assert.notEqual((await resolve({ VARIANT: variant, IN_FORGE_ENVIRONMENT: 'pr' })).status, 0, 'dedicated slot is Lite only');
+    }
+  });
+});
+
+test('a dedicated Forge environment takes its own standalone lock; staging keeps the shared one', () => {
+  assert.match(deploy.concurrency.group, /conf-app-pr-slot/);
+  assert.match(deploy.concurrency.group, /'conf-app-staging'/);
+  assert.match(deploy.concurrency.group, /staging-inner/);
 });

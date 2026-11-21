@@ -32,6 +32,10 @@ export function dispatchBody(env) {
       inputs.mode = env.MODE;
       if (env.PR_NUMBER) inputs['pr-number'] = env.PR_NUMBER;
       if (env.DECISION_ID) inputs['decision-id'] = env.DECISION_ID;
+      // Dedicated-slot overrides; unset keeps the shared staging defaults of the child.
+      if (env.CHILD_APP) inputs.app = env.CHILD_APP;
+      if (env.CHILD_AUTH_ARTIFACT) inputs['auth-artifact'] = env.CHILD_AUTH_ARTIFACT;
+      if (env.CHILD_BACKEND_URL) inputs['backend-url'] = env.CHILD_BACKEND_URL;
     }
     else {
       inputs.suite = env.SUITE || 'insert';

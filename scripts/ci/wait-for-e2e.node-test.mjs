@@ -26,6 +26,19 @@ test('PR dispatch uses branch ref and only the PR child inputs', () => {
   assert.equal('suite' in body.inputs, false);
 });
 
+test('PR dispatch forwards dedicated-slot overrides only when set', () => {
+  const base = { CHILD_KIND: 'pr', DISPATCH_REF: 'main', GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '1', SOURCE_SHA: 'abc', MODE: 'selected', PR_NUMBER: '7', DECISION_ID: 'd1' };
+  const unset = dispatchBody(base);
+  for (const key of ['app', 'auth-artifact', 'backend-url']) assert.equal(key in unset.inputs, false);
+  assert.deepEqual(dispatchBody({ ...base, CHILD_APP: '', CHILD_AUTH_ARTIFACT: '', CHILD_BACKEND_URL: '' }), unset, 'empty overrides leave the body byte-identical');
+  const slot = dispatchBody({ ...base, CHILD_APP: 'zenuml-lite@dev', CHILD_AUTH_ARTIFACT: 'auth-state-pre-lite-dev', CHILD_BACKEND_URL: 'https://conf-stg-lite-pr.zenuml.com' });
+  assert.equal(slot.inputs.app, 'zenuml-lite@dev');
+  assert.equal(slot.inputs['auth-artifact'], 'auth-state-pre-lite-dev');
+  assert.equal(slot.inputs['backend-url'], 'https://conf-stg-lite-pr.zenuml.com');
+  const other = dispatchBody({ CHILD_KIND: 'phase', VERSION: 'v1', CHILD_APP: 'x', CHILD_BACKEND_URL: 'y' });
+  assert.equal('app' in other.inputs, false, 'only the PR child receives slot inputs');
+});
+
 test('phase dispatch carries version and exact producing run IDs without E2E inputs', () => {
   const body = dispatchBody({ CHILD_KIND: 'phase', VERSION: 'v1', ARTIFACT_RUN_ID: '42', STAGING_RUN_ID: '43' });
   assert.equal(body.inputs.version, 'v1');

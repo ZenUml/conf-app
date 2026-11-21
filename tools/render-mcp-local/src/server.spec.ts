@@ -36,6 +36,20 @@ describe('local render MCP server', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('carries the same attempt chain as the public server', async () => {
+    const handle = createLocalServer({ fetchImpl: viewFetch() });
+    const call = (id: number, args: Record<string, unknown>) =>
+      handle({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'render_diagram', arguments: args } });
+    const first = (await call(6, { source: 'A->B: msg' }))?.result as { structuredContent: { attempt: number; revision: string } };
+    expect(first.structuredContent.attempt).toBe(1);
+    const second = (await call(7, { source: 'A->B: msg', revision: first.structuredContent.revision }))?.result as {
+      structuredContent: { attempt: number };
+      content: Array<{ text: string }>;
+    };
+    expect(second.structuredContent.attempt).toBe(2);
+    expect(second.content[0].text).toContain('offer_to_save');
+  });
+
   it('reports bad params as a tool error the model can read', async () => {
     const handle = createLocalServer({ fetchImpl: viewFetch() });
     const res = await handle({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'render_diagram', arguments: {} } });

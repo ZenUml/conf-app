@@ -31,9 +31,11 @@
 import {
   INSTRUCTIONS,
   RENDER_TOOL,
+  chainSummaryFor,
+  issueCodes,
   RenderParamsError,
   renderDiagram,
-  summaryFor,
+  withChain,
   type RenderResult,
 } from './renderTool';
 import { getGuideByUri, listGuideResources } from './dslGuides';
@@ -98,8 +100,7 @@ export function rpcError(status: number, id: JsonRpcId, code: number, message: s
 /** render_issues / render_warnings_returned, for ZenUML sources only. */
 function zenumlIssueProps(r: RenderResult): Record<string, unknown> {
   if (r.diagramType !== 'sequence') return {};
-  const codes = [...new Set([...(r.warnings ?? []), ...(r.hints ?? [])].map((i) => i.code as string))];
-  if (!r.valid && codes.length === 0) codes.push('unrecognised');
+  const codes = issueCodes(r);
   return {
     render_warnings_returned: Boolean(r.warnings?.length),
     render_fix_suggested: Boolean(r.suggestedSource),
@@ -246,19 +247,24 @@ export async function handleRenderRpc(
       }
       const rateUnavailable = 'unavailable' in rate ? { reason: 'rate_limit_unavailable' } : {};
       try {
-        const value = await renderDiagram((params.arguments ?? {}) as Record<string, unknown>);
+        const args = (params.arguments ?? {}) as Record<string, unknown>;
+        const { result: value, chain } = await withChain(await renderDiagram(args), args.revision);
         await trackCall('success', {
           macro_type: value.diagramType,
           render_validation: value.unvalidated ? 'unvalidated' : value.valid ? 'valid' : 'invalid',
           render_type_source: value.detected ? 'detected' : 'given',
           ...zenumlIssueProps(value),
+          render_attempt: value.attempt,
+          render_revision_state: chain.revisionState,
+          ...(chain.fixApplied !== undefined ? { render_fix_applied: chain.fixApplied } : {}),
+          render_next_actions: (value.nextActions ?? []).map((a) => a.action),
           ...rateUnavailable,
         });
         // The view reads structuredContent (extractDiagram in
         // src/mcp-app-view.ts matches `diagramType` + `source`); the model
         // reads the text, which is a summary rather than its own source back.
         return rpcResult(id, {
-          content: [{ type: 'text', text: summaryFor(value) }],
+          content: [{ type: 'text', text: chainSummaryFor(value, chain) }],
           structuredContent: value,
         });
       } catch (e) {

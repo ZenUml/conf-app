@@ -1927,7 +1927,12 @@ export type AnalyticsEventName =
   // limiter could not decide (D1 missing or failing) and let the call through,
   // `reason: 'rate_limit_unavailable'` rides the successful call. Our own smoke
   // checks identify themselves with the `x-zenuml-internal-probe` header and
-  // carry `internal_probe: true`.
+  // carry `internal_probe: true`. For a ZenUML source, `render_issues` lists
+  // the recognised mistakes (AgentLinkRenderIssue; omitted when none) and
+  // `render_warnings_returned` says whether lint warnings went back with a
+  // source that parsed, so first-attempt pass rate and the mistake mix are
+  // readable without a new event. `render_fix_suggested` says whether a
+  // rewritten source (checked to parse with no warnings) went back too.
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -2377,6 +2382,24 @@ export type AgentLinkRenderValidation = "valid" | "invalid" | "unvalidated";
 // the source. 'detected' with render_validation 'invalid' is the case worth
 // watching: it can mean detection picked the wrong language.
 export type AgentLinkRenderTypeSource = "given" | "detected";
+
+// What render_diagram recognised in a ZenUML ("sequence") source
+// (agent_link_mcp_tool_called, `render_issues`). Lint warnings on a source
+// that parsed but draws the wrong diagram: 'group_with_messages' = a message
+// inside `group Name { }` (the group ends at its name and draws empty);
+// 'block_in_async_message' = a one-line `A->B: text { ... }` whose block is
+// read as message text. Parse failures with a targeted hint:
+// 'group_after_message' = `group` after the first message;
+// 'block_after_async_message' = a multi-line `{ }` block after `A->B: text`.
+// 'unrecognised' = a failed parse that matched none of these, so the mistake
+// mix has a complete denominator. A list rather than one code, because one
+// source can carry several mistakes at once.
+export type AgentLinkRenderIssue =
+  | "group_with_messages"
+  | "block_in_async_message"
+  | "group_after_message"
+  | "block_after_async_message"
+  | "unrecognised";
 
 // How one headless `tools/call` ended (agent_link_mcp_tool_called).
 // 'success' = the tool returned a result; 'tool_error' = the tool refused with

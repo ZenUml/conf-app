@@ -63,6 +63,7 @@ import type {
   AgentLinkMcpToolOutcome,
   AgentLinkRenderValidation,
   AgentLinkRenderTypeSource,
+  AgentLinkRenderIssue,
   ActivationPath,
   GalleryOpenTrigger,
   CodePanelToggleTrigger,
@@ -1302,6 +1303,13 @@ export type AnalyticsProperties = {
   // the source parse.
   render_validation?: AgentLinkRenderValidation;
   render_type_source?: AgentLinkRenderTypeSource;
+  // ZenUML sources only: recognised mistakes (lint warnings on a parsed
+  // source, targeted hints on a failed one), and whether warnings were sent.
+  render_issues?: AgentLinkRenderIssue[];
+  render_warnings_returned?: boolean;
+  // True when render_diagram also returned a rewritten source that parses
+  // with no warnings (today: the two `group` mistakes).
+  render_fix_suggested?: boolean;
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is

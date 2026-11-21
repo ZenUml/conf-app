@@ -24,6 +24,9 @@
 // What the server adds over a plain echo is the parse check (parseDsl.ts): the
 // agent gets ZenUML and Mermaid errors with line and column, and a structural
 // check for PlantUML and OpenAPI, instead of a picture that silently failed.
+// For ZenUML it also names known mistakes (zenumlDslGuide.ts): `warnings` on a
+// source that parsed but draws the wrong diagram, and `hints` that put a
+// specific fix before the parser's errors on one that did not.
 
 import {
   INSTRUCTIONS,
@@ -31,6 +34,7 @@ import {
   RenderParamsError,
   renderDiagram,
   summaryFor,
+  type RenderResult,
 } from './renderTool';
 import { getGuideByUri, listGuideResources } from './dslGuides';
 import {
@@ -93,6 +97,18 @@ export function rpcError(status: number, id: JsonRpcId, code: number, message: s
   const body: Record<string, unknown> = { code, message };
   if (data !== undefined) body.data = data;
   return json({ jsonrpc: '2.0', id, error: body }, { status, headers: JSON_HEADERS });
+}
+
+/** render_issues / render_warnings_returned, for ZenUML sources only. */
+function zenumlIssueProps(r: RenderResult): Record<string, unknown> {
+  if (r.diagramType !== 'sequence') return {};
+  const codes = [...new Set([...(r.warnings ?? []), ...(r.hints ?? [])].map((i) => i.code as string))];
+  if (!r.valid && codes.length === 0) codes.push('unrecognised');
+  return {
+    render_warnings_returned: Boolean(r.warnings?.length),
+    render_fix_suggested: Boolean(r.suggestedSource),
+    ...(codes.length ? { render_issues: codes } : {}),
+  };
 }
 
 type ToolOutcome = 'success' | 'tool_error' | 'unknown_tool' | 'exception' | 'rate_limited';
@@ -239,6 +255,7 @@ export async function handleRenderRpc(
           macro_type: value.diagramType,
           render_validation: value.unvalidated ? 'unvalidated' : value.valid ? 'valid' : 'invalid',
           render_type_source: value.detected ? 'detected' : 'given',
+          ...zenumlIssueProps(value),
           ...rateUnavailable,
         });
         // The view reads structuredContent (extractDiagram in

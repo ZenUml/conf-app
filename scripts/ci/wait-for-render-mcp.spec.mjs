@@ -28,8 +28,8 @@ describe('bounded Render MCP health readiness', () => {
     const f = fixture([new Response('', { status: 404 }), ready]);
     const report = await f.run();
     expect(report.ok).toBe(true);
-    expect(report.attempts).toHaveLength(2);
-    expect(f.sleeps).toEqual([5000]);
+    expect(report.attempts).toHaveLength(4);
+    expect(f.sleeps).toEqual([5000, 1000, 1000]);
     expect(f.requests.every(request => request.options.method === 'GET' && request.options.redirect === 'manual')).toBe(true);
     expect(f.requests.every(request => request.requested === url && request.options.signal instanceof AbortSignal)).toBe(true);
   });
@@ -39,12 +39,27 @@ describe('bounded Render MCP health readiness', () => {
     expect(report.ok).toBe(true);
     expect(report.attempts[0].reason).toMatch(/commit/);
   });
+  it('does not accept one ready answer while the previous version is still being served', async () => {
+    // Run 44832521286: health answered old, new (accepted as ready), and 170 ms later old again.
+    const old = () => Response.json({ commit: 'b'.repeat(40), dirty: false });
+    const f = fixture([old, ready, old, ready, ready, ready]);
+    const report = await f.run();
+    expect(report.ok).toBe(true);
+    expect(report.attempts.map(attempt => attempt.commit === sha)).toEqual([false, true, false, true, true, true]);
+    expect(f.sleeps).toEqual([5000, 1000, 5000, 1000, 1000]);
+  });
+  it('fails when the expected commit never stays for three answers in a row', async () => {
+    const old = () => Response.json({ commit: 'b'.repeat(40), dirty: false });
+    let turn = 0;
+    const f = fixture([() => (turn++ % 2 ? ready() : old())], 20_000);
+    await expect(f.run()).rejects.toMatchObject({ evidence: { ok: false } });
+  });
   it('recovers from a health network error without rerunning tool calls', async () => {
     const f = fixture([new TypeError('fetch failed'), ready]);
     const report = await f.run();
     expect(report.ok).toBe(true);
     expect(report.attempts[0].reason).toMatch(/network/);
-    expect(f.requests).toHaveLength(2);
+    expect(f.requests).toHaveLength(4);
   });
   it('recovers from a short request timeout', async () => {
     const error = Object.assign(new Error('request timed out'), { name: 'TimeoutError' });

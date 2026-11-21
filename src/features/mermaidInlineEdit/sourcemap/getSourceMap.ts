@@ -215,7 +215,7 @@ export function buildSourceMap(
     notes.set(index, entry);
   }
 
-  return { code, participants, messages, notes };
+  return { kind: 'sequence', code, participants, messages, notes };
 }
 
 /**

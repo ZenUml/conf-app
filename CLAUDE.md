@@ -317,7 +317,7 @@ Full reference (event storage, `clientDomain` format, key sources, paywall event
 
 **Paywall mechanics** (metered soft-paywall, the "Continue editing (N)" counter, staging test spaces, how to skip it): use the **paywall** skill.
 
-**Every new feature must include Mixpanel tracking.** When adding a feature, add `trackAnalyticsEvent` calls for the key lifecycle moments (requested, succeeded, failed, dismissed, etc.). Register new event names in `src/utils/analytics/catalog.ts` (`AnalyticsEventName` union) and use appropriate properties from `src/utils/analytics/types.ts`. Tracking is not optional — it is part of the definition of done.
+**Every new feature must include Mixpanel tracking.** When adding a feature, add `trackAnalyticsEvent` calls for the key lifecycle moments (requested, succeeded, failed, dismissed, etc.). Register new event names in `src/utils/analytics/catalog.ts` (`AnalyticsEventName` union) and use appropriate properties from `src/utils/analytics/types.ts`. Give each new event a volume decision in `src/utils/analytics/eventSampling.ts` (full rate, sampled, reduced, stopped, or sampled at the emit site); `eventVolumeClassification.spec.ts` fails until you do, because an unlisted event is sent on every occurrence and the plan allows 1M events a month. Tracking is not optional — it is part of the definition of done.
 
 ### Bug reports: User-First Trace
 

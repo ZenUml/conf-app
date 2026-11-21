@@ -38,6 +38,7 @@ vi.mock("@/utils/draftStore", () => ({
   getCachedCloudId: vi.fn(),
   getCachedSavedVersionUpdatedAt: vi.fn(),
   saveDraftSync: vi.fn(),
+  clearDraftSync: vi.fn(),
   isDraftNewerThanSaved: vi.fn(() => false),
 }));
 

@@ -260,6 +260,23 @@ describe('DiagramViewport wheel zoom', () => {
     expect(panZoom.setMaxZoom).toHaveBeenLastCalledWith(1.75);
   });
 
+  it('after an inline edit at natural size, the limits are still the opening size and natural size', async () => {
+    // Opened at half natural size, 0.875 of the fit (fit = 0.5 / 0.875 natural).
+    panZoom.getSizes.mockReturnValue({ realZoom: 0.5 });
+    panZoom.getZoom.mockReturnValue(0.875);
+    const wrapper = mountViewport(false);
+    await wrapper.vm.attach();
+    // The user zooms in to natural size and edits in place; the edit releases the hold there.
+    wrapper.vm.holdView(true);
+    panZoom.getSizes.mockReturnValue({ realZoom: 1 });
+    panZoom.getZoom.mockReturnValue(1.75);
+    wrapper.vm.holdView(false);
+
+    // Zoom out must still reach the opening size, not stop at the view the edit ended in.
+    expect(panZoom.setMinZoom).toHaveBeenLastCalledWith(0.875);
+    expect(panZoom.setMaxZoom).toHaveBeenLastCalledWith(1.75);
+  });
+
   it('disables Zoom in at natural size and Zoom out at the opening size', async () => {
     panZoom.getSizes.mockReturnValue({ realZoom: 0.5 });
     panZoom.getZoom.mockReturnValue(0.875);

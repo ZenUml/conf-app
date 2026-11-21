@@ -70,6 +70,26 @@ describe('parseViewEvent', () => {
   });
 });
 
+describe('parseViewEvent — mcp_mode', () => {
+  it('keeps the local mode on every kind of event', () => {
+    expect(parseViewEvent('{"macro_type":"sequence","mcp_mode":"local","render_outcome":"rendered"}')).toEqual({
+      event: 'agent_link_app_view_rendered', macro_type: 'sequence', mcp_mode: 'local', render_outcome: 'rendered',
+    });
+    expect(parseViewEvent('{"kind":"fullscreen","macro_type":"graph","mcp_mode":"local","fullscreen_outcome":"entered"}')).toMatchObject({
+      event: 'agent_link_app_view_fullscreen_requested', mcp_mode: 'local',
+    });
+    expect(parseViewEvent('{"kind":"zoom","macro_type":"mermaid","mcp_mode":"local","viewport_action":"fit","viewport_input":"toolbar","fullscreen_active":false}')).toMatchObject({
+      event: 'agent_link_app_view_zoomed', mcp_mode: 'local',
+    });
+  });
+
+  it('leaves the mode out when none is sent, and refuses one it does not know', () => {
+    expect(parseViewEvent('{"macro_type":"sequence","render_outcome":"rendered"}')).not.toHaveProperty('mcp_mode');
+    expect(parseViewEvent('{"macro_type":"sequence","mcp_mode":"headless","render_outcome":"rendered"}')).toBeNull();
+    expect(parseViewEvent('{"macro_type":"sequence","mcp_mode":true,"render_outcome":"rendered"}')).toBeNull();
+  });
+});
+
 describe('parseViewEvent — fullscreen', () => {
   it('keeps whether the host offered fullscreen on a render report', () => {
     expect(parseViewEvent('{"macro_type":"sequence","render_outcome":"rendered","fullscreen_available":true}')).toEqual({

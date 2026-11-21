@@ -9,7 +9,16 @@ export const REJECTION_MESSAGES: Record<EditRejection, string> = {
   position_mismatch: "Couldn't edit this element. Edit it in the code instead.",
 };
 
+/** Flowchart labels: the same rules, worded for a label instead of a name. */
+export const FLOWCHART_REJECTION_MESSAGES: Record<EditRejection, string> = {
+  ...REJECTION_MESSAGES,
+  empty: "A label can't be empty.",
+  position_mismatch: "Couldn't edit this label. Edit it in the code instead.",
+};
+
 export const INPUT_LABELS = {
   participantLabel: 'Edit participant name',
   messageText: 'Edit message text',
+  nodeLabel: 'Edit node label',
+  edgeLabel: 'Edit edge label',
 } as const;

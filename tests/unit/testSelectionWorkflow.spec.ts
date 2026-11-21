@@ -12,7 +12,8 @@ const phases = ['main-build-preparation', 'main-staging-validation', 'main-draft
 const children = ['pr-e2e-validation', 'staging-lite-e2e', 'staging-full-e2e', 'staging-diagramly-e2e', 'staging-asyncapi-e2e'];
 describe('staging workflow safety contracts', () => {
   it('holds queued staging ownership through parent deploy/test runs without nested same-group locks', () => {
-    for (const name of ['build-test-deploy', 'pr-validation', 'daily-regression']) { const yaml = workflow(name); expect(yaml).toMatch(/concurrency:\n  group: conf-app-staging\n  cancel-in-progress: false\n  queue: max/); }
+    for (const name of ['build-test-deploy', 'daily-regression']) { const yaml = workflow(name); expect(yaml).toMatch(/concurrency:\n  group: conf-app-staging\n  cancel-in-progress: false\n  queue: max/); }
+    expect(workflow('pr-validation')).toMatch(/concurrency:\n  group: conf-app-pr-slot\n  cancel-in-progress: false\n  queue: max/);
     expect(workflow('staging-deploy')).toContain("github.workflow == 'Staging Deploy' && 'conf-app-staging'");
     expect(workflow('staging-transaction')).not.toContain('concurrency:');
   });

@@ -178,10 +178,14 @@ describe('PR child workflow and its dispatcher', () => {
     expect(waitForE2e).toContain("if (env.CHILD_BACKEND_URL) inputs['backend-url'] = env.CHILD_BACKEND_URL;");
   });
 
-  it('this step does not switch PR validation to the new slot', () => {
-    expect(prValidation).not.toContain('forge-environment');
-    expect(prValidation).not.toContain('conf-stg-lite-pr');
-    expect(prValidation).not.toContain('zenuml-lite@dev');
-    expect(prValidation).not.toContain('CHILD_APP');
+  it('PR validation selects the PR slot end to end', () => {
+    for (const value of ['forge-environment: pr', 'forge-site: lite-dev.atlassian.net', 'pages-branch: pr',
+      'backend-url: https://conf-stg-lite-pr.zenuml.com', 'app: zenuml-lite@dev', 'CHILD_APP: zenuml-lite@dev',
+      'CHILD_AUTH_ARTIFACT: auth-state-pre-lite-dev', 'CHILD_BACKEND_URL: https://conf-stg-lite-pr.zenuml.com']) {
+      expect(prValidation).toContain(value);
+    }
+    // No shared-staging identity is left on the PR path.
+    expect(prValidation).not.toContain('zenuml-lite@stg');
+    expect(prValidation).not.toContain('group: conf-app-staging');
   });
 });

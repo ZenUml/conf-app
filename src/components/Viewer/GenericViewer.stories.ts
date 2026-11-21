@@ -22,6 +22,7 @@ import { resetFeatureFlagsForTests } from '@/apis/aiTitleFeatureFlag'
 import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'
 import { __resetMermaidLoaderForTests, loadMermaid } from '@/utils/mermaid/loadMermaid'
 import { __resetEditGateCache } from '@/utils/guardEditClick'
+import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
 import { PI_MAGIC_SYNTHETIC_ARTIFACT, PI_MAGIC_SYNTHETIC_SOURCE } from './fixtures/piMagicSynthetic'
 
 // Header.stories.ts's `{ template: '<story/>', app: (app) => app.use(store) }`
@@ -809,6 +810,59 @@ export const MermaidFullscreenPanZoom: Story = {
     await expect(canvas.queryByRole('button', { name: 'Reset view' })).toBeNull()
     await expect(canvas.getByRole('button', { name: 'Zoom out' })).toBeVisible()
     await expect(canvas.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+  },
+}
+
+/**
+ * Fullscreen with the Lite site-policy notice on (the server said the
+ * watermark applies). The notice strip belongs to the diagram's column: it
+ * takes the byline's width (the canvas column, capped at 1000px), so its button sits
+ * beside the text instead of the strip collapsing to a narrow card.
+ * Counts are invented.
+ */
+export const MermaidFullscreenLicenseNotice: Story = {
+  name: 'Fullscreen — Mermaid with the Lite license notice',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: [
+    () => {
+      configureStory({
+        diagramType: DiagramType.Mermaid,
+        title: 'Idea to Ship',
+        mermaidCode: SAMPLE_MERMAID_WIDE,
+        fullscreenMode: true,
+      })
+      ;(useCustomerSuccessService as any).__resetForTests()
+      stubResponses.remote.push({
+        match: '/api/space-status',
+        body: {
+          isPaid: false,
+          decisionKnown: true,
+          enforcement: {
+            stage: 'watermark', count: 59228, limit: 100,
+            effects: { datedBanner: true, watermark: true, blockCreate: false, requestEdit: false },
+          },
+        },
+      })
+      return { template: '<story />' }
+    },
+  ],
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    const strip = await canvas.findByTestId('license-notice-strip', {}, { timeout: 15000 })
+    const viewerCanvas = strip.closest('.viewer-canvas') as HTMLElement
+    // The byline's column: the canvas content box (24px padding), capped at 1000px.
+    const expected = Math.min(1000, viewerCanvas.clientWidth - 48)
+    await waitFor(() => expect(Math.abs(strip.getBoundingClientRect().width - expected)).toBeLessThanOrEqual(1))
+    const stripBox = strip.getBoundingClientRect()
+    const canvasBox = viewerCanvas.getBoundingClientRect()
+    // Centred in the canvas, like the diagram and the byline.
+    await expect(Math.abs((stripBox.left + stripBox.right) - (canvasBox.left + canvasBox.right))).toBeLessThanOrEqual(2)
+    // Wide enough that the button sits beside the text, not under it.
+    const button = canvas.getByTestId('license-notice-plan-usage').getBoundingClientRect()
+    const body = canvas.getByTestId('license-notice-body-lite').getBoundingClientRect()
+    await expect(button.left).toBeGreaterThanOrEqual(body.right)
   },
 }
 

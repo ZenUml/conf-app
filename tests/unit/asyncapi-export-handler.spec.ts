@@ -130,4 +130,32 @@ describe('AsyncAPI export resolver (src/asyncapi-export.js)', () => {
     // where the same failure resolves to 'none' (type genuinely unknown there).
     expect(failed?.properties?.macro_type).toBe('asyncapi');
   });
+
+  it('carries a bounded failure_kind (and the status when a request returned one)', async () => {
+    const kindOf = () => (mixpanelBodiesFromFetch(fetch) as Array<{
+      event?: string;
+      properties?: { failure_kind?: string; http_status?: number };
+    }>).find((r) => r.event === 'macro_export_failed')?.properties;
+
+    await handler(basePayload(null));
+    expect(kindOf()?.failure_kind).toBe('no_content_id');
+    expect(kindOf()?.http_status).toBeUndefined();
+  });
+
+  it('spec lookup 404 -> failure_kind spec_lookup_http_error with http_status 404', async () => {
+    asAppRequest.mockResolvedValue({ ok: false, status: 404, text: async () => '' });
+    await handler(basePayload('cc-404k'));
+    const p = (mixpanelBodiesFromFetch(fetch) as Array<{ event?: string; properties?: { failure_kind?: string; http_status?: number } }>)
+      .find((r) => r.event === 'macro_export_failed')?.properties;
+    expect(p?.failure_kind).toBe('spec_lookup_http_error');
+    expect(p?.http_status).toBe(404);
+  });
+
+  it('empty code -> failure_kind spec_unusable', async () => {
+    asAppRequest.mockResolvedValue(customContentResponse({ diagramType: 'AsyncAPI', title: 'Empty', code: '' }));
+    await handler(basePayload('cc-emptyk'));
+    const p = (mixpanelBodiesFromFetch(fetch) as Array<{ event?: string; properties?: { failure_kind?: string; http_status?: number } }>)
+      .find((r) => r.event === 'macro_export_failed')?.properties;
+    expect(p?.failure_kind).toBe('spec_unusable');
+  });
 });

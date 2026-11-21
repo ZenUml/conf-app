@@ -41,6 +41,7 @@ const panZoomInstanceMock = vi.hoisted(() => ({
   resize: vi.fn(),
   zoom: vi.fn(),
   zoomIn: vi.fn(),
+  zoomBy: vi.fn(),
   zoomOut: vi.fn(),
   zoomAtPointBy: vi.fn(),
   panBy: vi.fn(),
@@ -748,15 +749,13 @@ describe('Mermaid fullscreen viewport controls', () => {
       expect(svgPanZoomMock).toHaveBeenCalled();
     });
 
-    const zoomOutCalls = panZoomInstanceMock.zoomOut.mock.calls.length;
-    const zoomInCalls = panZoomInstanceMock.zoomIn.mock.calls.length;
+    panZoomInstanceMock.zoomBy.mockClear();
     // Opened at the floor: zoom in first, then svg-pan-zoom reports the new zoom.
     await wrapper.get('[aria-label="Zoom in"]').trigger('click');
     svgPanZoomMock.mock.calls.at(-1)![1].onZoom(10);
     await wrapper.vm.$nextTick();
     await wrapper.get('[aria-label="Zoom out"]').trigger('click');
-    expect(panZoomInstanceMock.zoomOut).toHaveBeenCalledTimes(zoomOutCalls + 1);
-    expect(panZoomInstanceMock.zoomIn).toHaveBeenCalledTimes(zoomInCalls + 1);
+    expect(panZoomInstanceMock.zoomBy.mock.calls).toEqual([[1.25], [1 / 1.25]]);
     expect(panZoomInstanceMock.reset).toHaveBeenCalled();
     expect(trackAnalyticsEvent).toHaveBeenCalledWith('viewport_control_used', {
       feature_area: 'macro',

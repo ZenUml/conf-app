@@ -46,10 +46,10 @@ import {
   alignOf, axisOffset, bindSafariPinch, clampScale, classifyWheel, createGestureGate, zoomLimits, zoomRoom,
 } from '@/utils/viewport/wheelZoom';
 import { trackViewportControl } from '@/utils/viewport/trackViewportControl';
+import { TOOLBAR_ZOOM_STEP } from '@/utils/viewport/zoomStep';
 import { endFullscreenZoomSession, rebaseFullscreenZoom, startFullscreenZoomSession } from '@/utils/viewport/fullscreenZoomSummary';
 import { wheelFallsThroughToPage } from '@/utils/viewport/surface';
 
-const ZOOM_STEP = 1.2;
 /** Below this a press is a click on the diagram, not a pan. */
 const DRAG_TOLERANCE_PX = 4;
 
@@ -235,10 +235,10 @@ export default {
       return { x: clientX - rect.left, y: clientY - rect.top };
     },
     zoomIn() {
-      this.zoomBy(ZOOM_STEP);
+      this.zoomBy(TOOLBAR_ZOOM_STEP);
     },
     zoomOut() {
-      this.zoomBy(1 / ZOOM_STEP);
+      this.zoomBy(1 / TOOLBAR_ZOOM_STEP);
     },
     fitAxis(axis) {
       const viewport = this.$refs.viewport;

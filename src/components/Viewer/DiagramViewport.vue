@@ -46,6 +46,7 @@ import {
   alignOf, axisOffset, bindSafariPinch, classifyWheel, createGestureGate, zoomLimits, zoomRoom,
 } from '@/utils/viewport/wheelZoom';
 import { trackViewportControl } from '@/utils/viewport/trackViewportControl';
+import { TOOLBAR_ZOOM_STEP } from '@/utils/viewport/zoomStep';
 import { endFullscreenZoomSession, rebaseFullscreenZoom, startFullscreenZoomSession } from '@/utils/viewport/fullscreenZoomSummary';
 import { wheelFallsThroughToPage } from '@/utils/viewport/surface';
 
@@ -500,10 +501,10 @@ export default {
       g.style.transform = matrix;
     },
     zoomIn() {
-      this.panZoom?.zoomIn();
+      this.panZoom?.zoomBy(TOOLBAR_ZOOM_STEP);
     },
     zoomOut() {
-      this.panZoom?.zoomOut();
+      this.panZoom?.zoomBy(1 / TOOLBAR_ZOOM_STEP);
     },
     fitAxis(axis) {
       if (!this.panZoom) return;

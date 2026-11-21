@@ -56,11 +56,11 @@ import {
   alignOf, axisOffset, bindSafariPinch, clampScale, classifyWheel, createGestureGate, zoomLimits, zoomRoom,
 } from "@/utils/viewport/wheelZoom";
 import { trackViewportControl } from "@/utils/viewport/trackViewportControl";
+import { TOOLBAR_ZOOM_STEP } from "@/utils/viewport/zoomStep";
 import { endFullscreenZoomSession, startFullscreenZoomSession } from "@/utils/viewport/fullscreenZoomSummary";
 import { wheelFallsThroughToPage } from "@/utils/viewport/surface";
 
 /** The step DrawIO's own toolbar zoom uses (mxGraph zoomFactor). */
-const GRAPH_ZOOM_STEP = 1.2;
 export default {
   name: "ForgeGraphViewer",
   components: {
@@ -289,11 +289,11 @@ export default {
     // and every viewport now shares one floor, ceiling and pan limit.
     zoomIn() {
       const container = this.$refs.graphContainer;
-      this.zoomAt(GRAPH_ZOOM_STEP, (container?.clientWidth ?? 0) / 2, (container?.clientHeight ?? 0) / 2);
+      this.zoomAt(TOOLBAR_ZOOM_STEP, (container?.clientWidth ?? 0) / 2, (container?.clientHeight ?? 0) / 2);
     },
     zoomOut() {
       const container = this.$refs.graphContainer;
-      this.zoomAt(1 / GRAPH_ZOOM_STEP, (container?.clientWidth ?? 0) / 2, (container?.clientHeight ?? 0) / 2);
+      this.zoomAt(1 / TOOLBAR_ZOOM_STEP, (container?.clientWidth ?? 0) / 2, (container?.clientHeight ?? 0) / 2);
     },
     /**
      * Read the opening view while the reader has not moved it: the scale is the

@@ -41,6 +41,8 @@ import type {
   AgentLinkExpiryCause,
   AgentLinkRenderOutcome,
   AgentLinkGuardrailRejectReason,
+  AgentLinkGuardrailErrorKind,
+  AgentLinkGuardrailDslKind,
   AgentLinkSessionSuspendReason,
   AgentLinkListScope,
   AgentLinkMacroKeySource,
@@ -1250,6 +1252,17 @@ export type AnalyticsProperties = {
   // `guardrail_rejected` call. `reason` there is only that code, which cannot
   // tell a source that did not parse from a suspected truncation.
   guardrail_reason?: AgentLinkGuardrailRejectReason;
+  // The same refusals, in enough detail to judge whether the guard was right
+  // (2026-11: 10% of headless update_diagram calls were refused and the
+  // reason alone could not separate false alarms from real ones).
+  // `guardrail_kept_pct` = new non-whitespace length as a % of the current
+  // (data_loss only; the threshold is 80). `guardrail_error_kind` = class of
+  // the first parse error (parse_error only). `guardrail_dsl_kind` = the
+  // Mermaid diagram keyword of the refused source (Mermaid only). Sizes ride
+  // the shared `input_len` (current) / `output_len` (proposed) above.
+  guardrail_kept_pct?: number;
+  guardrail_error_kind?: AgentLinkGuardrailErrorKind;
+  guardrail_dsl_kind?: AgentLinkGuardrailDslKind;
   // agent_link_diagram_updated only: true when the call renamed the diagram
   // (a non-blank `title` that differs from the stored one, #789).
   title_changed?: boolean;

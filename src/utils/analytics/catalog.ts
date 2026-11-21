@@ -1903,7 +1903,9 @@ export type AnalyticsEventName =
   // It carries the tool in `mcp_tool`, the target site in `cloud_id` (absent
   // for list_sites / get_status, which take none), how the call ended in
   // `mcp_tool_outcome`, the closed-vocabulary error code (if any) in `reason`,
-  // why the guard refused in `guardrail_reason`, the host in `oauth_client_id` /
+  // why the guard refused in `guardrail_reason` (with `guardrail_kept_pct`,
+  // `guardrail_error_kind`, `guardrail_dsl_kind`, `input_len`, `output_len`
+  // saying how), the host in `oauth_client_id` /
   // `oauth_client_name`, the site in `client_domain`, and server-side latency in
   // `duration_ms`. A `reason: 'upstream'` failure also names the step that
   // failed in `failure_step`, the HTTP status Confluence/Atlassian answered in
@@ -2223,10 +2225,56 @@ export type AgentLinkRenderOutcome = "rendered" | "failed" | "timeout";
 // never-emitted; the type survives because it still widens the shared `reason`
 // union in types.ts. 'parse_error' = the DSL didn't parse in the
 // real parser (ZenUML/Mermaid/best-effort PlantUML — see charter §4-C);
-// 'data_loss' = it parsed but the semantic round-trip diff showed the output
-// dropping content present in the input (participant/message count collapse);
+// 'data_loss' = the replacement kept under 80% of the current content's
+// non-whitespace length (updateDiagramGuard.ts DATA_LOSS_MIN_RATIO; the page
+// guard uses the same test) — a length check, not a semantic diff;
 // 'other' = any other pre-persist guardrail rejection not covered above.
 export type AgentLinkGuardrailRejectReason = "parse_error" | "data_loss" | "other";
+
+// What kind of parse error a `guardrail_reason: 'parse_error'` refusal was
+// (guardrail_error_kind). Derived from the first parser error's text, which
+// itself never leaves the backend. 'unknown_diagram' = Mermaid found no
+// diagram type it knows (the shape of the 2026-11 false refusals on Mermaid
+// `zenuml` blocks); 'unexpected_end' = the source ends mid-construct (got
+// 'EOF', a missing @end, an unclosed brace) — the truncation signature;
+// 'syntax' = any other grammar error.
+export type AgentLinkGuardrailErrorKind = "unknown_diagram" | "unexpected_end" | "syntax";
+
+// The diagram keyword at the top of a refused Mermaid source
+// (guardrail_dsl_kind), from Mermaid's own keyword list. 'other' = a first
+// word not on that list (never the word itself); 'empty' = no keyword at all.
+export type AgentLinkGuardrailDslKind =
+  | "flowchart"
+  | "graph"
+  | "sequenceDiagram"
+  | "classDiagram"
+  | "stateDiagram"
+  | "stateDiagram-v2"
+  | "erDiagram"
+  | "journey"
+  | "gantt"
+  | "pie"
+  | "quadrantChart"
+  | "requirementDiagram"
+  | "gitGraph"
+  | "C4Context"
+  | "C4Container"
+  | "C4Component"
+  | "C4Dynamic"
+  | "C4Deployment"
+  | "mindmap"
+  | "timeline"
+  | "zenuml"
+  | "sankey-beta"
+  | "xychart-beta"
+  | "block-beta"
+  | "packet-beta"
+  | "architecture-beta"
+  | "kanban"
+  | "radar-beta"
+  | "treemap-beta"
+  | "other"
+  | "empty";
 
 // Why an agent_link session moved to/from 'suspended' (agent_link_session_suspended
 // / agent_link_session_resumed — charter §7.2). 'fullscreen_closed' = the

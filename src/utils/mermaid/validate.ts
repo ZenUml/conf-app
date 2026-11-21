@@ -31,6 +31,10 @@ export async function validateMermaidSyntax(rawCode: string): Promise<SyntaxVali
       location: null
     };
   } catch (error: any) {
+    const linkStyleError = await explainLinkStyleError(code, error);
+    if (linkStyleError) {
+      return linkStyleError;
+    }
     const errorMessage = error?.message || String(error) || 'Unknown error';
 
     // Attempt to extract line and column information from the error
@@ -86,6 +90,50 @@ export async function validateMermaidSyntax(rawCode: string): Promise<SyntaxVali
       location
     };
   }
+}
+
+// `linkStyle N` with N past the last link makes mermaid's flowchart db throw a
+// bare TypeError — "Cannot set properties of undefined (setting 'style')" —
+// with no line number. Neither the author nor AI Repair can act on that, so
+// count the links (parse again without the linkStyle lines) and name the line.
+const LINK_STYLE_LINE = /^\s*linkStyle\s+([\d\s,]+?)\s+\S/;
+
+async function explainLinkStyleError(code: string, error: any): Promise<SyntaxValidationResult | null> {
+  if (!/setting 'style'/.test(String(error?.message ?? ''))) return null;
+  const lines = code.split('\n');
+  const linkStyleLines = lines
+    .map((text, index) => ({ match: LINK_STYLE_LINE.exec(text), lineNumber: index + 1 }))
+    .filter((entry) => entry.match);
+  if (!linkStyleLines.length) return null;
+
+  let linkCount: number;
+  try {
+    const withoutLinkStyles = lines.filter((text) => !LINK_STYLE_LINE.test(text)).join('\n');
+    linkCount = await enqueueMermaid(async () => {
+      const mermaid = await loadMermaid();
+      const diagram = await mermaid.mermaidAPI.getDiagramFromText(withoutLinkStyles);
+      return (diagram.db as { getEdges: () => unknown[] }).getEdges().length;
+    });
+  } catch {
+    return null;
+  }
+
+  for (const { match, lineNumber } of linkStyleLines) {
+    const indexes = match![1].split(',').map((part) => Number(part.trim()));
+    const bad = indexes.find((index) => Number.isInteger(index) && index >= linkCount);
+    if (bad === undefined) continue;
+    const range = linkCount > 0
+      ? `The diagram has ${linkCount} link${linkCount === 1 ? '' : 's'}, numbered 0 to ${linkCount - 1}.`
+      : 'The diagram has no links.';
+    const message = `Parse error on line ${lineNumber}: linkStyle ${bad} points to a link that does not exist. ${range}`;
+    const lineLength = lines[lineNumber - 1].length;
+    return {
+      valid: false,
+      error: message,
+      location: createErrorLocation(lineNumber, lineNumber, 0, lineLength, message),
+    };
+  }
+  return null;
 }
 
 /**

@@ -85,3 +85,33 @@ describe('diagram types added in mermaid 11.13', () => {
     expect(result.valid).toBe(true);
   });
 });
+
+// A linkStyle index past the last link makes mermaid throw a bare TypeError,
+// "Cannot set properties of undefined (setting 'style')", with no line number.
+// Authors could not find the cause, and AI Repair returned the code unchanged
+// because the message names nothing to fix (two production repairs, 2026-10-22).
+describe('linkStyle index out of range', () => {
+  const dsl = [
+    'flowchart TD',
+    '  A --> B',
+    '  B --> C',
+    '  linkStyle 0 stroke:red',
+    '  linkStyle 2 stroke:blue',
+  ].join('\n');
+
+  it('names the linkStyle line, the bad index and the link count', async () => {
+    const result = await validateMermaidSyntax(dsl);
+
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe(
+      'Parse error on line 5: linkStyle 2 points to a link that does not exist. The diagram has 2 links, numbered 0 to 1.',
+    );
+    expect(result.location?.startLine).toBe(5);
+  });
+
+  it('accepts a linkStyle index inside the range', async () => {
+    const result = await validateMermaidSyntax(dsl.replace('linkStyle 2', 'linkStyle 1'));
+
+    expect(result.valid).toBe(true);
+  });
+});

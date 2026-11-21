@@ -53,6 +53,23 @@ describe('Forge graph viewer mode bootstrap', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.resetModules()
+    // clearAllMocks keeps implementations and queued Once values; a test that
+    // swaps them would otherwise leak into whichever test runs next.
+    h.getContext.mockReset()
+    h.getContext.mockImplementation(async () => ({
+      extension: { config: { customContentId: 'cc-board-1', graphEditorMode: 'board' } },
+    }))
+    mockGlobals.apWrapper.loadCustomContentWithOrphanRecovery.mockReset()
+    mockGlobals.apWrapper.loadCustomContentWithOrphanRecovery.mockImplementation(async () => ({
+      customContent: {
+        value: {
+          diagramType: 'graph',
+          graphXml: '<mxfile><diagram name="Diagram" /></mxfile>',
+          boardGraphXml: '',
+        },
+      },
+      probeResult: {},
+    }))
   })
 
   it('passes the persisted Board mode into the mounted viewer', async () => {

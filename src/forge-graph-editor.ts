@@ -145,6 +145,9 @@ async function saveGraphAndExit(payload: GraphEditorSavePayload): Promise<boolea
       content_id: String(id),
       custom_content_id: String(id),
     });
+    // Clear the local draft now: view.submit / view.close can destroy the
+    // iframe before 'saved' below is emitted. See forgeIndex.ts.
+    EventBus.$emit('publish-committing', id);
     try {
       if (needsWriteback && !isValidCustomContentId(id)) {
         // conf-app#320 defense-in-depth: never write a garbage customContentId
@@ -187,6 +190,7 @@ async function saveGraphAndExit(payload: GraphEditorSavePayload): Promise<boolea
       EventBus.$emit('saved', id);
     } catch (error) {
       console.error('view.submit/close failed after graph save', error);
+      EventBus.$emit('publish-commit-failed', error);
       trackEvent('save_failed', 'view_submit_failed', 'error', {
         error_message: String((error as any)?.message || error).substring(0, 500),
         new_custom_content_id: id,

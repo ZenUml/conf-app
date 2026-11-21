@@ -29,7 +29,7 @@ Two ways forward were considered; the second is the one built:
 
 `update_diagram` returns no diagram type or source, so after an update the view says "No diagram in this result." for every type.
 
-## Copy and Download
+## Copy, Download and Save to Confluence
 
 When a diagram is on screen, the toolbar starts with two buttons (#1271):
 
@@ -39,7 +39,10 @@ When a diagram is on screen, the toolbar starts with two buttons (#1271):
   - OpenAPI and AsyncAPI save `.yaml` or `.json`, and Markdown saves `.md`.
   - Where the host declares `hostCapabilities.downloadFile`, Download sends `ui/download-file` with one embedded `resource`. Otherwise it clicks an `<a download>`, which a sandbox without `allow-downloads` drops silently.
 
-Both report `agent_link_app_view_action_used`. A `done` for the `<a download>` path means the browser started the download, not that it saved the file.
+- **Save to Confluence** appears only for a fresh `render_diagram` result that parsed: not for `read_diagram` and the other Confluence tools, whose diagram is already stored. The host must also declare `hostCapabilities.message` with text. The button cannot save anything itself, because the Confluence tools are on another MCP server under the user's own sign-in. It sends `ui/message`, a user chat message asking the agent to save the diagram with the ZenUML Confluence connector's `create_diagram`, or to explain how to connect it. The message names the diagram's type and title and does not repeat the source, which the agent already has.
+  - The view tells a render from a Confluence result by `hostContext.toolInfo.tool.name` where the host sends it. Otherwise it goes by the result's shape: a render carries `valid` and no `contentId`.
+
+All three report `agent_link_app_view_action_used`. For `save_confluence`, `done` means the host accepted the message. Whether a diagram was then saved shows up as the agent's `create_diagram` call. A `done` for the `<a download>` path means the browser started the download, not that it saved the file.
 
 ## Host capabilities claude.ai declares
 

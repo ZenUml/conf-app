@@ -93,6 +93,8 @@ interface HostContext {
   displayMode?: string;
   availableDisplayModes?: string[];
   containerDimensions?: { width?: number; maxWidth?: number; height?: number; maxHeight?: number };
+  /** The tool call this view shows (ext-apps `McpUiHostContext.toolInfo`). */
+  toolInfo?: { tool?: { name?: unknown } };
 }
 
 let hostContext: HostContext = {};
@@ -105,10 +107,14 @@ let hostContext: HostContext = {};
  */
 let hostCapabilities: Record<string, unknown> = {};
 
+/** The last result is a render that nothing has saved yet (isUnsavedRender). */
+let resultSaveable = false;
+
 /** Reset between tests: the state above lives as long as the frame. */
 export function resetViewState(): void {
   hostContext = {};
   hostCapabilities = {};
+  resultSaveable = false;
   drawnType = null;
   drawnPayload = null;
   drawnImage = null;
@@ -710,7 +716,7 @@ function updateToolbar(): void {
   }
 }
 
-const TOOLBAR_ORDER = ['zen-mcp-copy', 'zen-mcp-download', 'zen-mcp-zoom-out', 'zen-mcp-zoom-fit', 'zen-mcp-zoom-in', 'zen-mcp-fullscreen'];
+const TOOLBAR_ORDER = ['zen-mcp-copy', 'zen-mcp-download', 'zen-mcp-save', 'zen-mcp-zoom-out', 'zen-mcp-zoom-fit', 'zen-mcp-zoom-in', 'zen-mcp-fullscreen'];
 
 const COPY_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 3.5v-1h-8v8h1" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
 const DOWNLOAD_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
@@ -722,8 +728,58 @@ function downloadLabel(): string {
   return drawnImage ? 'Download SVG' : 'Download source';
 }
 
-/** Copy and Download: present while a diagram is on screen. */
+const SAVE_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4.5 12.5h-.5a3 3 0 0 1-.4-6 4 4 0 0 1 7.8-.8A3.2 3.2 0 0 1 12 12.5h-.5M8 14V8M5.8 10.2 8 8l2.2 2.2" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
+
+/**
+ * Whether a tool result is a render that is not stored anywhere yet:
+ * `render_diagram`, not a Confluence tool (read/create/update_diagram), whose
+ * diagram already lives in Confluence. The host's `toolInfo` names the tool
+ * where it sends one; otherwise the result's shape tells: a render result
+ * carries `valid` and no `contentId`. A source that did not parse is not
+ * offered for saving.
+ */
+export function isUnsavedRender(result: unknown): boolean {
+  const content = (result as { structuredContent?: unknown } | undefined)?.structuredContent as
+    | Record<string, unknown>
+    | undefined;
+  if (!content || typeof content !== 'object' || content.valid === false || 'contentId' in content) return false;
+  const name = hostContext.toolInfo?.tool?.name;
+  if (typeof name === 'string') return name === 'render_diagram';
+  return typeof content.valid === 'boolean';
+}
+
+/** The host takes text messages for the chat (`ui/message`). */
+function hostTakesTextMessages(): boolean {
+  const modalities = hostCapabilities.message;
+  if (!modalities || typeof modalities !== 'object') return false;
+  // An empty object predates the modality list; read it as text.
+  return Object.keys(modalities).length === 0 || 'text' in modalities;
+}
+
+/**
+ * What Save to Confluence puts in the chat, as if the user typed it. The agent
+ * already has the source, from its own render_diagram call, so the message
+ * names the diagram rather than repeating it.
+ */
+export function saveRequestText(payload: DiagramPayload): string {
+  const title = payload.title?.trim();
+  return (
+    `Save the ${payload.diagramType} diagram${title ? ` "${title}"` : ''} you just rendered to Confluence. ` +
+    'Use the ZenUML Confluence connector (its create_diagram tool) if it is connected, and ask me which page it should go on. ' +
+    "If it isn't connected, tell me how to connect it."
+  );
+}
+
+/** Copy and Download: present while a diagram is on screen. Save to Confluence where it can work. */
 function updateKeepButtons(bar: HTMLElement, wanted: boolean): void {
+  const wantsSave = wanted && resultSaveable && hostTakesTextMessages();
+  let save = document.getElementById('zen-mcp-save');
+  if (!wantsSave) save?.remove();
+  else if (!save) {
+    save = toolButton('zen-mcp-save', 'Save to Confluence', () => void saveToConfluence());
+    save.innerHTML = SAVE_ICON;
+    bar.appendChild(save);
+  }
   const ids = ['zen-mcp-copy', 'zen-mcp-download'];
   if (!wanted) {
     for (const id of ids) document.getElementById(id)?.remove();
@@ -745,12 +801,18 @@ function updateKeepButtons(bar: HTMLElement, wanted: boolean): void {
   download.setAttribute('aria-label', downloadLabel());
 }
 
+const DONE_TITLES: Record<string, string> = {
+  'zen-mcp-copy': 'Copied',
+  'zen-mcp-download': 'Downloaded',
+  'zen-mcp-save': 'Sent to the chat',
+};
+
 /** Show the outcome on the button for a moment, then put it back. */
 function flash(id: string, ok: boolean, label: string, icon: string): void {
   const button = document.getElementById(id);
   if (!button) return;
   button.innerHTML = ok ? DONE_ICON : FAILED_ICON;
-  button.title = ok ? (id === 'zen-mcp-copy' ? 'Copied' : 'Downloaded') : `${label} failed`;
+  button.title = ok ? DONE_TITLES[id] ?? label : `${label} failed`;
   setTimeout(() => {
     const again = document.getElementById(id);
     if (!again) return;
@@ -926,6 +988,30 @@ async function downloadDiagram(): Promise<void> {
   }
   flash('zen-mcp-download', ok, downloadLabel(), DOWNLOAD_ICON);
   reportAction(type, { view_action: 'download', download_format: format, action_outcome: ok ? 'done' : 'failed' });
+}
+
+/**
+ * Ask the agent, through the chat, to save the diagram to Confluence. The
+ * view cannot save it: the Confluence tools sit on another MCP server, under
+ * the user's own sign-in. The host may ask the user to confirm first.
+ */
+async function saveToConfluence(): Promise<void> {
+  const payload = drawnPayload;
+  const type = drawnType;
+  if (!payload || !type) return;
+  let ok = false;
+  try {
+    const { result, error } = await ask(
+      'ui/message',
+      { role: 'user', content: [{ type: 'text', text: saveRequestText(payload) }] },
+      HOST_DIALOG_TIMEOUT_MS,
+    );
+    ok = !error && (result as { isError?: unknown } | undefined)?.isError !== true;
+  } catch (e) {
+    console.error('[zenuml] save request failed', e);
+  }
+  flash('zen-mcp-save', ok, 'Save to Confluence', SAVE_ICON);
+  reportAction(type, { view_action: 'save_confluence', action_outcome: ok ? 'done' : 'failed' });
 }
 
 function reportAction(type: string, fields: Record<string, string>): void {
@@ -1140,6 +1226,7 @@ export function onHostMessage(event: MessageEvent): void {
 
   if (msg.method === 'ui/notifications/tool-result') {
     resultMode = mcpModeOf(msg.params);
+    resultSaveable = isUnsavedRender(msg.params);
     const payload = extractDiagram(msg.params);
     if (payload) void render(payload);
     else status('No diagram in this result.');

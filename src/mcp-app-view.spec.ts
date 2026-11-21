@@ -5,6 +5,8 @@ import {
   downloadName,
   extractDiagram,
   fitScale,
+  isUnsavedRender,
+  saveRequestText,
   mcpModeOf,
   fullscreenAvailable,
   onHostMessage,
@@ -1089,6 +1091,66 @@ describe('Copy and Download', () => {
     });
   });
 
+  describe('Save to Confluence', () => {
+    let posted: Array<Record<string, unknown>>;
+    const render = { diagramType: 'mermaid', source: 'graph TD;A-->B;', title: 'Login flow', valid: true };
+
+    function connect(hostCapabilities: Record<string, unknown>, hostContext: Record<string, unknown> = {}): void {
+      posted = [];
+      vi.spyOn(window, 'postMessage').mockImplementation(((msg: unknown) => {
+        posted.push(msg as Record<string, unknown>);
+      }) as typeof window.postMessage);
+      start();
+      const id = posted.find((m) => m.method === 'ui/initialize')!.id;
+      onHostMessage({ data: { jsonrpc: '2.0', id, result: { protocolVersion: UI_PROTOCOL_VERSION, hostCapabilities, hostContext } } } as MessageEvent);
+    }
+
+    async function drawn(result: Record<string, unknown>): Promise<void> {
+      deliver(result);
+      await vi.waitFor(() => expect(button('zen-mcp-download')).not.toBeNull());
+    }
+
+    it('asks the agent, in the chat, to save a fresh render', async () => {
+      connect({ message: { text: {} } });
+      await drawn(render);
+      const ids = [...document.querySelectorAll('#zen-mcp-toolbar button')].map((b) => b.id);
+      expect(ids.slice(0, 3)).toEqual(['zen-mcp-copy', 'zen-mcp-download', 'zen-mcp-save']);
+      button('zen-mcp-save')!.click();
+      await vi.waitFor(() => expect(posted.find((m) => m.method === 'ui/message')).toBeDefined());
+      const request = posted.find((m) => m.method === 'ui/message')!;
+      expect(request.params).toEqual({
+        role: 'user',
+        content: [{ type: 'text', text: saveRequestText({ diagramType: 'mermaid', dsl: render.source, title: 'Login flow' }) }],
+      });
+      onHostMessage({ data: { jsonrpc: '2.0', id: request.id, result: { isError: false } } } as MessageEvent);
+      await vi.waitFor(() => expect(actions()).toHaveLength(1));
+      expect(actions()[0]).toEqual({ kind: 'action', macro_type: 'mermaid', view_action: 'save_confluence', action_outcome: 'done' });
+      expect(button('zen-mcp-save')?.title).toBe('Sent to the chat');
+    });
+
+    it('reports a message the host refused as failed', async () => {
+      connect({ message: {} });
+      await drawn(render);
+      button('zen-mcp-save')!.click();
+      await vi.waitFor(() => expect(posted.find((m) => m.method === 'ui/message')).toBeDefined());
+      onHostMessage({ data: { jsonrpc: '2.0', id: posted.find((m) => m.method === 'ui/message')!.id, result: { isError: true } } } as MessageEvent);
+      await vi.waitFor(() => expect(actions()).toHaveLength(1));
+      expect(actions()[0].action_outcome).toBe('failed');
+    });
+
+    it.each([
+      ['the host takes no messages', {}, {}, render],
+      ['the host takes no text', { message: { image: {} } }, {}, render],
+      ['the diagram is already in Confluence', { message: { text: {} } }, {}, { diagramType: 'mermaid', source: 'graph TD;A-->B;', contentId: '42' }],
+      ['the source did not parse', { message: { text: {} } }, {}, { ...render, valid: false }],
+      ['the host names another tool', { message: { text: {} } }, { toolInfo: { tool: { name: 'read_diagram' } } }, render],
+    ])('offers no save when %s', async (_label, caps, context, result) => {
+      connect(caps, context);
+      await drawn(result);
+      expect(button('zen-mcp-save')).toBeNull();
+    });
+  });
+
   it('takes the buttons away when the result has no diagram', async () => {
     deliver({ diagramType: 'mermaid', dsl: 'graph TD;A-->B;' });
     await vi.waitFor(() => expect(button('zen-mcp-copy')).not.toBeNull());
@@ -1102,5 +1164,29 @@ describe('downloadName', () => {
   it('keeps a title readable and safe as a file name', () => {
     expect(downloadName({ diagramType: 'Mermaid', dsl: '', title: ' a/b: c*d ' }, 'svg')).toBe('ab-cd.svg');
     expect(downloadName({ diagramType: 'Mermaid', dsl: '', title: '///' }, 'svg')).toBe('mermaid-diagram.svg');
+  });
+});
+
+describe('isUnsavedRender', () => {
+  beforeEach(() => resetViewState());
+
+  it('knows a render result by its shape when the host names no tool', () => {
+    expect(isUnsavedRender({ structuredContent: { diagramType: 'mermaid', source: 'x', valid: true } })).toBe(true);
+    expect(isUnsavedRender({ structuredContent: { diagramType: 'mermaid', source: 'x' } })).toBe(false);
+    expect(isUnsavedRender({ content: [] })).toBe(false);
+  });
+
+  it('trusts the tool name the host gives', () => {
+    applyHostContext({ toolInfo: { tool: { name: 'render_diagram' } } });
+    expect(isUnsavedRender({ structuredContent: { diagramType: 'mermaid', source: 'x' } })).toBe(true);
+  });
+});
+
+describe('saveRequestText', () => {
+  it('names the diagram and the connector, without the source', () => {
+    const text = saveRequestText({ diagramType: 'mermaid', dsl: 'graph TD;SECRET-->B;', title: 'Login flow' });
+    expect(text).toContain('mermaid diagram "Login flow"');
+    expect(text).toContain('create_diagram');
+    expect(text).not.toContain('SECRET');
   });
 });

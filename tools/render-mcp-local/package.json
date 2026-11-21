@@ -1,6 +1,6 @@
 {
   "name": "@zenuml/render-mcp",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Local MCP server that draws ZenUML, Mermaid, PlantUML, draw.io, OpenAPI and AsyncAPI diagrams without sending their source to ZenUML.",
   "license": "Apache-2.0",
   "type": "module",

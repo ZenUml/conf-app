@@ -12,7 +12,9 @@ vi.mock('@/utils/mermaid/loadMermaid', async () => {
   return { loadMermaid: async () => m };
 });
 
+import flowchartCorpus from './__fixtures__/upstream-flowchart-corpus.11.17.2.json';
 import corpus from './__fixtures__/upstream-sequence-corpus.11.17.2.json';
+import { getFlowchartSourceMap } from './getFlowchartSourceMap';
 import { getSourceMap } from './getSourceMap';
 
 it('maps the upstream corpus with the minified vendored mermaid bundle', async () => {
@@ -25,4 +27,19 @@ it('maps the upstream corpus with the minified vendored mermaid bundle', async (
   expect(new Set(reasons)).toEqual(new Set(['Mermaid does not parse the source']));
   expect(mapped).toBe(corpus.sources.length - reasons.length);
   expect(mapped).toBeGreaterThan(100);
+});
+
+it('maps the upstream flowchart corpus with the minified vendored mermaid bundle', async () => {
+  // The FlowDB subclass overrides addVertex, addSingleLink, setClickEvent and
+  // setLink, and reads `vertices` / `edges`: check the minified build too.
+  const reasons: string[] = [];
+  let mapped = 0;
+  for (const source of flowchartCorpus.sources) {
+    if (await getFlowchartSourceMap(source, { onReject: (r) => reasons.push(r) })) mapped++;
+  }
+  // Only "not supported" rejections; never a disagreement with the official db.
+  const allowed = new Set(['Mermaid does not parse the source', 'not a flowchart', 'ELK layout', 'htmlLabels is false']);
+  expect([...new Set(reasons)].filter((r) => !allowed.has(r))).toEqual([]);
+  expect(mapped).toBe(flowchartCorpus.sources.length - reasons.length);
+  expect(mapped).toBeGreaterThan(150);
 });

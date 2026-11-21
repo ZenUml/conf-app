@@ -116,6 +116,22 @@ export function saveDraftSync(scope: string, cloudId: string, draft: Omit<Draft,
   }
 }
 
+// Synchronous clear for the Publish commit point. view.submit / view.close
+// can destroy the iframe before any later microtask runs, so the async
+// clearDraft (which awaits getCloudId) may never reach removeItem. Falls back
+// to the async path when cloudId is not cached yet.
+export function clearDraftSync(scope: string): void {
+  if (!_cloudId) {
+    void clearDraft(scope);
+    return;
+  }
+  try {
+    localStorage.removeItem(keyFor(scope, _cloudId));
+  } catch {
+    // noop
+  }
+}
+
 // Pre-warm the cloudId cache so saveDraftSync has it available.
 export async function primeCloudId(): Promise<string> {
   return getCloudId();

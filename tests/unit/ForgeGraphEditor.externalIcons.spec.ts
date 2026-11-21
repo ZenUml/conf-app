@@ -13,6 +13,7 @@ vi.mock('@/utils/draftStore', () => ({
   getCachedCloudId: vi.fn(() => 'cloud'),
   getCachedSavedVersionUpdatedAt: vi.fn(() => null),
   saveDraftSync: vi.fn(),
+  clearDraftSync: vi.fn(),
   isDraftNewerThanSaved: vi.fn(() => false),
 }))
 vi.mock('@/EventBus', () => ({ default: { $on: vi.fn(), $off: vi.fn(), $emit: vi.fn() } }))

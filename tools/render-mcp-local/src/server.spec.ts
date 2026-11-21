@@ -31,7 +31,7 @@ describe('local render MCP server', () => {
       params: { name: 'render_diagram', arguments: { source: 'A.call() {\n  B.reply()\n}' } },
     });
     expect(res?.result).toMatchObject({
-      structuredContent: { diagramType: 'sequence', source: 'A.call() {\n  B.reply()\n}', valid: true, detected: true },
+      structuredContent: { diagramType: 'sequence', source: 'A.call() {\n  B.reply()\n}', valid: true, detected: true, mcpMode: 'local' },
     });
     expect(fetchImpl).not.toHaveBeenCalled();
   });

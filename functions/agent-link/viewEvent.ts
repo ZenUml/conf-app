@@ -24,11 +24,14 @@ const PLANTUML_FAILURE_REASONS = ['load_failed', 'include', 'engine_error'];
 const FULLSCREEN_OUTCOMES = ['entered', 'exited', 'declined', 'failed'];
 const ZOOM_ACTIONS = ['zoom_in', 'zoom_out', 'fit'];
 const ZOOM_INPUTS = ['toolbar', 'wheel', 'keyboard'];
+/** Only the local stdio server stamps its results (`mcpMode`); a remote result carries no mode. */
+const MCP_MODES = ['local'];
 
 /** A render report (agent_link_app_view_rendered). */
 interface RenderViewEvent {
   event: 'agent_link_app_view_rendered';
   macro_type: string;
+  mcp_mode?: string;
   render_outcome: string;
   fullscreen_available?: boolean;
   plantuml_renderer?: string;
@@ -39,6 +42,7 @@ interface RenderViewEvent {
 interface FullscreenViewEvent {
   event: 'agent_link_app_view_fullscreen_requested';
   macro_type: string;
+  mcp_mode?: string;
   fullscreen_outcome: string;
 }
 
@@ -46,6 +50,7 @@ interface FullscreenViewEvent {
 interface ZoomViewEvent {
   event: 'agent_link_app_view_zoomed';
   macro_type: string;
+  mcp_mode?: string;
   viewport_action: string;
   viewport_input: string;
   fullscreen_active: boolean;
@@ -68,9 +73,12 @@ export function parseViewEvent(text: string): ViewEvent | null {
   }
   if (!body || typeof body !== 'object') return null;
   if (!isOneOf(body.macro_type, RENDER_TYPES)) return null;
+  // A mode we do not know is refused like any other bad enum, not dropped.
+  if (body.mcp_mode !== undefined && !isOneOf(body.mcp_mode, MCP_MODES)) return null;
+  const mode = body.mcp_mode === undefined ? {} : { mcp_mode: body.mcp_mode as string };
   if (body.kind === 'fullscreen') {
     if (!isOneOf(body.fullscreen_outcome, FULLSCREEN_OUTCOMES)) return null;
-    return { event: 'agent_link_app_view_fullscreen_requested', macro_type: body.macro_type, fullscreen_outcome: body.fullscreen_outcome };
+    return { event: 'agent_link_app_view_fullscreen_requested', macro_type: body.macro_type, ...mode, fullscreen_outcome: body.fullscreen_outcome };
   }
   if (body.kind === 'zoom') {
     if (!isOneOf(body.viewport_action, ZOOM_ACTIONS) || !isOneOf(body.viewport_input, ZOOM_INPUTS)) return null;
@@ -78,13 +86,14 @@ export function parseViewEvent(text: string): ViewEvent | null {
     return {
       event: 'agent_link_app_view_zoomed',
       macro_type: body.macro_type,
+      ...mode,
       viewport_action: body.viewport_action,
       viewport_input: body.viewport_input,
       fullscreen_active: body.fullscreen_active,
     };
   }
   if (body.kind !== undefined || !isOneOf(body.render_outcome, RENDER_OUTCOMES)) return null;
-  const event: RenderViewEvent = { event: 'agent_link_app_view_rendered', macro_type: body.macro_type, render_outcome: body.render_outcome };
+  const event: RenderViewEvent = { event: 'agent_link_app_view_rendered', macro_type: body.macro_type, ...mode, render_outcome: body.render_outcome };
   if (body.fullscreen_available !== undefined) {
     if (typeof body.fullscreen_available !== 'boolean') return null;
     event.fullscreen_available = body.fullscreen_available;

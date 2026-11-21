@@ -154,7 +154,9 @@ export function createLocalServer(options: LocalServerOptions = {}) {
           const value = await renderDiagram((params.arguments ?? {}) as Record<string, unknown>);
           // Same shape as the public server: the view reads structuredContent,
           // the model reads the summary. Both stay between host and this process.
-          return ok(id, { content: [{ type: 'text', text: summaryFor(value) }], structuredContent: value });
+          // `mcpMode` lets the view's enum-only events (viewEvent.ts) tell local
+          // use from remote; it carries nothing about the diagram.
+          return ok(id, { content: [{ type: 'text', text: summaryFor(value) }], structuredContent: { ...value, mcpMode: 'local' } });
         } catch (e) {
           if (e instanceof RenderParamsError) {
             return ok(id, { content: [{ type: 'text', text: e.message }], isError: true });

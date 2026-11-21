@@ -64,3 +64,7 @@ The source itself travels only from the agent to the host, to this process, back
 2. Push the tag `render-mcp-v<version>` on that `main` commit.
 
 `.github/workflows/render-mcp-npm-publish.yml` then tests, builds, installs the packed tarball, draws one diagram with it and publishes. It signs in to npm with Trusted Publishing (OIDC), so the repository holds no npm token. npm trusts the repository together with that workflow file name: if the file is renamed, update the trusted publisher of the package on npmjs.com (`npm trust list @zenuml/render-mcp` shows the current one).
+
+## License
+
+Apache-2.0, the same license as this repository. See `LICENSE`.

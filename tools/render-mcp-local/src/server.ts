@@ -130,7 +130,7 @@ export function createLocalServer(options: LocalServerOptions = {}) {
         return ok(id, { tools: [{ ...RENDER_TOOL, _meta: uiMeta(origin) }] });
 
       case 'resources/list':
-        return ok(id, { resources: [...uiResourceList(origin), ...listGuideResources()] });
+        return ok(id, { resources: [...uiResourceList(origin), ...listGuideResources('render')] });
 
       case 'resources/read': {
         const uri = (body.params as { uri?: unknown } | undefined)?.uri;
@@ -139,7 +139,7 @@ export function createLocalServer(options: LocalServerOptions = {}) {
           if (!read.ok) return fail(id, RPC_TOOL_ERROR, read.reason, { reason: read.reason, detail: read.detail });
           return ok(id, { contents: read.contents });
         }
-        const guide = typeof uri === 'string' ? getGuideByUri(uri) : undefined;
+        const guide = typeof uri === 'string' ? getGuideByUri(uri, 'render') : undefined;
         if (!guide) {
           return fail(id, RPC_INVALID_PARAMS, `Unknown resource: ${typeof uri === 'string' ? uri.slice(0, 120) : '(none)'}`);
         }

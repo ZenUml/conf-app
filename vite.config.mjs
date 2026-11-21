@@ -161,7 +161,16 @@ export default defineConfig(({ command }) => ({
   },
   build: {
     rollupOptions: {
-      input: getHtmlFiles('./', { isBuild: command === 'build' })
+      input: getHtmlFiles('./', { isBuild: command === 'build' }),
+      treeshake: {
+        // @zenuml/codemirror-extensions' index re-exports its linter, whose
+        // module body runs `new ZenUml(div)` and so imports all of
+        // @zenuml/core statically. We use our own lazy linter
+        // (src/components/Editor/zenumlLinter.ts); marking that module
+        // side-effect free lets Rollup drop it, keeping the 3.5 MB core out
+        // of every editor's static imports.
+        moduleSideEffects: (id) => !/@zenuml[/+]codemirror-extensions.*[/]extensions[/]zenuml-linter\.js$/.test(id),
+      },
     },
 
     // @asyncapi/parser's transitive deps (qs, avsc, readable-stream, …)

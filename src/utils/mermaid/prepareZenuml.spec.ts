@@ -54,7 +54,7 @@ describe('prepareZenumlForMermaid', () => {
       const core = fakeCore();
       core.ensureDiagramFontsLoaded.mockImplementation(() => new Promise<void>(() => {}));
       let settled = false;
-      const done = prepareZenumlForMermaid('zenuml\n@VPC A', async () => core).then(() => {
+      const done = prepareZenumlForMermaid('zenuml\n@VPC A', async () => core).finally(() => {
         settled = true;
       });
       await vi.advanceTimersByTimeAsync(LOAD_ASSETS_TIMEOUT_MS - 1);
@@ -74,7 +74,7 @@ describe('prepareZenumlForMermaid', () => {
       core.ensureDiagramIconsLoaded.mockImplementation(() => new Promise<void>(() => {}));
       let settled = false;
       const slowImport = () => new Promise<typeof core>((resolve) => setTimeout(() => resolve(core), 5000));
-      const done = prepareZenumlForMermaid('zenuml\n@VPC A', slowImport).then(() => {
+      const done = prepareZenumlForMermaid('zenuml\n@VPC A', slowImport).finally(() => {
         settled = true;
       });
       await vi.advanceTimersByTimeAsync(5000 + LOAD_ASSETS_TIMEOUT_MS - 1);
@@ -92,7 +92,7 @@ describe('prepareZenumlForMermaid', () => {
     vi.useFakeTimers();
     try {
       let settled = false;
-      const done = prepareZenumlForMermaid('zenuml\nA->B', () => new Promise(() => {})).then(() => {
+      const done = prepareZenumlForMermaid('zenuml\nA->B', () => new Promise(() => {})).finally(() => {
         settled = true;
       });
       await vi.advanceTimersByTimeAsync(IMPORT_CORE_TIMEOUT_MS - 1);

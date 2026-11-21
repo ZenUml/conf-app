@@ -422,6 +422,8 @@ export default defineConfig(({ command }) => ({
       '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build}.config.*',
       '**/tests/e2e-tests/**',
       '**/tests/export-modal/**',
+      // Real HTTP/Cloudflare runtime suite has its own Node-only command/job.
+      '**/tests/integration/oauth-token/**',
       '**/tests/ui-details/**',
       '**/packages/**',
       // Scratch dir — sessions park ad-hoc Playwright specs here; a stray

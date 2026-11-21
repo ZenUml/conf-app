@@ -293,6 +293,18 @@ export async function trackExportEvent(eventName, properties) {
 }
 
 /**
+ * Bounded set for `failure_kind` on `macro_export_failed`. `failure_reason`
+ * stays as before (it embeds a status or an error name); this is the
+ * low-cardinality grouping that every emit carries, so a failure never arrives
+ * as a bare event. `http_status` rides beside it only when a request returned one.
+ */
+export const EXPORT_FAILURE_KINDS = Object.freeze([
+  'no_content_id', 'attachment_missing', 'attachment_no_file_id',
+  'attachments_api_error', 'auth_denied', 'no_user_credential', 'exception',
+  'spec_lookup_http_error', 'spec_unusable',
+]);
+
+/**
  * Spreads fallback telemetry into an event's properties. Returns {} when the
  * fallback path wasn't taken so we don't bloat every export event.
  */
@@ -404,6 +416,7 @@ export const handler = async (payload) => {
       await trackExportEvent('macro_export_failed', {
         ...joinKeyProps(ctx),
         failure_reason: 'missing_custom_content_id',
+        failure_kind: 'no_content_id',
       });
       return createErrorDocument("Diagram content not available for export");
     }
@@ -440,12 +453,16 @@ export const handler = async (payload) => {
       // credential (guest, anonymous, or server-side export). That says nothing about the
       // page, so it must not be recorded as a missing/unreadable page (`attachments_api_404`).
       let failureReason;
+      let failureKind;
       if (response.status === 401 || response.status === 403) {
         failureReason = 'needs_authentication';
+        failureKind = 'auth_denied';
       } else if (fallbackInfo?.error_name === 'NEEDS_AUTHENTICATION_ERR') {
         failureReason = 'no_user_credential';
+        failureKind = 'no_user_credential';
       } else {
         failureReason = `attachments_api_${response.status}`;
+        failureKind = 'attachments_api_error';
       }
       // Failure path — resolve the type here so this event is sizeable by
       // diagram type. The success path never reaches this and never reads.
@@ -453,6 +470,7 @@ export const handler = async (payload) => {
       await trackExportEvent('macro_export_failed', {
         ...joinKeyProps(ctx),
         failure_reason: failureReason,
+        failure_kind: failureKind,
         http_status: response.status,
         ...fallbackProps(fallbackInfo),
       });
@@ -505,6 +523,8 @@ export const handler = async (payload) => {
       await trackExportEvent('macro_export_failed', {
         ...joinKeyProps(ctx),
         failure_reason: 'attachment_not_found',
+        failure_kind: 'attachment_missing',
+        http_status: response.status,
         ...fallbackProps(fallbackInfo),
       });
       if (stored.kind !== 'error') {
@@ -532,6 +552,8 @@ export const handler = async (payload) => {
       await trackExportEvent('macro_export_failed', {
         ...joinKeyProps(ctx),
         failure_reason: 'missing_file_id',
+        failure_kind: 'attachment_no_file_id',
+        http_status: response.status,
         ...fallbackProps(fallbackInfo),
       });
       return createErrorDocument('Diagram image reference not available for export');
@@ -573,6 +595,7 @@ export const handler = async (payload) => {
     await trackExportEvent('macro_export_failed', {
       ...joinKeyProps(ctx),
       failure_reason: failureReason,
+      failure_kind: isKnownError ? 'auth_denied' : 'exception',
       error_name: errorName,
       error_message: errorMessage,
       error_stack: errorStack,

@@ -1029,6 +1029,49 @@ describe('Copy and Download', () => {
     expect(actions()[0]).toMatchObject({ view_action: 'download', download_format: 'source', action_outcome: 'done' });
   });
 
+  describe('where the host declares downloadFile', () => {
+    let posted: Array<Record<string, unknown>>;
+
+    beforeEach(() => {
+      posted = [];
+      vi.spyOn(window, 'postMessage').mockImplementation(((msg: unknown) => {
+        posted.push(msg as Record<string, unknown>);
+      }) as typeof window.postMessage);
+      start();
+      const id = posted.find((m) => m.method === 'ui/initialize')!.id;
+      onHostMessage({ data: { jsonrpc: '2.0', id, result: { protocolVersion: UI_PROTOCOL_VERSION, hostCapabilities: { downloadFile: {} } } } } as MessageEvent);
+    });
+
+    const downloadRequest = () => posted.find((m) => m.method === 'ui/download-file');
+
+    async function pressDownload(): Promise<Record<string, unknown>> {
+      deliver({ diagramType: 'mermaid', dsl: 'graph TD;A-->B;', title: 'Login flow' });
+      await vi.waitFor(() => expect(button('zen-mcp-download')).not.toBeNull());
+      button('zen-mcp-download')!.click();
+      await vi.waitFor(() => expect(downloadRequest()).toBeDefined());
+      return downloadRequest()!;
+    }
+
+    it('asks the host to save the file instead of clicking a link', async () => {
+      const request = await pressDownload();
+      expect(request.params).toEqual({
+        contents: [{ type: 'resource', resource: { uri: 'file:///Login-flow.svg', mimeType: 'image/svg+xml', text: '<svg data-test="mermaid-block"></svg>' } }],
+      });
+      onHostMessage({ data: { jsonrpc: '2.0', id: request.id, result: { isError: false } } } as MessageEvent);
+      await vi.waitFor(() => expect(actions()).toHaveLength(1));
+      expect(saved).toHaveLength(0);
+      expect(actions()[0]).toMatchObject({ view_action: 'download', download_format: 'svg', action_outcome: 'done' });
+    });
+
+    it('reports a download the host refused, or the user cancelled, as failed', async () => {
+      const request = await pressDownload();
+      onHostMessage({ data: { jsonrpc: '2.0', id: request.id, result: { isError: true } } } as MessageEvent);
+      await vi.waitFor(() => expect(actions()).toHaveLength(1));
+      expect(actions()[0].action_outcome).toBe('failed');
+      expect(button('zen-mcp-download')?.title).toBe('Download SVG failed');
+    });
+  });
+
   it('takes the buttons away when the result has no diagram', async () => {
     deliver({ diagramType: 'mermaid', dsl: 'graph TD;A-->B;' });
     await vi.waitFor(() => expect(button('zen-mcp-copy')).not.toBeNull());

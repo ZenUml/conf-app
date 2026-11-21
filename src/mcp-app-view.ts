@@ -97,9 +97,18 @@ interface HostContext {
 
 let hostContext: HostContext = {};
 
+/**
+ * What the host said it can do, from the `ui/initialize` result. Download
+ * goes through `ui/download-file` where `downloadFile` is declared: claude.ai
+ * declares it, and its sandbox opens no tab for a plain link (#1271 spike,
+ * 2026-11-21), so an `<a download>` click there is expected to do nothing.
+ */
+let hostCapabilities: Record<string, unknown> = {};
+
 /** Reset between tests: the state above lives as long as the frame. */
 export function resetViewState(): void {
   hostContext = {};
+  hostCapabilities = {};
   drawnType = null;
   drawnPayload = null;
   drawnImage = null;
@@ -803,6 +812,16 @@ export function sourceExtension(payload: DiagramPayload): string {
   return 'txt';
 }
 
+/** A text blob's contents. FileReader, not blob.text(), which older engines lack. */
+function readText(blob: Blob): Promise<string> {
+  return new Promise((resolveRead, rejectRead) => {
+    const reader = new FileReader();
+    reader.onload = () => resolveRead(String(reader.result));
+    reader.onerror = () => rejectRead(reader.error ?? new Error('could not read the file'));
+    reader.readAsText(blob);
+  });
+}
+
 function svgBlob(svg: string): Blob {
   return new Blob([svg], { type: 'image/svg+xml' });
 }
@@ -825,9 +844,30 @@ export function dataUrlBlob(url: string): Blob {
 }
 
 /**
- * Hand the browser a file to save. A host whose sandbox lacks
- * `allow-downloads` drops it without telling the frame, so success here means
- * the download was started, not that it was saved.
+ * The host shows its own confirmation dialog and answers only once the user
+ * has chosen, as claude.ai does for `ui/open-link` (#1271 spike: a 10 s limit
+ * fired while its dialog was still open). Long enough for a person.
+ */
+const HOST_DIALOG_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * Save a file through the host (`ui/download-file`, ext-apps draft): the host
+ * names it from the last segment of the resource URI and asks the user first.
+ * True when saved; false when the host reports an error or the user cancelled.
+ */
+async function saveThroughHost(text: string, mimeType: string, name: string): Promise<boolean> {
+  const { result, error } = await ask(
+    'ui/download-file',
+    { contents: [{ type: 'resource', resource: { uri: `file:///${encodeURIComponent(name)}`, mimeType, text } }] },
+    HOST_DIALOG_TIMEOUT_MS,
+  );
+  return !error && (result as { isError?: unknown } | undefined)?.isError !== true;
+}
+
+/**
+ * Hand the browser a file to save, for a host without `ui/download-file`. A
+ * sandbox without `allow-downloads` drops it without telling the frame, so
+ * success here means the download was started, not that it was saved.
  */
 function saveFile(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
@@ -849,8 +889,10 @@ async function downloadDiagram(): Promise<void> {
   const format = image ? 'svg' : 'source';
   let ok = true;
   try {
-    if (image) saveFile(await image(), downloadName(payload, 'svg'));
-    else saveFile(new Blob([payload.dsl], { type: 'text/plain' }), downloadName(payload, sourceExtension(payload)));
+    const blob = image ? await image() : new Blob([payload.dsl], { type: 'text/plain' });
+    const name = image ? downloadName(payload, 'svg') : downloadName(payload, sourceExtension(payload));
+    if ('downloadFile' in hostCapabilities) ok = await saveThroughHost(await readText(blob), blob.type || 'text/plain', name);
+    else saveFile(blob, name);
   } catch (e) {
     console.error('[zenuml] download failed', e);
     ok = false;
@@ -1047,6 +1089,8 @@ export function onHostMessage(event: MessageEvent): void {
       status('The host refused this view.');
       return;
     }
+    const caps = (msg.result as { hostCapabilities?: unknown } | undefined)?.hostCapabilities;
+    hostCapabilities = caps && typeof caps === 'object' ? (caps as Record<string, unknown>) : {};
     const context = (msg.result as { hostContext?: unknown } | undefined)?.hostContext;
     if (context && typeof context === 'object') applyHostContext(context as HostContext);
     send('ui/notifications/initialized');

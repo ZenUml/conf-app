@@ -77,6 +77,27 @@ The helper checks the current identity and publishes a new decision comment. Edi
 
 If publishing reports a stale identity, inspect the new diff and decide again. A push or base change invalidates the previous decision; it does not inherit permission to run full coverage.
 
+### Recover when the base branch moved
+
+A decision binds the PR head and the base tip. When `main` moves after publishing, CI blocks E2E even though the PR itself did not change. Read the blocking line in the `Select E2E for this PR` job, then act on it:
+
+| CI message | Meaning | Action |
+|---|---|---|
+| `E2E blocked: missing-or-stale-decision` | The published decision names an older head or base. | Run the full cycle below. |
+| `E2E blocked: stale or unrelated candidate` | The decision is current, but the tested merge commit does not have the current base and head as its parents: GitHub built the PR's merge ref from an older base. Publishing again does not change it. | Run the full cycle below; the push in step 2 rebuilds the merge ref. |
+
+Full cycle, in this order:
+
+1. In the feature checkout: `git fetch origin main`, then `git merge origin/main`. Never rebase or force-push. A conflict means the diff changed, so analyze it again.
+2. Push the branch.
+3. Refresh the trusted helper checkout to the new `origin/main` (remove the old one, add a new detached worktree), because the helper stamps its own catalogs.
+4. `inspect` again and copy the new `head_sha` and `base_sha` into the decision JSON. Reuse the earlier scenarios and evidence only if the merge added no files to the PR diff and changed no path the evidence relies on; otherwise decide again.
+5. `publish`, then `request-pr-e2e`.
+
+Publishing again without steps 1 and 2 fixes only the first message and then fails with the second. If `main` moves again while the run waits for staging, repeat the cycle; the earlier green run does not carry over to the new head.
+
+_(2026-11-21, PR 1246: `main` moved after the decision was published. Publishing again alone produced `stale or unrelated candidate`; merging `origin/main`, pushing, then publishing and requesting passed.)_
+
 ## Run and report
 
 For an executable published decision, request a fresh PR-associated validation run:

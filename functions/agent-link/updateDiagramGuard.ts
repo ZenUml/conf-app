@@ -34,6 +34,7 @@
 
 import { computeStats, normalizeDialect, parseDsl } from './parseDsl';
 import type { DslError } from './parseDsl';
+import { keptPct } from './guardTelemetry';
 
 /**
  * Reject any replacement whose non-whitespace length drops below this
@@ -87,6 +88,8 @@ export type GuardResult =
       /** Full DSL string lengths, in (current) / out (new) — mirrors the analytics event fields. */
       input_len?: number;
       output_len?: number;
+      /** New non-whitespace length as a % of the current (reason === 'data_loss' only). */
+      kept_pct?: number;
     }
   | {
       ok: true;
@@ -136,6 +139,7 @@ export async function guardUpdateDiagram(
           `If you truly mean to replace the whole diagram, send the complete new DSL.`,
         input_len: currentDsl.length,
         output_len: newDsl.length,
+        kept_pct: keptPct(currentNonWs, newNonWs),
       };
     }
   }

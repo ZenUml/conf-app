@@ -46,7 +46,8 @@ function main() {
   try {
     base = git(['merge-base', 'HEAD', 'origin/main']);
   } catch {
-    return done(0, 'pre-push lint: no origin/main found, skipping (run `git fetch origin main`).');
+    // A check that cannot run must not pass.
+    return done(1, 'pre-push lint: no origin/main to compare with; run `git fetch origin main` and push again.');
   }
   const changed = git(['diff', '--name-only', '--diff-filter=ACMR', `${base}...HEAD`])
     .split('\n')

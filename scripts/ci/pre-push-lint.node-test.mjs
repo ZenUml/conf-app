@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { filterLintable } from './pre-push-lint.mjs';
+import { filterLintable } from '../git-hooks/pre-push-lint.mjs';
 
 const all = () => true;
 

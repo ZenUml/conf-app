@@ -370,6 +370,43 @@ describe('AIRepair analytics', () => {
     wrapper.unmount()
   })
 
+  it('tags a rejected candidate with a bounded backend_failure_kind and no error text', async () => {
+    vi.mocked(startFixDiagram as any).mockResolvedValue({ jobId: 'j1' })
+    vi.mocked(getFixDiagramStatus as any).mockResolvedValue({
+      ...FAILED_STATUS,
+      message: 'Could not produce a valid fix',
+      error: 'Parse error on line 2:\n...secret-customer-line',
+      output: { ...FAILED_STATUS.output, repairAttempts: 1 },
+    })
+
+    const wrapper = mountRepair()
+    await triggerRepair(wrapper)
+
+    const failed = vi.mocked(trackAnalyticsEvent).mock.calls.find(([name]) => name === 'ai_repair_failed')
+    expect(failed?.[1]).toEqual(expect.objectContaining({
+      failure_reason: 'server_failed',
+      backend_failure_kind: 'syntax_error',
+      backend_syntax_error_kind: 'parse_error',
+    }))
+    expect(JSON.stringify(failed?.[1])).not.toContain('secret-customer-line')
+    wrapper.unmount()
+  })
+
+  it('tags a start failure with its HTTP status', async () => {
+    vi.mocked(startFixDiagram as any).mockRejectedValue(
+      Object.assign(new Error('HTTP 500: Diagramly API request failed with status 403'), { status: 500 }),
+    )
+
+    const wrapper = mountRepair()
+    await triggerRepair(wrapper)
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('ai_repair_failed', expect.objectContaining({
+      failure_reason: 'start_failed',
+      start_http_status: 500,
+    }))
+    wrapper.unmount()
+  })
+
   it('fires ai_repair_failed when startFixDiagram throws', async () => {
     vi.mocked(startFixDiagram as any).mockRejectedValue(new Error('network error'))
 

@@ -191,6 +191,7 @@
 </template>
 
 <script setup lang="ts">
+import { classifyRepairFailure } from '@/components/aiRepairFailureKind';
 import { ref, watch, computed, nextTick, onUnmounted, onBeforeUnmount, Directive } from 'vue';
 import * as Diff from 'diff';
 import { startFixDiagram, getFixDiagramStatus } from "@/services/GenerateService";
@@ -562,6 +563,7 @@ const failRepair = (
   failurePhase: RepairFailurePhase,
   generation: number,
   status?: RepairJobStatus,
+  startHttpStatus?: number,
 ) => {
   if (generation !== pollingGeneration) return;
 
@@ -586,6 +588,10 @@ const failRepair = (
     poll_count: pollCount,
     ...requestedConfigAnalytics(),
     ...backendAnalytics(status),
+    ...(failurePhase === 'server' || (failurePhase === 'timeout' && status)
+      ? classifyRepairFailure(status)
+      : {}),
+    ...(typeof startHttpStatus === 'number' ? { start_http_status: startHttpStatus } : {}),
   });
   stopPolling();
 };
@@ -647,6 +653,8 @@ const triggerAiRepair = async () => {
       timedOut ? 'client_timeout' : 'start_failed',
       timedOut ? 'timeout' : 'start',
       generation,
+      undefined,
+      typeof err?.status === 'number' ? err.status : undefined,
     );
   }
 };

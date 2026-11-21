@@ -98,6 +98,29 @@ import type {
   HighlightDismissCause,
 } from "./catalog";
 
+/** Bounded class of a FAILED AI Repair job; see src/components/aiRepairFailureKind.ts. */
+export type RepairBackendFailureKind =
+  | 'syntax_error'
+  | 'no_change'
+  | 'empty_output'
+  | 'reply_not_diagram'
+  | 'time_budget'
+  | 'exception'
+  | 'missing_output'
+  | 'unknown';
+
+/** Which parser rejected an AI Repair candidate (backend_failure_kind=syntax_error). */
+export type RepairSyntaxErrorKind =
+  | 'parse_error'
+  | 'lexical_error'
+  | 'no_diagram_type'
+  | 'gantt_build'
+  | 'zenuml_parse'
+  | 'openapi_structure'
+  | 'plantuml_syntax'
+  | 'plantuml_frame'
+  | 'other';
+
 export type AnalyticsProperties = {
   /** Fullscreen contact recovery. Identifiers are opaque; no email or free text. */
   feature?: 'fullscreen' | 'edit';
@@ -292,6 +315,13 @@ export type AnalyticsProperties = {
   backend_duration_ms?: number;
   backend_llm_duration_ms?: number;
   repair_attempts?: number;
+  /** ai_repair_failed only: bounded class of a FAILED Diagramly job, derived
+   * from fixed server strings by aiRepairFailureKind.ts. Never the error text. */
+  backend_failure_kind?: RepairBackendFailureKind;
+  /** ai_repair_failed only, with backend_failure_kind=syntax_error: which parser rejected it. */
+  backend_syntax_error_kind?: RepairSyntaxErrorKind;
+  /** ai_repair_failed only, failure_phase=start: HTTP status of the start call. */
+  start_http_status?: number;
   ai_model?: string;
   reasoning_disabled?: boolean;
   failure_phase?:

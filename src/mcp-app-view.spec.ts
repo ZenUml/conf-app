@@ -266,6 +266,7 @@ describe('drawing a PlantUML result', () => {
     } as MessageEvent);
 
   beforeEach(() => {
+    resetViewState();
     document.body.innerHTML = '<div id="app"></div>';
     beacon.mockClear();
     vi.stubGlobal('navigator', { ...navigator, sendBeacon: beacon });

@@ -46,6 +46,8 @@ describe('window utils', async () => {
     // Reset window.location
     window.location = new URL('https://example.com') as any
     // Reset window.globals
+    // The 'missing user ID' test nulls this on the shared object.
+    mockGlobals.apWrapper.currentUser = { atlassianAccountId: 'test-user-123' }
     // @ts-ignore
     window.globals = mockGlobals
     // Reset localStorage

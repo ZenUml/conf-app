@@ -828,6 +828,76 @@ describe('Forge export resolver (src/export.js)', () => {
     expect(failed?.properties?.macro_type).toBe('graph');
   });
 
+  describe('macro_export_failed carries a bounded failure_kind (and the HTTP status when a request returned one)', () => {
+    const payloadFor = (customContentId: string | null) => ({
+      exportType: 'pdf',
+      context: {
+        cloudId: 'cloud-kind',
+        siteUrl: 'https://acme.atlassian.net',
+        spaceKey: 'SK',
+        accountId: 'acc-kind',
+        extension: { content: { id: '901' } },
+      },
+      extensionPayload: { config: { customContentId } },
+    });
+    const failedProps = () => {
+      const rows = mixpanelBodiesFromFetch(fetch) as Array<{
+        event?: string;
+        properties?: { failure_reason?: string; failure_kind?: string; http_status?: number };
+      }>;
+      return rows.find((r) => r.event === 'macro_export_failed')?.properties;
+    };
+    const attachments = (status: number, results: unknown[]) => ({
+      ok: status >= 200 && status < 300,
+      status,
+      text: async () => '',
+      json: async () => ({ results, _links: { base: 'https://acme.atlassian.net' } }),
+    });
+
+    it('missing_custom_content_id: kind only, no status (no request was made)', async () => {
+      await handler(payloadFor(null));
+      expect(failedProps()?.failure_kind).toBe('no_content_id');
+      expect(failedProps()?.http_status).toBeUndefined();
+    });
+
+    it('attachment_not_found: kind plus the 200 the lookup answered with', async () => {
+      asAppRequest.mockImplementation(async (url: string) => String(url).includes('/attachments')
+        ? attachments(200, [])
+        : { ok: true, status: 200, text: async () => '', json: async () => ({ body: { raw: { value: '{}' } } }) });
+      await handler(payloadFor('cc-kind-1'));
+      expect(failedProps()?.failure_reason).toBe('attachment_not_found');
+      expect(failedProps()?.failure_kind).toBe('attachment_missing');
+      expect(failedProps()?.http_status).toBe(200);
+    });
+
+    it('missing_file_id: kind plus the 200 status', async () => {
+      asAppRequest.mockResolvedValue(attachments(200, [{ id: 'a1' }]));
+      await handler(payloadFor('cc-kind-2'));
+      expect(failedProps()?.failure_kind).toBe('attachment_no_file_id');
+      expect(failedProps()?.http_status).toBe(200);
+    });
+
+    it('attachments API 503: kind plus status', async () => {
+      asAppRequest.mockResolvedValue(attachments(503, []));
+      await handler(payloadFor('cc-kind-3'));
+      expect(failedProps()?.failure_kind).toBe('attachments_api_error');
+      expect(failedProps()?.http_status).toBe(503);
+    });
+
+    it('attachments API 403: kind auth_denied', async () => {
+      asAppRequest.mockResolvedValue(attachments(403, []));
+      await handler(payloadFor('cc-kind-4'));
+      expect(failedProps()?.failure_kind).toBe('auth_denied');
+      expect(failedProps()?.http_status).toBe(403);
+    });
+
+    it('thrown error: kind exception', async () => {
+      asAppRequest.mockRejectedValue(new Error('boom'));
+      await handler(payloadFor('cc-kind-5'));
+      expect(failedProps()?.failure_kind).toBe('exception');
+    });
+  });
+
   it('records the first unexplained missing PNG, then shows a known placeholder without repeated failure, and recovers when the attachment appears', async () => {
     let property: any = null;
     let attachmentExists = false;

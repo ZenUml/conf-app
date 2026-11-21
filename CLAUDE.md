@@ -209,6 +209,10 @@ multiple worktrees run concurrently. The shared Portless proxy uses plain HTTP o
 the non-privileged port 1355 so agents can start it without sudo or certificate
 prompts; application processes still receive independent random internal ports.
 
+### Pre-push lint hook (optional, local)
+
+Run `pnpm hooks:install` once per clone or worktree (sets `core.hooksPath` to `scripts/git-hooks`). Before each push the hook runs oxlint (`.oxlintrc.json`) on only the lintable files (`.ts .tsx .js .mjs .cjs .vue` under `src/ functions/ scripts/ tests/unit/`) changed versus `origin/main`, and fails the push on errors. It prints its elapsed time and fails if it takes more than 9 s (a step over its budget fails). It does not run typecheck (baseline is red) or a formatter (none in the repo). Not part of `prepare`/`postinstall`, so CI installs are unchanged. Bypass once with `git push --no-verify`.
+
 ### Database setup
 
 ```bash

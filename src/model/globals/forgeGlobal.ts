@@ -36,6 +36,12 @@ const global = {
 // workflow already sets BACKEND_API_BASE_URL=conf-stg-lite, so client and
 // manifest now agree. The tradeoff is that dev traffic reads/writes the staging
 // D1 + KV; that was already true of anything routed through the manifest remote.
+//
+// A bundle can also be built for a dedicated slot (the PR validation slot has
+// its own Pages preview alias, https://conf-stg-lite-pr.zenuml.com). Its
+// manifest remote then differs from the map entry for its environmentType, so
+// CI passes VITE_REMOTE_BASE_URL_OVERRIDE at build time; see
+// remoteBaseUrlBuildOverride below. Unset (every other build) = the map above.
 const REMOTE_BASE_URL_MAP = {
   DEVELOPMENT_LITE: 'https://conf-stg-lite.zenuml.com',
   STAGING_LITE: 'https://conf-stg-lite.zenuml.com',
@@ -63,6 +69,17 @@ function remoteUrlVariant(flags: {
   return 'FULL';
 }
 
+// Build-time backend override. Accepts only an https://<name>.zenuml.com origin
+// (no path, port or credentials); anything else is ignored, so a bad value can
+// never redirect traffic to a foreign host.
+const REMOTE_BASE_URL_OVERRIDE_PATTERN = /^https:\/\/[a-z0-9.-]+\.zenuml\.com$/;
+
+function remoteBaseUrlBuildOverride(): string | undefined {
+  const value = import.meta.env.VITE_REMOTE_BASE_URL_OVERRIDE;
+  if (typeof value !== 'string' || value === '') return undefined;
+  return REMOTE_BASE_URL_OVERRIDE_PATTERN.test(value) ? value : undefined;
+}
+
 // Pure, exported for unit testing: resolve the backend origin for a given Forge
 // environmentType ('DEVELOPMENT' | 'STAGING' | 'PRODUCTION') and product-variant
 // flags. Returns undefined for an unknown environment key.
@@ -82,6 +99,8 @@ export function resolveZenumlRemoteBaseUrl(
     }
     return url.origin;
   }
+  const buildOverride = remoteBaseUrlBuildOverride();
+  if (buildOverride) return buildOverride;
   const key = `${environmentType}_${remoteUrlVariant(flags)}` as keyof typeof REMOTE_BASE_URL_MAP;
   return REMOTE_BASE_URL_MAP[key];
 }

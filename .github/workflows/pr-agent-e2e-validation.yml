@@ -25,6 +25,21 @@ on:
       mode:
         required: true
         type: string
+      app:
+        required: false
+        type: string
+        default: 'zenuml-lite@stg'
+        description: 'E2E profile; the default is the shared Lite staging slot'
+      auth-artifact:
+        required: false
+        type: string
+        default: 'auth-state-pre-lite-stg'
+        description: 'Auth state artifact matching the profile'
+      backend-url:
+        required: false
+        type: string
+        default: ''
+        description: 'Backend origin for a dedicated slot; empty keeps the shared staging backend'
 
 run-name: "PR E2E · parent ${{ inputs.parent-run-id }} · attempt ${{ inputs.parent-attempt }} · source ${{ inputs.source-sha }}"
 
@@ -85,9 +100,10 @@ jobs:
       ref: ${{ inputs.source-sha }}
       source-run-id: ${{ inputs.parent-run-id }}
       source-attempt: ${{ inputs.parent-attempt }}
-      app: zenuml-lite@stg
+      app: ${{ inputs.app }}
       suite: regression
-      auth-artifact: auth-state-pre-lite-stg
+      auth-artifact: ${{ inputs.auth-artifact }}
+      backend-url: ${{ inputs.backend-url }}
       grep: ${{ inputs.grep }}
       shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]'
       # PR #761's passing shard took about 15m with setup and uploads.
@@ -109,9 +125,10 @@ jobs:
       ref: ${{ inputs.source-sha }}
       source-run-id: ${{ inputs.parent-run-id }}
       source-attempt: ${{ inputs.parent-attempt }}
-      app: zenuml-lite@stg
+      app: ${{ inputs.app }}
       suite: render
-      auth-artifact: auth-state-pre-lite-stg
+      auth-artifact: ${{ inputs.auth-artifact }}
+      backend-url: ${{ inputs.backend-url }}
       grep: ${{ inputs.grep }}
       shard-matrix: '[1]'
       artifact-suffix: lite-stg-render

@@ -68,6 +68,14 @@ inputs:
     description: "Cloudflare Pages branch to deploy to. 'production' (default) is the production alias; any other name is a preview deployment that uses the preview secrets and [env.preview.*] config."
     required: false
     default: 'production'
+  forge-environment:
+    description: "Forge environment whose variables the Lite candidate preparation writes. Default 'staging'."
+    required: false
+    default: 'staging'
+  backend-url:
+    description: "Backend origin for a dedicated slot: written to the Forge BACKEND_API_BASE_URL variable and baked into the bundle as VITE_REMOTE_BASE_URL_OVERRIDE. Empty (default) keeps the shared staging backend and the per-environment map."
+    required: false
+    default: ''
 runs:
   using: 'composite'
   steps:
@@ -75,8 +83,12 @@ runs:
       shell: bash
       env:
         PAGES_BRANCH: ${{ inputs.pages-branch }}
+        FORGE_ENVIRONMENT: ${{ inputs.forge-environment }}
+        BACKEND_URL: ${{ inputs.backend-url }}
       run: |
         [[ "$PAGES_BRANCH" =~ ^[a-z0-9-]{1,28}$ ]] || { echo 'Invalid Pages branch' >&2; exit 1; }
+        [[ "$FORGE_ENVIRONMENT" =~ ^[a-z0-9_-]{1,32}$ ]] || { echo 'Invalid Forge environment' >&2; exit 1; }
+        [ -z "$BACKEND_URL" ] || [[ "$BACKEND_URL" =~ ^https://[a-z0-9.-]+\.zenuml\.com$ ]] || { echo 'Invalid backend URL' >&2; exit 1; }
     - name: Setup pnpm
       uses: pnpm/action-setup@v5
     - uses: actions/setup-node@v5
@@ -177,6 +189,7 @@ runs:
         NODE_OPTIONS: "--max-old-space-size=8192"
         VITE_MIXPANEL_TOKEN: ${{ inputs.vite-mixpanel-token }}
         VITE_APP_VERSION: ${{ inputs.vite-app-version }}
+        VITE_REMOTE_BASE_URL_OVERRIDE: ${{ inputs.backend-url }}
     - name: Extract the prebuilt dist
       if: inputs.prebuilt-dist != ''
       run: |
@@ -260,6 +273,8 @@ runs:
         DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
         DEPLOY_PROJECT: ${{ inputs.project }}
         DEPLOY_PAGES_BRANCH: ${{ inputs.pages-branch }}
+        DEPLOY_FORGE_ENVIRONMENT: ${{ inputs.forge-environment }}
+        DEPLOY_BACKEND_URL: ${{ inputs.backend-url }}
         DEPLOY_SKIP_MIGRATIONS: ${{ inputs.skip-migrations }}
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}

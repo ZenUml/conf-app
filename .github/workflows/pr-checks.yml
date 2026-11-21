@@ -132,6 +132,8 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
       - run: node --test scripts/ci/*.node-test.mjs scripts/test-selection/tests/*.node-test.mjs
+      - name: Comment ratchet
+        run: pnpm lint:comments
       # Verify the asyncapi variant builds even on feature-branch PRs. AsyncAPI
       # staging only deploys from the default branch (like full/diagramly), so
       # this is the smoke test for PRs.

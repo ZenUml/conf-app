@@ -17,9 +17,11 @@
 // - Forge CSP allows same-origin scripts; the CDN URL the SDK would build is
 //   not in manifest.yml `permissions.external.scripts`, and adding one would
 //   be a manifest change.
-// - The recorder always matches the installed SDK version, and its URL only
-//   changes when the SDK changes, so the browser keeps it cached across our
-//   releases.
+// - The recorder always matches the installed SDK version.
+// It is NOT cached across our releases: Forge serves each deploy under its
+// own path segment (`…/<appId>/<envId>/<deploy id>/main/…`, seen changing on
+// lite-stg 2026-11-21), so every asset URL changes on every deploy. Within
+// one deploy it is shared by all macros of a site.
 // dist/mixpanel-recorder.min.js is byte-identical to the SDK's
 // async-modules/mixpanel-recorder-<hash>.min.js bar the source-map comment;
 // it is a classic script that registers itself on window.__mp_recorder,

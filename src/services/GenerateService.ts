@@ -1,11 +1,6 @@
 import {DiagramType} from "@/model/Diagram/Diagram";
 import { callRemote } from '@/utils/requestUtil';
 
-// Identity (accountId / cloudId) is intentionally NOT sent from the client.
-// The Diagramly backend derives it from the verified Forge invocation token
-// (see functions/diagramly/context.ts), so a client-supplied value could only
-// be spoofed or drift out of sync with the authenticated caller.
-
 export async function diagramlyChat(messages: Array<any>) {
   return await callRemote(`/diagramly/chat`, 'POST', { messages });
 }

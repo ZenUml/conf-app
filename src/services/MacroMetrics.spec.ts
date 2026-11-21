@@ -4,12 +4,10 @@ import { DiagramType } from '@/model/Diagram/Diagram';
 import { callRemote } from '@/utils/requestUtil';
 import { assertCounts } from '../../functions/metrics-cache/snapshot/common';
 
-// Mock getClientDomain
 vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
   getClientDomain: vi.fn(() => 'test-domain')
 }));
 
-// Mock callRemote
 vi.mock('@/utils/requestUtil', () => ({
   callRemote: vi.fn()
 }));
@@ -30,7 +28,6 @@ describe('MacroMetrics', () => {
   const mockSpace = 'TEST-SPACE';
   const mockDomain = 'test-domain';
 
-  // Mock dependencies
   const mockApWrapper = {
     getCurrentSpace: vi.fn(),
     buildTypesClauseFilter: vi.fn(),
@@ -44,11 +41,9 @@ describe('MacroMetrics', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Create new instance with mocked dependencies
     // @ts-ignore - partial mock implementation
     macroMetrics = new MacroMetrics(mockApWrapper, mockEventTracker);
 
-    // Default mock implementations
     mockApWrapper.getCurrentSpace.mockResolvedValue({ key: mockSpace });
     mockApWrapper.buildTypesClauseFilter.mockReturnValue('type=page');
     mockApWrapper.isLite.mockReturnValue(false);
@@ -76,8 +71,6 @@ describe('MacroMetrics', () => {
 
         const result = await macroMetrics.getMacroMetrics();
 
-        // getMacroMetrics tags KV hits with source:'kv' for the paywall gate's
-        // macro_count_source telemetry (#302).
         expect(result).toEqual({ ...cachedMetrics, source: 'kv' });
         expect(callRemote).toHaveBeenCalledWith(
           `/metrics-cache/query?contract=2&domain=${mockDomain}&space=${mockSpace}&addonKey=com.zenuml.confluence-addon-lite`,
@@ -123,7 +116,6 @@ describe('MacroMetrics', () => {
 
     describe('content counting', () => {
       it('should correctly count different diagram types', async () => {
-        // Mock KV miss to force new collection
         (callRemote as any).mockResolvedValueOnce(null);
 
         const mockResults = {
@@ -133,9 +125,6 @@ describe('MacroMetrics', () => {
             { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Graph }) } } },
             { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.OpenApi }) } } },
             { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.Mermaid }) } } },
-            // Lite ships the AsyncAPI macro under the shared
-            // zenuml-content-sequence type (ADR-0005 Option A) — it must land
-            // in its own bucket, not in `unknown` alongside corrupt bodies.
             { body: { raw: { value: JSON.stringify({ diagramType: DiagramType.AsyncApi }) } } },
             { body: { raw: { value: JSON.stringify({ diagramType: 'Unknown' }) } } }
           ]
@@ -164,9 +153,6 @@ describe('MacroMetrics', () => {
         });
       });
 
-      // Error radar 2026-11-16: `HTTP 400: {"error":"Macro count invariant failed"}`
-      // on POST /metrics-cache/update, 9 tenants. The backend requires
-      // total === sum of buckets (assertCounts).
       it('sends counts that pass the backend invariant when a space has a Markdown diagram', async () => {
         (callRemote as any).mockResolvedValueOnce(null);
 
@@ -187,7 +173,6 @@ describe('MacroMetrics', () => {
           ([url]: [string]) => url.startsWith('/metrics-cache/update')
         );
         expect(updateCall).toBeDefined();
-        // The wire format: what the backend receives after JSON serialisation.
         const sent = JSON.parse(JSON.stringify(updateCall[2])).metrics;
 
         expect(sent.total).toBe(2);
@@ -195,7 +180,6 @@ describe('MacroMetrics', () => {
       });
 
       it('should handle empty results', async () => {
-        // Mock KV miss to force new collection
         (callRemote as any).mockResolvedValueOnce(null);
 
         mockApWrapper.requestAllPaginatedData.mockImplementation((url, consumer) => {
@@ -224,7 +208,6 @@ describe('MacroMetrics', () => {
 
     describe('error handling', () => {
       it('should handle invalid JSON in content', async () => {
-        // Mock KV miss to force new collection
         (callRemote as any).mockResolvedValueOnce(null);
 
         const mockResults = {
@@ -249,14 +232,13 @@ describe('MacroMetrics', () => {
       });
 
       it('should handle missing content values', async () => {
-        // Mock KV miss to force new collection
         (callRemote as any).mockResolvedValueOnce(null);
 
         const mockResults = {
           results: [
-            { body: {} },  // missing raw
-            { body: { raw: {} } },  // missing value
-            {}  // missing body
+            { body: {} },
+            { body: { raw: {} } },
+            {}
           ]
         };
 
@@ -316,10 +298,8 @@ describe('MacroMetrics', () => {
 
       await macroMetrics.reportMacroMetrics();
 
-      // Should collect fresh metrics
       expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalled();
 
-      // Should write to KV
       expect(callRemote).toHaveBeenCalledWith(
         '/metrics-cache/update?addonKey=com.zenuml.confluence-addon-lite',
         'POST',
@@ -334,7 +314,6 @@ describe('MacroMetrics', () => {
         })
       );
 
-      // Should track event
       expect(mockEventTracker).toHaveBeenCalledWith(
         expect.stringContaining(mockSpace),
         'report_macro_metrics',
@@ -348,7 +327,6 @@ describe('MacroMetrics', () => {
 
       await macroMetrics.reportMacroMetrics();
 
-      // JSON.stringify(new Error('Test error')) is '{}': the cause was lost (issues #1132, #1136).
       expect(mockEventTracker).toHaveBeenCalledWith(
         'Error: Test error',
         'report_macro_metrics',
@@ -444,7 +422,6 @@ describe('MacroMetrics', () => {
 
   describe('URL building', () => {
     it('should build correct search URL', async () => {
-      // Mock KV miss to force new collection
       (callRemote as any).mockResolvedValueOnce(null);
 
       mockApWrapper.buildTypesClauseFilter.mockReturnValue('type=customContent');
@@ -459,21 +436,14 @@ describe('MacroMetrics', () => {
     });
   });
 
-  // Large/bulk-grown spaces were under-counted because the v1 CQL content
-  // search is search-index-backed and returns incomplete results. When a
-  // numeric space id is available (Forge), count from the V2 space
-  // custom-content endpoint (system of record), paginated per type.
   describe('collectMetrics via V2 space custom-content (large-space safe)', () => {
     beforeEach(() => {
       mockApWrapper.getCurrentSpace.mockResolvedValue({ key: mockSpace, id: 'space-789' });
       (mockApWrapper as any).getMacroContentTypes = vi.fn().mockReturnValue(['T-seq', 'T-graph']);
     });
 
-    // Read/gate path (getMacroMetrics feeds the awaited paywall gate, so it is
-    // latency-critical): early-exit once the count crosses the limit — a huge
-    // space must not stall the editor/fullscreen gate enumerating thousands.
     it('early-exits at the macro limit on the read/gate path (does not enumerate the whole space)', async () => {
-      (callRemote as any).mockResolvedValueOnce(null); // KV miss → collect fresh
+      (callRemote as any).mockResolvedValueOnce(null);
 
       mockApWrapper.requestPaginatedDataUntil.mockImplementation(
         async (url: string, consumer: (d: any) => void, shouldStop: () => boolean) => {
@@ -493,8 +463,6 @@ describe('MacroMetrics', () => {
 
       const result = await macroMetrics.getMacroMetrics();
 
-      // first page (250) already crosses the 100 limit → stop: never fetch the
-      // second T-seq page, never query the T-graph type, never touch v1 CQL.
       expect(mockApWrapper.requestPaginatedDataUntil).toHaveBeenCalledTimes(1);
       expect(mockApWrapper.requestPaginatedDataUntil.mock.calls[0][0]).toContain('/api/v2/spaces/space-789/custom-content');
       expect(mockApWrapper.requestPaginatedDataUntil.mock.calls[0][0]).toContain('type=T-seq');
@@ -504,8 +472,6 @@ describe('MacroMetrics', () => {
       expect(result?.graph).toBe(0);
     });
 
-    // Save path (reportMacroMetrics is fire-and-forget, not latency-critical):
-    // enumerate the whole space so the cached/analytics count stays accurate.
     it('counts the full space on the save path (no early-exit) so KV/analytics stay accurate', async () => {
       mockApWrapper.requestAllPaginatedData.mockImplementation((url: string, consumer: Function) => {
         if (url.includes('type=T-seq')) {
@@ -516,11 +482,10 @@ describe('MacroMetrics', () => {
         }
         return Promise.resolve({});
       });
-      (callRemote as any).mockResolvedValueOnce({ success: true }); // KV write
+      (callRemote as any).mockResolvedValueOnce({ success: true });
 
       await macroMetrics.reportMacroMetrics();
 
-      // full enumeration of both types via the unbounded paginator; no early-exit
       expect(mockApWrapper.requestAllPaginatedData).toHaveBeenCalledTimes(2);
       expect(mockApWrapper.requestPaginatedDataUntil).not.toHaveBeenCalled();
       const urls = mockApWrapper.requestAllPaginatedData.mock.calls.map((c: any[]) => c[0] as string);
@@ -533,7 +498,7 @@ describe('MacroMetrics', () => {
     });
 
     it('falls back to the v1 CQL search when no numeric space id is available', async () => {
-      mockApWrapper.getCurrentSpace.mockResolvedValue({ key: mockSpace }); // no id
+      mockApWrapper.getCurrentSpace.mockResolvedValue({ key: mockSpace });
       (callRemote as any).mockResolvedValueOnce(null);
       mockApWrapper.buildTypesClauseFilter.mockReturnValue('type=customContent');
       mockApWrapper.requestAllPaginatedData.mockResolvedValue({});
@@ -547,15 +512,12 @@ describe('MacroMetrics', () => {
     });
   });
 
-  // A silent (swallowed) KV write failure left stale-low counts cached with no
-  // signal. Write failures must be surfaced via the error tracker.
   describe('KV write failure surfacing', () => {
     it('surfaces a KV write failure instead of swallowing it', async () => {
       mockApWrapper.requestAllPaginatedData.mockImplementation((_url: string, consumer: Function) => {
         consumer({ results: [] });
         return Promise.resolve({});
       });
-      // mode check succeeds, then the KV update POST rejects
       (callRemote as any)
         .mockResolvedValueOnce({ mode: 'legacy', metrics: null })
         .mockRejectedValueOnce(new Error('KV write failed'));

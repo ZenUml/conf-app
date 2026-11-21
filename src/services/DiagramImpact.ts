@@ -13,10 +13,6 @@ export type RegistrationResult = 'new_unique' | 'repeat' | 'excluded_contributor
 
 export interface DiagramImpactRegistration {
   audienceCount: number;
-  // `write_failed` arrives with HTTP 200: the backend refuses to fail a page
-  // view over a derived table, so the outcome is in the body instead of the
-  // status. Reporting it as a success would put a number in Mixpanel that no
-  // row backs.
   result?: RegistrationResult;
 }
 

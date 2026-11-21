@@ -1,11 +1,3 @@
-/**
- * Debug-bundle service.
- *
- * Pure functions that collect identity + editor + saved-history data and
- * serialise a JSON bundle the user downloads via the viewer ⋯ menu.
- * See docs/superpowers/specs/2026-05-20-debug-bundle-download-design.md.
- */
-
 import { DiagramType } from '@/model/Diagram/Diagram';
 import { getCodeFromDiagram } from '@/model/Diagram/DiagramTypeConfig';
 
@@ -59,7 +51,6 @@ export interface DebugBundle {
   errors: BundleError[];
 }
 
-/** Minimal API the service depends on — passed in so tests can mock it. */
 export interface DebugBundleDeps {
   apRequest: (url: string) => Promise<any>;
   getCustomContentId: () => Promise<string | null>;
@@ -67,12 +58,7 @@ export interface DebugBundleDeps {
   now?: () => Date;
 }
 
-// ---------------------------------------------------------------------------
-// hashing + byte length
-// ---------------------------------------------------------------------------
-
 async function sha256Hex(s: string): Promise<string> {
-  // Node test envs ship crypto.subtle in Node 20+; browsers always have it.
   const bytes = new TextEncoder().encode(s);
   const buf = await crypto.subtle.digest('SHA-256', bytes);
   return Array.from(new Uint8Array(buf))
@@ -84,10 +70,6 @@ function utf8ByteLength(s: string): number {
   return new TextEncoder().encode(s).byteLength;
 }
 
-// ---------------------------------------------------------------------------
-// collectors
-// ---------------------------------------------------------------------------
-
 export async function collectIdentity(
   diagramType: DiagramType | string,
   deps: Pick<DebugBundleDeps, 'getCustomContentId' | 'getMacroUuid'>,
@@ -96,9 +78,6 @@ export async function collectIdentity(
   const ctx = fg.forgeContext || {};
   const ext = ctx.extension || {};
 
-  // The Forge context exposes cloudId on the top-level ctx; older builds had
-  // it nested. Tolerate both shapes — if neither carries it, leave it null and
-  // let support engineers identify the tenant from hostname.
   const cloudId =
     ctx.cloudId
     ?? ctx.siteId
@@ -106,7 +85,6 @@ export async function collectIdentity(
 
   const hostname = (typeof window !== 'undefined' && window.location?.hostname) || '';
 
-  // Strip the .atlassian.net suffix so this matches the Mixpanel/KV form.
   const clientDomain = hostname && hostname.endsWith('.atlassian.net')
     ? hostname.slice(0, -'.atlassian.net'.length)
     : null;
@@ -151,12 +129,6 @@ export async function collectEditorContent(
   };
 }
 
-/**
- * V2 customContent bodies wrap the diagram payload as a JSON string at
- * body.raw.value. Parse it and extract the active code field per diagramType
- * via the same helper the viewer uses for the Source panel's Copy, so the
- * bundle's saved.active is byte-identical to what we'd otherwise have shown.
- */
 export function extractActiveField(body: any, diagramType: DiagramType | string): string | null {
   try {
     const raw = body?.raw?.value;
@@ -234,10 +206,6 @@ export async function fetchContentHistory(
   return { latest, previous, errors };
 }
 
-// ---------------------------------------------------------------------------
-// assembly + filename + download
-// ---------------------------------------------------------------------------
-
 export function assembleBundle(args: {
   identity: IdentitySection;
   editor: EditorSection;
@@ -275,13 +243,8 @@ export function downloadAsFile(bundle: DebugBundle, filename: string): void {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  // Defer revoke; some browsers race the click otherwise.
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
-
-// ---------------------------------------------------------------------------
-// public entrypoint
-// ---------------------------------------------------------------------------
 
 export async function buildAndDownloadDebugBundle(
   args: {
@@ -312,10 +275,6 @@ export async function buildAndDownloadDebugBundle(
   downloadAsFile(bundle, filename);
   return { bundle, filename, serialisedSize: serialised.length };
 }
-
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
 
 async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try { return await fn(); } catch { return fallback; }

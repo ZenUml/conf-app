@@ -1,6 +1,7 @@
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import pluginVue from "eslint-plugin-vue";
+import { commentsPlugin } from "./scripts/comments/no-comments-rule.mjs";
 
 export default tseslint.config(
   { ignores: ["dist", "public/drawio", "node_modules", "functions", "**/*.d.ts"] },
@@ -94,5 +95,10 @@ export default tseslint.config(
         process: "readonly",
       },
     },
+  },
+  {
+    files: ["src/services/**/*.{ts,tsx,js,vue}"],
+    plugins: { local: commentsPlugin },
+    rules: { "local/no-comments": "error" },
   },
 );

@@ -1,9 +1,16 @@
 {
   "name": "@zenuml/render-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local MCP server that draws ZenUML, Mermaid, PlantUML, draw.io, OpenAPI and AsyncAPI diagrams without sending their source to ZenUML.",
   "type": "module",
-  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZenUml/conf-app.git",
+    "directory": "tools/render-mcp-local"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "zenuml-render-mcp": "dist/cli.mjs"
   },

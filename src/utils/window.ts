@@ -2,7 +2,7 @@ import {
   getClientDomain,
   getSpaceKey,
 } from "@/utils/ContextParameters/ContextParameters";
-import mixpanel from "mixpanel-browser";
+import mixpanel, { MIXPANEL_RECORDER_SRC } from "@/utils/analytics/mixpanelClient";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import { decideSample } from "@/utils/analytics/eventSampling";
@@ -26,6 +26,7 @@ const initMixpanel = () => {
       // first fixes the recorder config for this iframe.
       record_console: true,
       record_network: true,
+      recorder_src: MIXPANEL_RECORDER_SRC,
     });
     initialized = true;
   }

@@ -4,7 +4,7 @@
 import { setup, type Args, type Meta, type StoryObj } from '@storybook/vue3-vite'
 // @ts-expect-error -- resolved by Storybook's Vite pipeline
 import { expect, userEvent, waitFor, within } from 'storybook/test'
-import mixpanel from 'mixpanel-browser'
+import mixpanel from '@/utils/analytics/mixpanelClient'
 import { FeatureFlags } from '@forge/bridge'
 import GenericViewer from './GenericViewer.vue'
 import GraphPageNav from './GraphPageNav.vue'

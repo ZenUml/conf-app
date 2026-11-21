@@ -306,6 +306,9 @@ describe('maybeBackfillSnapshot — analytics emission', () => {
     );
 
   beforeEach(() => {
+    // The 403 case records a per-page write-denial memo in localStorage; the
+    // next test on the same page would then return early.
+    window.localStorage.clear();
     mockTrack.mockReset();
     mockGetAttachmentsV2.mockReset();
     mockCallRemote.mockReset();

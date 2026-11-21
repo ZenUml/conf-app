@@ -1,6 +1,12 @@
+import { afterEach } from 'vitest';
 import store from './index';
 
 describe('Store', function () {
+  // The store is a module singleton shared by every test in the file.
+  afterEach(() => {
+    store.commit('updateMermaidCode', '');
+  });
+
   it('should have default values', function () {
     expect(store.state.diagram.mermaidCode).toBe('');
   });

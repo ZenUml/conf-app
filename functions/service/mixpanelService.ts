@@ -42,12 +42,17 @@ export interface MixpanelServiceImportOptions {
   runtime?: unknown;
 }
 
-/** The disabled flag is effective only on a Pages deployment configured for staging. */
+/**
+ * The disabled flag is effective only on a Pages deployment configured for a
+ * pre-production Forge environment: staging, or the development environment
+ * that the staging project's preview branch serves.
+ */
 export function isMixpanelDisabled(runtime: unknown): boolean {
   if (!runtime || typeof runtime !== 'object') return false;
   const env = runtime as Record<string, unknown>;
   return env.MIXPANEL_DISABLED === 'true'
-    && env.EXPECTED_FORGE_ENVIRONMENT_TYPE === 'STAGING';
+    && (env.EXPECTED_FORGE_ENVIRONMENT_TYPE === 'STAGING'
+      || env.EXPECTED_FORGE_ENVIRONMENT_TYPE === 'DEVELOPMENT');
 }
 
 const DEFAULT_SERVICE_BATCH_SIZE = 500;

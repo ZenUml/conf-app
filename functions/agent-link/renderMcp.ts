@@ -43,6 +43,10 @@ import {
 import { clientDeclaresUi, negotiateProtocolVersion, withTimeout } from './mcpProtocol';
 import { checkRenderRate, RENDER_LIMIT, RENDER_WINDOW_SECONDS, type RateEnv } from './renderRateLimit';
 import { mixpanelTrack } from '../service/mixpanelService';
+// The same version /mcp/health reports: workers/render-mcp/build.mjs writes this
+// package.json version into build-info.json. A named JSON import keeps only the
+// one field in the bundle.
+import { version as RENDER_SERVER_VERSION } from '../../package.json';
 import { json } from '../OkResponse';
 
 export const CORS = {
@@ -159,7 +163,7 @@ export async function handleRenderRpc(
       return rpcResult(id, {
         protocolVersion: negotiated,
         capabilities: { tools: {}, resources: {}, extensions: uiCapability() },
-        serverInfo: { name: 'zenuml-render', version: '0.1.0' },
+        serverInfo: { name: 'zenuml-render', version: RENDER_SERVER_VERSION },
         instructions: INSTRUCTIONS,
       });
     }
@@ -171,7 +175,7 @@ export async function handleRenderRpc(
       return rpcResult(id, { tools: [{ ...RENDER_TOOL, _meta: uiMeta(origin) }] });
 
     case 'resources/list':
-      return rpcResult(id, { resources: [...uiResourceList(origin), ...listGuideResources()] });
+      return rpcResult(id, { resources: [...uiResourceList(origin), ...listGuideResources('render')] });
 
     case 'resources/read': {
       const uri = (body.params as { uri?: unknown } | undefined)?.uri;
@@ -188,7 +192,7 @@ export async function handleRenderRpc(
         if (!read.ok) return rpcError(200, id, RPC_TOOL_ERROR, read.reason, { reason: read.reason, detail: read.detail });
         return rpcResult(id, { contents: read.contents });
       }
-      const guide = typeof uri === 'string' ? getGuideByUri(uri) : undefined;
+      const guide = typeof uri === 'string' ? getGuideByUri(uri, 'render') : undefined;
       if (!guide) return rpcError(400, id, RPC_INVALID_PARAMS, `Unknown resource: ${typeof uri === 'string' ? uri.slice(0, 120) : '(none)'}`);
       return rpcResult(id, { contents: [{ uri: guide.uri, mimeType: 'text/markdown', text: guide.text }] });
     }

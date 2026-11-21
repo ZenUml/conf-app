@@ -424,10 +424,29 @@ export type GalleryOpenTrigger = "auto_first_open" | "manual";
 // so pairing the two values into a funnel would be lopsided by construction.
 export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
 
-// Mermaid sequence inline edit (editor_inline_edit_*). Mirrors EditableKind
+// Mermaid inline edit (editor_inline_edit_*). Mirrors EditableKind
 // and EditRejection in src/features/mermaidInlineEdit/types.ts, in snake case
 // for Mixpanel; kept as literals so the catalog has no feature import.
-export type InlineEditKind = "participant_label" | "message_text";
+// `participant_label` / `message_text`: sequence diagrams; `node_label` /
+// `edge_label`: flowcharts (2026-11-21, registered ahead of the flowchart UI).
+export type InlineEditKind = "participant_label" | "message_text" | "node_label" | "edge_label";
+// Which Mermaid diagram type an editor_inline_edit_* event came from.
+export type InlineEditDiagram = "sequence" | "flowchart";
+// editor_inline_edit_unavailable: why the diagram or label is read-only.
+// `no_map`: the position parser gave no source map, so the whole diagram is
+// read-only (sequence: sent after the render; flowchart: sent on the
+// double-click). The others mirror FlowReadOnlyReason in
+// src/features/mermaidInlineEdit/types.ts (flowchart labels, sent on the
+// double-click of a read-only label).
+export type InlineEditUnavailableReason =
+  | "no_map"
+  | "markdown"
+  | "shape_data"
+  | "html"
+  | "shared_edge_label"
+  | "no_label"
+  | "linked_node"
+  | "unsupported";
 export type InlineEditRejection =
   | "stale_source"
   | "name_exists"
@@ -1768,6 +1787,9 @@ export type AnalyticsEventName =
   // listed `fullscreen` in its availableDisplayModes (so the view showed its
   // fullscreen button). Never carries the source, a title or any free text,
   // and no user or site: the endpoint accepts these enums and nothing else.
+  // `mcp_mode: 'local'` on this, _fullscreen_requested and _zoomed = the
+  // result came from the local @zenuml/render-mcp server (0.1.3+); absent =
+  // a remote server (render or headless).
   | "agent_link_app_view_rendered"
   // The MCP Apps view's fullscreen button was pressed, and what the host did
   // with `ui/request-display-mode` (POST /mcp/view-event, like _rendered).
@@ -1881,7 +1903,9 @@ export type AnalyticsEventName =
   // It carries the tool in `mcp_tool`, the target site in `cloud_id` (absent
   // for list_sites / get_status, which take none), how the call ended in
   // `mcp_tool_outcome`, the closed-vocabulary error code (if any) in `reason`,
-  // why the guard refused in `guardrail_reason`, the host in `oauth_client_id` /
+  // why the guard refused in `guardrail_reason` (with `guardrail_kept_pct`,
+  // `guardrail_error_kind`, `guardrail_dsl_kind`, `input_len`, `output_len`
+  // saying how), the host in `oauth_client_id` /
   // `oauth_client_name`, the site in `client_domain`, and server-side latency in
   // `duration_ms`. A `reason: 'upstream'` failure also names the step that
   // failed in `failure_step`, the HTTP status Confluence/Atlassian answered in
@@ -2012,10 +2036,16 @@ export type AnalyticsEventName =
   // while typing sends nothing); `cancelled` = Esc, or the layer closed with
   // unchanged text (`inline_edit_cancel_reason`); `unavailable` = a sequence
   // diagram rendered in the editor, but the position parser gave no map, so
-  // the diagram stays read-only (at most once per editor session).
+  // the diagram stays read-only (at most once per editor session); for a
+  // flowchart it is sent on the double-click of a label that is read-only
+  // (or of any label when there is no map), at most once per editor session
+  // per reason (`inline_edit_unavailable_reason`).
   // Properties: feature_area 'macro', surface 'editor', macro_type,
   // inline_edit_kind, inline_edit_had_alias (participant only),
-  // inline_edit_ms_open. Never diagram text or ids. docs/features/mermaid-inline-edit.md.
+  // inline_edit_ms_open, inline_edit_diagram ('sequence' | 'flowchart'; on every
+  // editor_inline_edit_* event once flowchart inline edit ships, absent on events
+  // sent before it). Flowchart labels use inline_edit_kind 'node_label' /
+  // 'edge_label'. Never diagram text or ids. docs/features/mermaid-inline-edit.md.
   | "editor_inline_edit_started"
   | "editor_inline_edit_succeeded"
   | "editor_inline_edit_rejected"
@@ -2195,10 +2225,56 @@ export type AgentLinkRenderOutcome = "rendered" | "failed" | "timeout";
 // never-emitted; the type survives because it still widens the shared `reason`
 // union in types.ts. 'parse_error' = the DSL didn't parse in the
 // real parser (ZenUML/Mermaid/best-effort PlantUML — see charter §4-C);
-// 'data_loss' = it parsed but the semantic round-trip diff showed the output
-// dropping content present in the input (participant/message count collapse);
+// 'data_loss' = the replacement kept under 80% of the current content's
+// non-whitespace length (updateDiagramGuard.ts DATA_LOSS_MIN_RATIO; the page
+// guard uses the same test) — a length check, not a semantic diff;
 // 'other' = any other pre-persist guardrail rejection not covered above.
 export type AgentLinkGuardrailRejectReason = "parse_error" | "data_loss" | "other";
+
+// What kind of parse error a `guardrail_reason: 'parse_error'` refusal was
+// (guardrail_error_kind). Derived from the first parser error's text, which
+// itself never leaves the backend. 'unknown_diagram' = Mermaid found no
+// diagram type it knows (the shape of the 2026-11 false refusals on Mermaid
+// `zenuml` blocks); 'unexpected_end' = the source ends mid-construct (got
+// 'EOF', a missing @end, an unclosed brace) — the truncation signature;
+// 'syntax' = any other grammar error.
+export type AgentLinkGuardrailErrorKind = "unknown_diagram" | "unexpected_end" | "syntax";
+
+// The diagram keyword at the top of a refused Mermaid source
+// (guardrail_dsl_kind), from Mermaid's own keyword list. 'other' = a first
+// word not on that list (never the word itself); 'empty' = no keyword at all.
+export type AgentLinkGuardrailDslKind =
+  | "flowchart"
+  | "graph"
+  | "sequenceDiagram"
+  | "classDiagram"
+  | "stateDiagram"
+  | "stateDiagram-v2"
+  | "erDiagram"
+  | "journey"
+  | "gantt"
+  | "pie"
+  | "quadrantChart"
+  | "requirementDiagram"
+  | "gitGraph"
+  | "C4Context"
+  | "C4Container"
+  | "C4Component"
+  | "C4Dynamic"
+  | "C4Deployment"
+  | "mindmap"
+  | "timeline"
+  | "zenuml"
+  | "sankey-beta"
+  | "xychart-beta"
+  | "block-beta"
+  | "packet-beta"
+  | "architecture-beta"
+  | "kanban"
+  | "radar-beta"
+  | "treemap-beta"
+  | "other"
+  | "empty";
 
 // Why an agent_link session moved to/from 'suspended' (agent_link_session_suspended
 // / agent_link_session_resumed — charter §7.2). 'fullscreen_closed' = the
@@ -2331,7 +2407,12 @@ export type AgentLinkMcpButtonReveal = "always" | "hover";
 // 'render' = the public render-only endpoint (POST /mcp/render), which
 // needs no sign-in and no Atlassian site. Its events carry no user id, so they
 // all share Mixpanel's unknown_user_account_id; split them by `mcp_mode`.
-export type AgentLinkMcpMode = "headless" | "relay" | "render";
+// 'local' = the @zenuml/render-mcp stdio server on the user's own machine
+// (tools/render-mcp-local). It sends no events itself; only the MCP Apps view's
+// agent_link_app_view_rendered / _zoomed / _fullscreen_requested carry it, when
+// the tool result says it came from that server. Absent on those three = a
+// remote server (render or headless), or a local package older than 0.1.3.
+export type AgentLinkMcpMode = "headless" | "relay" | "render" | "local";
 
 // Whether render_diagram's source parsed (agent_link_mcp_tool_called with
 // `mcp_mode: 'render'`). 'valid' = the dialect's parser accepted it;

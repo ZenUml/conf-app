@@ -130,7 +130,7 @@ export function createLocalServer(options: LocalServerOptions = {}) {
         return ok(id, { tools: [{ ...RENDER_TOOL, _meta: uiMeta(origin) }] });
 
       case 'resources/list':
-        return ok(id, { resources: [...uiResourceList(origin), ...listGuideResources()] });
+        return ok(id, { resources: [...uiResourceList(origin), ...listGuideResources('render')] });
 
       case 'resources/read': {
         const uri = (body.params as { uri?: unknown } | undefined)?.uri;
@@ -139,7 +139,7 @@ export function createLocalServer(options: LocalServerOptions = {}) {
           if (!read.ok) return fail(id, RPC_TOOL_ERROR, read.reason, { reason: read.reason, detail: read.detail });
           return ok(id, { contents: read.contents });
         }
-        const guide = typeof uri === 'string' ? getGuideByUri(uri) : undefined;
+        const guide = typeof uri === 'string' ? getGuideByUri(uri, 'render') : undefined;
         if (!guide) {
           return fail(id, RPC_INVALID_PARAMS, `Unknown resource: ${typeof uri === 'string' ? uri.slice(0, 120) : '(none)'}`);
         }
@@ -154,7 +154,9 @@ export function createLocalServer(options: LocalServerOptions = {}) {
           const value = await renderDiagram((params.arguments ?? {}) as Record<string, unknown>);
           // Same shape as the public server: the view reads structuredContent,
           // the model reads the summary. Both stay between host and this process.
-          return ok(id, { content: [{ type: 'text', text: summaryFor(value) }], structuredContent: value });
+          // `mcpMode` lets the view's enum-only events (viewEvent.ts) tell local
+          // use from remote; it carries nothing about the diagram.
+          return ok(id, { content: [{ type: 'text', text: summaryFor(value) }], structuredContent: { ...value, mcpMode: 'local' } });
         } catch (e) {
           if (e instanceof RenderParamsError) {
             return ok(id, { content: [{ type: 'text', text: e.message }], isError: true });

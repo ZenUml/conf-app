@@ -4,7 +4,7 @@
 import type { Args, Meta, StoryObj } from '@storybook/vue3-vite'
 // @ts-expect-error -- resolved by Storybook's Vite pipeline
 import { expect, userEvent, waitFor, within } from 'storybook/test'
-import mixpanel from 'mixpanel-browser'
+import mixpanel from '@/utils/analytics/mixpanelClient'
 import RelatedDiagramsFooter from './RelatedDiagramsFooter.vue'
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'

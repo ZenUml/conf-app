@@ -6,6 +6,11 @@
 // The plugin resolves to the app's own @zenuml/core (pnpm override in
 // package.json), so loading fonts and icons here reaches the same module
 // instance the plugin renders with.
+//
+// This runs inside the Mermaid render queue, which every Mermaid render in the
+// iframe shares. Core's font load (`FontFace.load()`) and icon fetches have no
+// timeout, so the wait is bounded: a stalled fetch costs one diagram its icons
+// or exact font metrics, never the renders queued behind it.
 import { configureDiagramFonts } from '@/utils/fonts/configureDiagramFonts';
 
 type ZenumlCore = {
@@ -13,6 +18,8 @@ type ZenumlCore = {
   ensureDiagramFontsLoaded(): Promise<void>;
   ensureDiagramIconsLoaded(code: string): Promise<void>;
 };
+
+export const PREPARE_ZENUML_TIMEOUT_MS = 3000;
 
 // Mermaid detects the type after removing front matter and directives; the
 // plugin's own detector is /^\s*zenuml/ on that remainder.
@@ -27,9 +34,14 @@ let fontsConfigured = false;
 export async function prepareZenumlForMermaid(
   source: string,
   importCore: () => Promise<ZenumlCore> = () => import('@zenuml/core') as unknown as Promise<ZenumlCore>,
+  timeoutMs: number = PREPARE_ZENUML_TIMEOUT_MS,
 ): Promise<void> {
   if (!isZenumlMermaidSource(source)) return;
-  try {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, timeoutMs);
+  });
+  const prepare = (async () => {
     const core = await importCore();
     if (!fontsConfigured) {
       configureDiagramFonts(core.default);
@@ -37,8 +49,13 @@ export async function prepareZenumlForMermaid(
     }
     // Both never reject (core contract); a missing icon falls back to its label.
     await Promise.all([core.ensureDiagramFontsLoaded(), core.ensureDiagramIconsLoaded(source)]);
-  } catch {
+  })().catch(() => {
     // Preparation is an enhancement; the plugin still renders without it.
+  });
+  try {
+    await Promise.race([prepare, timeout]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 

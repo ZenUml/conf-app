@@ -42,6 +42,25 @@ describe('prepareZenumlForMermaid', () => {
     expect(core.ensureDiagramIconsLoaded).toHaveBeenCalledWith(source);
   });
 
+  it('stops waiting after the timeout when a font or icon load stalls', async () => {
+    vi.useFakeTimers();
+    try {
+      const core = fakeCore();
+      core.ensureDiagramFontsLoaded.mockImplementation(() => new Promise<void>(() => {}));
+      let settled = false;
+      const done = prepareZenumlForMermaid('zenuml\n@VPC A', async () => core, 3000).then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(2999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await done;
+      expect(settled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('never rejects when core fails to load', async () => {
     await expect(
       prepareZenumlForMermaid('zenuml\nA->B', async () => {

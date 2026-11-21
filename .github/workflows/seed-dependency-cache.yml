@@ -11,6 +11,11 @@ on:
       - patches/**
       - .npmrc
       - pnpm-workspace.yaml
+      - package.json
+      - forge-console/package.json
+      - local-crm/package.json
+      - workers/cron-aggregate/package.json
+      - workers/agent-link/package.json
       - .github/actions/install-deps/action.yml
   workflow_dispatch:
 

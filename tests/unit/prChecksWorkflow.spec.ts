@@ -87,7 +87,7 @@ describe('PR checks that do not touch staging', () => {
     const action = structure('../actions/install-deps/action') as any;
     const steps = action.runs.steps;
     const restore = steps.find((step: any) => step.uses?.startsWith('actions/cache/restore@'));
-    expect(restore.with.key).toContain("hashFiles('pnpm-lock.yaml', 'patches/**', '.npmrc', 'pnpm-workspace.yaml')");
+    expect(restore.with.key).toContain("hashFiles('pnpm-lock.yaml', 'patches/**', '.npmrc', 'pnpm-workspace.yaml', 'package.json', 'forge-console/package.json', 'local-crm/package.json', 'workers/cron-aggregate/package.json', 'workers/agent-link/package.json')");
     expect(restore.with['restore-keys']).toBeUndefined();
     expect(steps.find((step: any) => step.uses?.startsWith('actions/setup-node@')).with).toMatchObject({ 'package-manager-cache': false });
     expect(steps.find((step: any) => step.uses?.startsWith('actions/setup-node@')).with.cache).toBeUndefined();
@@ -101,7 +101,7 @@ describe('PR checks that do not touch staging', () => {
   it('seeds the node_modules cache from main with read-only permissions', () => {
     const seed = structure('seed-dependency-cache');
     expect(seed.on.push.branches).toEqual(['main']);
-    expect(seed.on.push.paths).toEqual(expect.arrayContaining(['pnpm-lock.yaml', 'patches/**', '.npmrc', 'pnpm-workspace.yaml']));
+    expect(seed.on.push.paths).toEqual(expect.arrayContaining(['pnpm-lock.yaml', 'patches/**', '.npmrc', 'pnpm-workspace.yaml', 'package.json', 'forge-console/package.json', 'local-crm/package.json', 'workers/cron-aggregate/package.json', 'workers/agent-link/package.json']));
     expect(seed.on).toHaveProperty('workflow_dispatch');
     expect(seed.permissions).toEqual({ contents: 'read' });
     expect(text('seed-dependency-cache')).not.toContain('secrets.');

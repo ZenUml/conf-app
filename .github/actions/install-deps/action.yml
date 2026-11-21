@@ -1,8 +1,10 @@
 name: Install dependencies
 description: >
   Restore node_modules from the cache, or run pnpm install on a miss.
-  The key hashes every input of a root install. There is no restore-keys
-  fallback, because a partial node_modules must never be used.
+  The key hashes every input of a root install, including each workspace
+  package.json: a manifest that no longer matches the lockfile must miss, so
+  that pnpm install --frozen-lockfile still runs and fails. There is no
+  restore-keys fallback, because a partial node_modules must never be used.
 inputs:
   save:
     description: "'true' to save node_modules after a miss. Pass it from one job only."
@@ -36,7 +38,7 @@ runs:
           local-crm/node_modules
           workers/cron-aggregate/node_modules
           workers/agent-link/node_modules
-        key: node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('pnpm-lock.yaml', 'patches/**', '.npmrc', 'pnpm-workspace.yaml') }}
+        key: node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('pnpm-lock.yaml', 'patches/**', '.npmrc', 'pnpm-workspace.yaml', 'package.json', 'forge-console/package.json', 'local-crm/package.json', 'workers/cron-aggregate/package.json', 'workers/agent-link/package.json') }}
     - name: Record restore end time
       id: t1
       shell: bash
@@ -61,7 +63,7 @@ runs:
           local-crm/node_modules
           workers/cron-aggregate/node_modules
           workers/agent-link/node_modules
-        key: node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('pnpm-lock.yaml', 'patches/**', '.npmrc', 'pnpm-workspace.yaml') }}
+        key: node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node24-${{ hashFiles('pnpm-lock.yaml', 'patches/**', '.npmrc', 'pnpm-workspace.yaml', 'package.json', 'forge-console/package.json', 'local-crm/package.json', 'workers/cron-aggregate/package.json', 'workers/agent-link/package.json') }}
     - name: Summarize
       shell: bash
       env:

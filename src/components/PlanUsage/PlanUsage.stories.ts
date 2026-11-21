@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/vue3-vite'
 import { expect, userEvent, waitFor, within } from 'storybook/test'
 import PlanUsage from './PlanUsage.vue'
 import globals from '@/model/globals'
+import forgeGlobal from '@/model/globals/forgeGlobal'
 import { resetStubResponses, stubResponses } from '@/stubs/forge-bridge'
 
 type Story = StoryObj<typeof PlanUsage>
@@ -77,6 +78,7 @@ function typeMatch(spaceId: string, suffix: string): string {
 
 function installStubs(overrides: Array<{ match: string; status?: number; body: any }> = []) {
   resetStubResponses()
+  stubResponses.remote = [{ match: '/api/space-status', body: { isPaid: false, decisionKnown: true } }]
   stubResponses.confluence = [
     ...overrides,
     { match: '/api/v2/spaces?keys=', body: { results: [{ id: '301', key: 'ENG', name: 'Engineering' }, { id: '302', key: 'OPS', name: 'Operations' }] } },
@@ -137,7 +139,7 @@ export const FullscreenContact: Story = {
   name: 'Fullscreen use — contact support',
   beforeEach: () => {
     forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&space_key=ENG&scenes=present,discuss&page_id=123' } } as any
-    stubResponses.remote = [{ match: '/api/fullscreen-recovery', body: { snapshot: {
+    stubResponses.remote = [{ match: '/api/space-status', body: { isPaid: false, decisionKnown: true } }, { match: '/api/fullscreen-recovery', body: { snapshot: {
       state: 'not_requested', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'fullscreen-contact-v1',
     } } }]
   },
@@ -153,7 +155,7 @@ export const FullscreenExistingRequest: Story = {
   name: 'Fullscreen use — existing request',
   beforeEach: () => {
     forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&space_key=ENG&request=untrusted&scenes=present' } } as any
-    stubResponses.remote = [{ match: '/api/fullscreen-recovery', body: { snapshot: {
+    stubResponses.remote = [{ match: '/api/space-status', body: { isPaid: false, decisionKnown: true } }, { match: '/api/fullscreen-recovery', body: { snapshot: {
       state: 'expired', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'fullscreen-contact-v1',
       request: { id: 'FS-EXAMPLE-001', scenarios: ['inspect_details'], note: '', email: 'reader@example.com', createdAt: '2026-10-01T00:00:00Z', mailState: 'queued' },
       grant: { id: 'grant-example', activatedAt: '2026-10-01T00:00:00Z', expiresAt: '2026-10-08T00:00:00Z' },
@@ -170,7 +172,7 @@ export const FullscreenOrdinarySpace: Story = {
   name: 'Fullscreen use — ordinary space despite old grant',
   beforeEach: () => {
     forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&space_key=OPS&page_id=123' } } as any
-    stubResponses.remote = [{ match: '/api/fullscreen-recovery', body: { snapshot: {
+    stubResponses.remote = [{ match: '/api/space-status', body: { isPaid: false, decisionKnown: true } }, { match: '/api/fullscreen-recovery', body: { snapshot: {
       state: 'disabled', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'fullscreen-contact-v1',
       request: { id: 'FS-EXAMPLE-001', scenarios: ['inspect_details'], note: '', email: 'reader@example.com', createdAt: '2026-10-01T00:00:00Z' },
       grant: { id: 'grant-example', activatedAt: '2026-10-01T00:00:00Z', expiresAt: '2026-10-08T00:00:00Z' },
@@ -298,5 +300,69 @@ export const NoReportedSpaces: Story = {
     const canvas = within(document.body)
     await userEvent.click(await canvas.findByTestId('plan-usage-view-locations'))
     await expect(await canvas.findByTestId('diagram-locations-none', {}, { timeout: 5000 })).toBeVisible()
+  },
+}
+
+/** Includes paid space/user licenses, personal spaces and the exact limit. */
+export const SpacePurchases: Story = {
+  name: 'Space purchases — mixed paid and unpaid',
+  beforeEach: () => {
+    stubResponses.remote = [{ match: '/api/space-status', body: { statuses: {
+      ENG: { isPaid: false, decisionKnown: true }, OPS: { isPaid: false, decisionKnown: true },
+      '~abc123': { isPaid: false, decisionKnown: true }, PAID: { isPaid: true, decisionKnown: true },
+      USER: { isPaid: true, decisionKnown: false }, UNKNOWN: { isPaid: false, decisionKnown: false },
+    } } }]
+    const restore = stubFetch({ ...usage, totalMacros: 1506, overLimitSpaces: [
+      { spaceKey: 'ENG', macroCount: 143 }, { spaceKey: 'OPS', macroCount: 100 },
+      { spaceKey: '~abc123', macroCount: 120 }, { spaceKey: 'PAID', macroCount: 400 },
+      { spaceKey: 'USER', macroCount: 400 }, { spaceKey: 'UNKNOWN', macroCount: 143 },
+    ] })
+    return restore
+  },
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByRole('button', { name: 'Unlock this space: ENG' })).toBeVisible()
+    await expect(canvas.getAllByText('Covered by a paid license')).toHaveLength(2)
+    await expect(canvas.getByText('License status unavailable')).toBeVisible()
+  },
+}
+
+export const PaidStatusUnavailable: Story = {
+  name: 'Space purchases — paid status unavailable',
+  beforeEach: () => {
+    stubResponses.remote = [{ match: '/api/space-status', status: 503, body: { error: 'unavailable' } }]
+  },
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByText('We couldn’t check paid access. Purchase options are unavailable for now.')).toBeVisible()
+    await expect(canvas.getByText('118 / 100')).toBeVisible()
+    await expect(canvas.queryByRole('button', { name: /Unlock this space/ })).toBeNull()
+  },
+}
+
+export const PaidStatusPending: Story = {
+  name: 'Space purchases — checking license',
+  beforeEach: () => {
+    let settle: (value: unknown) => void = () => {}
+    const pending = new Promise(resolve => { settle = resolve })
+    stubResponses.remote = [{ match: '/api/space-status', body: pending }]
+    return () => settle({ isPaid: false, decisionKnown: false })
+  },
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByText('Checking license…')).toBeVisible()
+    await expect(canvas.getByText('118 / 100')).toBeVisible()
+    await expect(canvas.queryByRole('button', { name: /Unlock this space/ })).toBeNull()
+  },
+}
+
+export const NoSpacesOverLimit: Story = {
+  name: 'Space purchases — no spaces over the limit',
+  beforeEach: () => stubFetch({ ...usage, overLimitSpaces: [], totalMacros: 80 }),
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByText('No spaces are currently over the Lite limit.')).toBeVisible()
+    await expect(canvas.queryByRole('table')).toBeNull()
+    await expect(canvas.getByRole('button', { name: 'View on Marketplace' })).toBeVisible()
   },
 }

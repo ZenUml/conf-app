@@ -202,6 +202,7 @@ function emptyCounts(): MacroCounts {
     mermaid: 0,
     plantuml: 0,
     asyncapi: 0,
+    markdown: 0,
     unknown: 0,
   };
 }

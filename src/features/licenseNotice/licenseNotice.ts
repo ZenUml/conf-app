@@ -2,7 +2,7 @@ export const MARKETPLACE_UPGRADE_URL = 'https://marketplace.atlassian.com/apps/1
 export const SUPPORT_EMAIL = 'support@zenuml.com'
 export const SUPPORT_TICKET_URL = 'https://zenuml.atlassian.net/servicedesk/customer/portal/1/group/1/create/1'
 
-export type LicenseNoticeBasis = 'forge_inactive' | 'forge_legacy_free' | 'marketplace_legacy_free' | 'development_mock'
+export type LicenseNoticeBasis = 'forge_inactive' | 'forge_legacy_free' | 'marketplace_legacy_free' | 'development_mock' | 'site_policy_limit_reached'
 export interface LicenseNoticeInput {
   productType: string | undefined
   licenseActive: unknown

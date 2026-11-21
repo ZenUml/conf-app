@@ -74,7 +74,7 @@ After every fix push, invoke `pr-labeling` again. A new full-suite decision requ
 
 ### Step 4: Land and verify
 
-**Confirm with the user before merging** unless they explicitly said "land it".
+Decide "merge or ask" by `docs/policies/auto-lane.md`, section "Agent sessions": a non-destructive, low-technical-risk PR with every check green is merged without asking and reported afterwards. Ask first only for a destructive PR (deploys or releases directly, deletes or rewrites stored data, cannot be undone by a revert).
 
 Invoke `/land-pr` with the PR number. It rechecks the current decision and required checks, marks Ready when appropriate, and handles merge strategy, stacked-branch deletion safeguards and main CI verification. If merge is blocked, stop and report.
 
@@ -84,7 +84,7 @@ On success, report the draft releases created and suggest `/release-app` if the 
 
 - **Each step is a hard boundary.** Only Step 1's bounded local-fix loop and Step 3's CI-fix loop may retry within their own step.
 - **No auto-rollback.** Stop and report on any failure. The developer decides next steps.
-- **Confirm before merge.** Pause and confirm with the user before the land-pr step unless they explicitly said "land it".
+- **Merge without asking when the policy allows it.** A non-destructive PR is merged and then reported; only a destructive PR waits for the owner (`docs/policies/auto-lane.md`, "Agent sessions").
 
 ## Output
 

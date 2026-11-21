@@ -22,11 +22,14 @@
 // plausible ZenUML lifeline/method names, so — same "false positive is worse
 // than a miss" principle as PlantUML above — detection is anchored to the
 // FIRST MEANINGFUL LINE of the source only (skipping blank lines, `%%`
-// comments/init directives, a leading YAML front-matter block, and a leading
-// markdown fence), matched case-sensitively, and keywords that double as
-// identifiers (`graph`, `flowchart`) additionally require a trailing
-// direction token so `graph.render()` and a bare `graph` participant line do
-// not match.
+// comments/init directives and a leading YAML front-matter block, after a
+// Markdown fence and any prose around it is removed), matched
+// case-sensitively, and keywords that double as identifiers (`graph`,
+// `flowchart`) additionally require a direction token or, bare, an edge
+// operator on the next line, so `graph.render()` and a bare `graph`
+// participant line do not match.
+import { stripMarkdownFence } from "@/model/Diagram/markdownFence";
+
 export type ForeignDialect = "plantuml" | "mermaid";
 
 const PLANTUML_FENCE = /^\s*@startuml\b/im;
@@ -34,11 +37,16 @@ const PLANTUML_FENCE = /^\s*@startuml\b/im;
 // Simple Mermaid diagram openers: the keyword must be followed by whitespace,
 // end of line, or end of input.
 const MERMAID_SIMPLE_KEYWORDS =
-  /^(erDiagram|sequenceDiagram|classDiagram|stateDiagram-v2|stateDiagram|gantt|pie|mindmap|gitGraph|journey|timeline)(?=\s|$)/;
+  /^(erDiagram|sequenceDiagram|classDiagram|stateDiagram-v2|stateDiagram|gantt|pie|mindmap|gitGraph|journey|timeline|C4Context|C4Container|C4Component|C4Dynamic|C4Deployment|quadrantChart|requirementDiagram|xychart-beta|sankey-beta|block-beta|architecture-beta|packet-beta|radar-beta)(?=\s|$)/;
 
-// `flowchart`/`graph` require an explicit direction token — a bare `graph`
-// or `flowchart` line (or `graph.render()`) is not enough to call it Mermaid.
-const MERMAID_DIRECTIONAL_KEYWORDS = /^(flowchart|graph)\s+(TB|TD|BT|RL|LR)(?=\s|$)/;
+// `flowchart`/`graph` double as ordinary identifiers, so they need a direction
+// token or, bare, an edge operator on the next meaningful line — a bare `graph`
+// line or `graph.render()` alone is not enough. The direction stays upper-case:
+// Mermaid's own lexer rejects `graph td` ("Lexical error on line 1"), so
+// routing it to the Mermaid tab would only move the error.
+const MERMAID_DIRECTIONAL_KEYWORDS = /^(flowchart|graph)\s+(TB|TD|BT|RL|LR)(?=\s|;|$)/;
+const MERMAID_BARE_KEYWORDS = /^(flowchart|graph)\s*;?\s*$/;
+const MERMAID_EDGE = /--[->xo]|-\.->|==>/;
 
 function isBlank(line: string): boolean {
   return line.trim() === "";
@@ -48,15 +56,12 @@ function isMermaidCommentOrDirective(line: string): boolean {
   return line.trim().startsWith("%%");
 }
 
-// Strips leading blank lines, `%%` comments/init directives, a leading YAML
-// front-matter block (`---` ... `---`), and a leading markdown fence line
-// (``` or ```mermaid), then returns the first remaining non-blank line —
-// i.e. the "first meaningful line" Mermaid detection is anchored to.
-function firstMeaningfulLine(code: string): string | null {
+// Returns the first two meaningful lines after leading blank lines, `%%`
+// comments/init directives and a leading YAML front-matter block.
+function firstMeaningfulLines(code: string): [string | null, string | null] {
   const lines = code.split(/\r\n|\r|\n/);
   let i = 0;
 
-  // Leading YAML front matter.
   if (i < lines.length && lines[i].trim() === "---") {
     let j = i + 1;
     while (j < lines.length && lines[j].trim() !== "---") j++;
@@ -65,31 +70,37 @@ function firstMeaningfulLine(code: string): string | null {
     }
   }
 
-  while (i < lines.length) {
-    const line = lines[i];
-    if (isBlank(line) || isMermaidCommentOrDirective(line)) {
-      i++;
-      continue;
-    }
-    if (/^```(mermaid)?\s*$/.test(line.trim())) {
-      i++;
-      continue;
-    }
-    return line;
+  const found: string[] = [];
+  for (; i < lines.length && found.length < 2; i++) {
+    if (isBlank(lines[i]) || isMermaidCommentOrDirective(lines[i])) continue;
+    found.push(lines[i]);
   }
-  return null;
+  return [found[0] ?? null, found[1] ?? null];
 }
 
-function detectMermaid(code: string): boolean {
-  const line = firstMeaningfulLine(code);
-  if (line === null) return false;
+function isMermaidOpener(line: string, next: string | null): boolean {
   const trimmed = line.trimStart();
-  return MERMAID_SIMPLE_KEYWORDS.test(trimmed) || MERMAID_DIRECTIONAL_KEYWORDS.test(trimmed);
+  if (MERMAID_SIMPLE_KEYWORDS.test(trimmed) || MERMAID_DIRECTIONAL_KEYWORDS.test(trimmed)) return true;
+  return MERMAID_BARE_KEYWORDS.test(trimmed.trimEnd()) && next !== null && MERMAID_EDGE.test(next);
+}
+
+// The Mermaid source inside `code` (a Markdown fence and any prose around it
+// removed), or null when `code` is not Mermaid. Returns `code` itself when no
+// fence was involved. A fence labelled `mermaid` is trusted even when its
+// opener is not in the list above.
+export function extractMermaidSource(code: string | null | undefined): string | null {
+  if (!code) return null;
+  const stripped = stripMarkdownFence(code);
+  const [line, next] = firstMeaningfulLines(stripped.text);
+  const isMermaid =
+    (line !== null && isMermaidOpener(line, next)) || (stripped.fenced && stripped.language === "mermaid");
+  if (!isMermaid) return null;
+  return stripped.fenced ? stripped.text : code;
 }
 
 export function detectForeignDialect(code: string | null | undefined): ForeignDialect | null {
   if (!code) return null;
   if (PLANTUML_FENCE.test(code)) return "plantuml";
-  if (detectMermaid(code)) return "mermaid";
+  if (extractMermaidSource(code) !== null) return "mermaid";
   return null;
 }

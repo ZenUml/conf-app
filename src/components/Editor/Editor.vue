@@ -14,6 +14,8 @@ import {DiagramType} from "@/model/Diagram/Diagram";
 import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import {EditorState, Compartment} from '@codemirror/state';
 import {baseExtensionsFactory, mermaidExtensions, zenumlExtensions, plantUmlExtensions} from "./extensions";
+import {diagramPasteExtension} from "./diagramPaste";
+import {createDiagramPasteHandler} from "./handleDiagramPaste";
 import {computed, onMounted, ref, watch, onBeforeUnmount, onBeforeMount} from "vue";
 import {useStore} from "vuex";
 import { validateMermaidSyntax } from "@/utils/mermaid/validate";
@@ -75,11 +77,15 @@ watch(code, (newCode) => {
   debouncedValidate(newCode, validationRevision);
 }, { immediate: true });
 
+const handleDiagramPaste = createDiagramPasteHandler(store);
+const mermaidWithPaste = [...mermaidExtensions, diagramPasteExtension('mermaid', handleDiagramPaste)];
+const zenumlWithPaste = [...zenumlExtensions, diagramPasteExtension('sequence', handleDiagramPaste)];
+
 const diagramSpecificExtensions = computed(() => {
   if (diagramType.value === DiagramType.Markdown) return [EditorView.lineWrapping];
-  if (diagramType.value === DiagramType.Mermaid) return mermaidExtensions;
+  if (diagramType.value === DiagramType.Mermaid) return mermaidWithPaste;
   if (diagramType.value === DiagramType.PlantUml) return plantUmlExtensions;
-  return zenumlExtensions;
+  return zenumlWithPaste;
 });
 
 watch(code, (newVal) => {

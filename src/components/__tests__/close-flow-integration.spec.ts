@@ -306,3 +306,95 @@ describe('Test 5 — saved event removes the draft from localStorage', () => {
     expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Test 6 — the draft is cleared when Publish commits, not when view.submit
+// resolves. Under Playwright (and sometimes for real users) view.submit tears
+// the iframe down before its promise settles, so the 'saved' handler never
+// runs and the published content stayed behind as a new:diagram draft.
+// ---------------------------------------------------------------------------
+describe('Test 6 — publish-committing clears the draft before the editor closes', () => {
+  const closeHandler = () => capturedCloseHandlers[capturedCloseHandlers.length - 1];
+
+  it('removes the draft synchronously when Publish commits', async () => {
+    const store = makeStore();
+    await mountHeader(store);
+    store.commit('updateCode2', 'A->B: about to publish');
+    await nextTick();
+    await closeHandler()(); // writes the draft synchronously
+    expect(localStorage.getItem(DRAFT_KEY)).not.toBeNull();
+
+    // No microtask flush: view.submit may tear the iframe down right after.
+    EventBus.$emit('publish-committing');
+
+    expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
+  });
+
+  it('does not let the close guard or a pending debounced write re-create the draft after commit', async () => {
+    const store = makeStore();
+    await mountHeader(store);
+    vi.useFakeTimers();
+
+    store.commit('updateCode2', 'A->B: published change');
+    await nextTick();
+    EventBus.$emit('publish-committing');
+    // A late auto-title change during teardown must not write either.
+    store.dispatch('updateTitle', 'Late auto title');
+    await nextTick();
+    // The iframe closes during view.submit: onClose fires.
+    await closeHandler()();
+    await vi.runAllTimersAsync();
+
+    expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
+  });
+
+  it('writes the draft back when view.submit fails after commit, as the retry anchor', async () => {
+    const store = makeStore();
+    await mountHeader(store);
+
+    store.commit('updateCode2', 'A->B: publish failed');
+    await nextTick();
+    EventBus.$emit('publish-committing');
+    expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
+
+    EventBus.$emit('publish-commit-failed', new Error('MACRO_NOT_FOUND'));
+    EventBus.$emit('save-error', new Error('MACRO_NOT_FOUND'));
+
+    const raw = localStorage.getItem(DRAFT_KEY);
+    expect(raw).not.toBeNull();
+    expect(JSON.parse(raw!).code).toBe('A->B: publish failed');
+
+    // After the failure the editor is live again: the close guard saves as before.
+    store.commit('updateCode2', 'A->B: edited after failure');
+    await nextTick();
+    await closeHandler()();
+    expect(JSON.parse(localStorage.getItem(DRAFT_KEY)!).code).toBe('A->B: edited after failure');
+  });
+
+  it('leaves the draft alone on a failure that happens before commit', async () => {
+    const store = makeStore();
+    await mountHeader(store);
+    store.commit('updateCode2', 'A->B: blocked publish');
+    await nextTick();
+    await closeHandler()();
+    const before = localStorage.getItem(DRAFT_KEY);
+
+    EventBus.$emit('publish-commit-failed', new Error('publish blocked'));
+    EventBus.$emit('save-error', new Error('publish blocked'));
+
+    expect(localStorage.getItem(DRAFT_KEY)).toBe(before);
+  });
+
+  it('does not re-save published content when the editor closes after a successful save', async () => {
+    const store = makeStore();
+    await mountHeader(store);
+    store.commit('updateCode2', 'A->B: saved, modal stays open');
+    await nextTick();
+
+    EventBus.$emit('saved');
+    await new Promise((r) => setTimeout(r, 0));
+    await closeHandler()();
+
+    expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
+  });
+});

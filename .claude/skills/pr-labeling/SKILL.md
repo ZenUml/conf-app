@@ -41,6 +41,16 @@ When the user explicitly asks to try labeling an existing PR before the trusted 
 
 2. Choose `selected` only when a concrete subset covers the changed behavior. Retain smoke, directly changed E2E specs and the known dependency selectors in the reported floor. Read the relevant contracts and conditional boundaries in root [IMPACT-MAP.md](../../../IMPACT-MAP.md). Record exact `{feature, interface}` pairs from nonempty cells. A pair is AND; multiple pairs are OR. Never generate a Cartesian product from dimension labels or expand parent interfaces. Scenarios may be empty only for a justified floor-only decision. Check assertion-backed coverage, known dependencies, variants and actual PR suite applicability; a registered product relation alone is not E2E coverage. A declared pair without registered E2E coverage cannot authorize a subset. A path that reaches shared code needs its actual callers assessed; a filename alone does not establish the coverage.
 
+   A PR that changes the scenario catalog can still get `selected` when the change is additive only:
+
+   | PR change to the scenario catalog | `selected` decision |
+   | --- | --- |
+   | None | Valid |
+   | Only adds scenario-tagged tests and/or new pairs; every test entry and pair in the trusted (`main`) catalog is unchanged | Valid. Choose pairs that the trusted catalog covers (`inspect` shows them); the new spec runs through the direct-spec floor |
+   | Removes, renames or retags an existing scenario test, or changes `API_LANES`, `product-impact.mjs` (IMPACT-MAP.md) or `categories.mjs` | Invalid; choose `triage` |
+
+   A pair that only the PR's new test covers is still uncovered in the trusted catalog and cannot be selected. Details: [PR test-decision policy](../../../docs/policies/pr-test-decisions.md#activation-and-limits).
+
 3. When a product relation, test pairing, applicable variant/suite or dependency cannot be established, choose `triage`; do not invent tags or treat source-only/UI-unverified wiring as passed E2E. When full coverage appears necessary, or the diff, dependencies or evidence are incomplete, choose `triage` and explain the gap. Full coverage is always a manual triage decision. Do not invoke `pr-triage` automatically or extend an earlier full approval to a new commit.
 
 ## Publish the decision
@@ -66,6 +76,27 @@ The helper checks the current identity and publishes a new decision comment. Edi
 - `test:all-approved`: only manual triage can issue this for the current commit.
 
 If publishing reports a stale identity, inspect the new diff and decide again. A push or base change invalidates the previous decision; it does not inherit permission to run full coverage.
+
+### Recover when the base branch moved
+
+A decision binds the PR head and the base tip. When `main` moves after publishing, CI blocks E2E even though the PR itself did not change. Read the blocking line in the `Select E2E for this PR` job, then act on it:
+
+| CI message | Meaning | Action |
+|---|---|---|
+| `E2E blocked: missing-or-stale-decision` | The published decision names an older head or base. | Run the full cycle below. |
+| `E2E blocked: stale or unrelated candidate` | The decision is current, but the tested merge commit does not have the current base and head as its parents: GitHub built the PR's merge ref from an older base. Publishing again does not change it. | Run the full cycle below; the push in step 2 rebuilds the merge ref. |
+
+Full cycle, in this order:
+
+1. In the feature checkout: `git fetch origin main`, then `git merge origin/main`. Never rebase or force-push. A conflict means the diff changed, so analyze it again.
+2. Push the branch.
+3. Refresh the trusted helper checkout to the new `origin/main` (remove the old one, add a new detached worktree), because the helper stamps its own catalogs.
+4. `inspect` again and copy the new `head_sha` and `base_sha` into the decision JSON. Reuse the earlier scenarios and evidence only if the merge added no files to the PR diff and changed no path the evidence relies on; otherwise decide again.
+5. `publish`, then `request-pr-e2e`.
+
+Publishing again without steps 1 and 2 fixes only the first message and then fails with the second. If `main` moves again while the run waits for staging, repeat the cycle; the earlier green run does not carry over to the new head.
+
+_(2026-11-21, PR 1246: `main` moved after the decision was published. Publishing again alone produced `stale or unrelated candidate`; merging `origin/main`, pushing, then publishing and requesting passed.)_
 
 ## Run and report
 

@@ -49,12 +49,27 @@
 
         <template v-if="overLimitSpaces.length">
           <h2 class="section-title">Spaces over the limit</h2>
+          <p class="purchase-help" data-testid="plan-usage-purchase-help">Unlock one space by card. Checkout opens in a new tab: ${{ ENTERPRISE_BUNDLE_ANNUAL_COST }} per space per year, plus tax where applicable. No Confluence admin needed.</p>
+          <p v-if="paidLookupFailed" class="purchase-help" role="status">We couldn’t check paid access. Purchase options are unavailable for now.</p>
           <table class="space-table">
-            <thead><tr><th>Space</th><th class="num">Diagrams / limit</th></tr></thead>
+            <thead><tr><th>Space</th><th class="num">Diagrams / limit</th><th class="purchase-heading">Unlock one space</th></tr></thead>
             <tbody>
               <tr v-for="s in overLimitSpaces" :key="s.spaceKey">
                 <td class="space-key">{{ s.spaceKey }}</td>
                 <td class="num space-count">{{ s.macroCount.toLocaleString() }} / {{ macrosLimit.toLocaleString() }}</td>
+                <td class="space-purchase">
+                  <div class="space-purchase-content">
+                  <template v-if="canPurchase(s.spaceKey) && checkoutOpened[s.spaceKey]">
+                    <span class="checkout-opened" data-testid="plan-usage-checkout-opened"><span class="checkout-opened-dot" aria-hidden="true"></span>Checkout opened in a new tab</span>
+                    <button type="button" class="btn btn-secondary" :aria-label="`Open checkout again: ${s.spaceKey}`" @click="purchaseSpace(s)">Open again</button>
+                  </template>
+                  <template v-else-if="canPurchase(s.spaceKey)">
+                    <span class="space-price">${{ ENTERPRISE_BUNDLE_ANNUAL_COST }}/yr/space</span>
+                    <button type="button" class="btn btn-secondary" :aria-label="`Unlock this space: ${s.spaceKey}`" @click="purchaseSpace(s)">Unlock this space</button>
+                  </template>
+                  <span v-else class="license-state">{{ paidLoading ? 'Checking license…' : paidStatuses[s.spaceKey]?.isPaid === true ? 'Covered by a paid license' : 'License status unavailable' }}</span>
+                  </div>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -130,6 +145,10 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { getSpaceStatuses, type PaidStatus } from '@/apis/spaceStatuses'
+import { enterpriseBundleCheckout } from '@/utils/paywall/enterpriseBundleCheckout'
+import { openBundleCheckout } from '@/utils/paywall/openBundleCheckout'
+import { ENTERPRISE_BUNDLE_ANNUAL_COST } from '@/components/UpgradePrompt/upgradePrompt'
 import { getClientDomain, getSpaceKey } from '@/utils/ContextParameters/ContextParameters'
 import forgeGlobal, { openUrl } from '@/model/globals/forgeGlobal'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
@@ -169,6 +188,35 @@ const overLimitSpaces = ref<Array<{ spaceKey: string; macroCount: number }>>([])
 // screen (#848). The list itself is fetched there, per space, as the viewer.
 const spaces = ref<SpaceSummary[]>([])
 const isStale = ref<boolean | null>(null)
+const paidStatuses = ref<Record<string, PaidStatus>>({})
+const paidLoading = ref(true)
+const paidLookupFailed = ref(false)
+const canPurchase = (spaceKey: string) => !paidLoading.value && paidStatuses.value[spaceKey]?.isPaid === false && paidStatuses.value[spaceKey]?.decisionKnown === true
+
+async function loadPaidStatuses() {
+  try {
+    if (overLimitSpaces.value.length) {
+      paidStatuses.value = await getSpaceStatuses(overLimitSpaces.value.map(s => s.spaceKey))
+      paidLookupFailed.value = overLimitSpaces.value.every(s => {
+        const status = paidStatuses.value[s.spaceKey]
+        return !status || (status.isPaid !== true && status.decisionKnown !== true)
+      })
+    }
+  } catch { paidLookupFailed.value = true }
+  finally { paidLoading.value = false }
+}
+
+/** Rows whose checkout page opened in this visit; shows the row as opened. */
+const checkoutOpened = ref<Record<string, boolean>>({})
+
+async function purchaseSpace(space: { spaceKey: string; macroCount: number }) {
+  if (!canPurchase(space.spaceKey)) return
+  const checkout = enterpriseBundleCheckout(domain.value, space.spaceKey, { surface: 'plan_usage' })
+  trackAnalyticsEvent('paywall_bundle_cta_clicked', { feature_area: 'upgrade', surface: 'dashboard', space_key: space.spaceKey, macro_count: space.macroCount, macro_limit: macrosLimit.value, bundle_price_usd: ENTERPRISE_BUNDLE_ANNUAL_COST, client_reference_id: checkout.clientReferenceId, checkout_click_id: checkout.clickId })
+  const outcome = await openBundleCheckout(checkout.url, { surface: 'dashboard', checkoutSurface: 'plan_usage' })
+  if (outcome === 'opened') checkoutOpened.value = { ...checkoutOpened.value, [space.spaceKey]: true }
+}
+
 const copyState = ref<'default' | 'copied'>('default')
 
 const upgradeUrl = computed(() => `${BASE_UPGRADE_URL}?domain=${domain.value}`)
@@ -263,7 +311,7 @@ async function loadUsage() {
 
 onMounted(async () => {
   domain.value = getClientDomain() || 'unknown_atlassian_domain'
-  await Promise.all([loadUsage(), loadFullscreenSnapshot()])
+  await Promise.all([loadUsage().then(loadPaidStatuses), loadFullscreenSnapshot()])
   trackAnalyticsPlanUsage('plan_usage_viewed')
 })
 
@@ -331,6 +379,7 @@ function trackAnalyticsPlanUsage(eventName: AnalyticsEventName) {
   trackAnalyticsEvent(eventName, {
     feature_area: 'upgrade',
     surface: 'dashboard',
+    ...(eventName === 'plan_usage_viewed' ? { purchasable_space_count: overLimitSpaces.value.filter(s => canPurchase(s.spaceKey)).length } : {}),
     macro_usage_pct: macrosLimit.value ? Math.round((totalMacros.value / macrosLimit.value) * 100) : undefined,
   })
 }
@@ -401,7 +450,10 @@ h1 { font-size: 24px; font-weight: 600; line-height: 32px; margin: 0; }
 }
 .link-btn:hover { text-decoration: underline; }
 
-table.space-table { width: 400px; max-width: 100%; border-collapse: collapse; }
+table.space-table { width: 720px; max-width: 100%; border-collapse: collapse; table-layout: fixed; }
+.space-table th:first-child { width: 20%; }
+.space-table th:nth-child(2) { width: 22%; }
+.space-key { overflow-wrap: anywhere; }
 .space-table th {
   height: 32px;
   text-align: left;
@@ -412,8 +464,16 @@ table.space-table { width: 400px; max-width: 100%; border-collapse: collapse; }
   padding: 0;
   border-bottom: 0.5px solid var(--pu-control-border);
 }
-.space-table td { height: 40px; padding: 0; border-bottom: 0.5px solid var(--pu-hairline); font-weight: 500; }
+.space-table td { height: 60px; padding: 0; border-bottom: 0.5px solid var(--pu-hairline); font-weight: 500; }
 .space-table .num { text-align: right; }
+.purchase-help { color: var(--pu-text-low); margin: 0 0 12px; font-size: 12px; line-height: 16px; }
+.space-table .purchase-heading { padding-left: 32px; }
+.space-table .space-purchase { padding: 0 0 0 32px; }
+.space-purchase-content { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 60px; box-sizing: border-box; }
+.space-price { font-size: 14px; white-space: nowrap; }
+.license-state { color: var(--pu-text-low); font-size: 12px; font-weight: 400; }
+.checkout-opened { display: inline-flex; align-items: center; gap: 6px; color: var(--pu-text-low); font-size: 12px; font-weight: 400; white-space: nowrap; }
+.checkout-opened-dot { width: 6px; height: 6px; border-radius: 3px; background: var(--pu-primary); }
 .space-count { color: var(--pu-warning); font-variant-numeric: tabular-nums; }
 
 .upgrade-copy { color: var(--pu-text-low); max-width: 560px; margin: 0 0 16px; }

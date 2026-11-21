@@ -49,4 +49,20 @@ check "deploy failed" 1 '[
   {"name":"Deploy Cron Worker to Production","status":"completed","conclusion":"success"}
 ]'
 
+check "deploy still running" 3 '[
+  {"name":"v1-diagramly to production","status":"in_progress","conclusion":null},
+  {"name":"Deploy Cron Worker to Production","status":"completed","conclusion":"success"}
+]'
+
+check "deploy queued, smoke not created yet" 3 '[
+  {"name":"v1-lite to production","status":"queued","conclusion":""},
+  {"name":"Deploy Cron Worker to Production","status":"queued","conclusion":""}
+]'
+
+check "no jobs yet" 3 '[]'
+
+check "deploy job missing" 1 '[
+  {"name":"Smoke Test (Prod) — lite / shard 1/5","status":"completed","conclusion":"success"}
+]'
+
 exit "$fail"

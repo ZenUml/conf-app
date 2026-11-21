@@ -1,8 +1,8 @@
 <template>
-  <div v-if="snapshot.request" class="summary" aria-label="Fullscreen request summary">
+  <div v-if="snapshot.request" class="summary" :aria-label="copy.summaryLabel">
     <dl>
       <dt>Request reference</dt><dd>{{ snapshot.request.id }}</dd>
-      <dt>Original use</dt><dd>{{ snapshot.request.scenarios.map(code => scenarioLabels[code]).join(', ') }}</dd>
+      <dt>Original use</dt><dd>{{ snapshot.request.scenarios.map(code => scenarioLabel(props.feature, code)).join(', ') }}</dd>
       <dt v-if="snapshot.request.note">Additional context</dt><dd v-if="snapshot.request.note">{{ snapshot.request.note }}</dd>
       <dt>Reply email</dt><dd>{{ snapshot.request.email }}</dd>
     </dl>
@@ -10,9 +10,11 @@
 </template>
 
 <script setup lang="ts">
-import type { RecoverySnapshot } from '../../../shared/fullscreenRecovery'
-import { scenarioLabels } from './recoveryPresentation'
-defineProps<{ snapshot: RecoverySnapshot }>()
+import { computed } from 'vue'
+import type { RecoveryFeature, RecoverySnapshot } from '../../../shared/fullscreenRecovery'
+import { recoveryCopy, scenarioLabel } from './recoveryPresentation'
+const props = withDefaults(defineProps<{ snapshot: RecoverySnapshot; feature?: RecoveryFeature }>(), { feature: 'fullscreen' })
+const copy = computed(() => recoveryCopy[props.feature])
 </script>
 
 <style scoped>

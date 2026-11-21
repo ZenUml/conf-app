@@ -7,7 +7,8 @@ description: >-
   purchases from source-reported payment and vendor payout; Open orders are not absent
   purchases. Use mp_pricing.py for prices and take rates, and mp_report.py for bulk exports,
   scoped license/transaction joins and local snapshots. For one tenant's status, profile or
-  trial expiry use tenant, which reuses this engine; one tenant's price still belongs here.
+  trial expiry use tenant, which reuses this engine; one tenant's price still belongs here. Use mp_listing.py for listing visibility: Marketplace search-keyword
+  reports (search appearances of our apps, demand share of terms) and website search rank.
 ---
 
 # Marketplace
@@ -64,6 +65,43 @@ coexist for weeks, and averaging them invents a rate no transaction ever settled
 monthly renewals and prints a match rate. Verified 2026-08-11 at 82/102 exact; the mismatches were
 1–3 user sites settling a mid-cycle tier change pro rata. If that rate drops, Atlassian changed the
 price list and `BANDS` is stale.
+
+## Is the listing found? — `mp_listing.py`
+
+Search demand and listing visibility. Use it when installs move and the question is "do fewer people search, or do they not find us?".
+
+```bash
+L=.claude/skills/marketplace/scripts/mp_listing.py
+
+# website search rank of our apps (public API, no auth), first 50 results
+python3 $L rank mermaid "sequence diagram" uml diagram flowchart plantuml
+
+# Lite search appearances, before/after a date, split by brand and generic terms
+python3 $L keywords --app lite --period 2026-06-14..2026-08-30 --period 2026-09-06..2026-11-15 --term mermaid
+
+# + monthly share of diagram terms in ALL Marketplace searches, website and in-product
+python3 $L keywords --app lite --period ... --demand-from 2026-08-01 --demand-to 2026-10-31 --term mermaid
+
+python3 $L keywords --app '' --weekly --since 2026-06-01     # every app, weekly series
+```
+
+| Output | Meaning |
+|---|---|
+| `all` / `brand` / `generic` | "Search appearances" of the app in a window. `brand` = terms that match `--brand-regex` (default `zen ?-?uml`). Atlassian does not define an appearance |
+| `share` | Sum of the shares of the top-500 terms that match `--demand-regex`, junk terms removed. Shares only: a fall of all searches does not show |
+| `marketplace` / `embedded-marketplace` | Website search / search inside the products ("Find new apps") |
+| `rank_<term>` | Rank and share of that term among all Marketplace search terms |
+
+Traps (all hit in the 2026-11 install-drop research; the script encodes the first five):
+
+1. **v2 reporting paths answer 410.** The keyword reports live on the v3 base `https://api.atlassian.com/marketplace/rest/3/reporting/developer-space/<developerId>/`. `developerId` is a UUID from `GET /rest/3/developer-space/vendor/1215266`. Same basic auth as the exports.
+2. **Cookie break on 2026-06-12.** Atlassian turned analytics cookies off by default for regulated regions; the reports are built from browser analytics, so every series steps down there (Lite: -70% in one week, installs unchanged). A `--period` that crosses the date is flagged. Never read a June 2026 fall as lost demand.
+3. **`search-keywords-v2`** counts all users, but only from 2026-09-25; before that it equals v1. The per-app reports have no v2.
+4. **Weeks are labelled by Sunday.** Install series elsewhere are Monday weeks.
+5. **The per-term report lists a term twice** (`hostingFilter` `cloud` and null); the script merges them. Junk terms (random 20+ character strings, once 21% of in-product share) are dropped from shares.
+6. **The brand/generic split is a lens, not a finding.** It was chosen after the data was seen; small counts. Say so when you report it.
+7. **In-product rank has no API.** Read it as a site admin on a staging site: `https://<site>/wiki/marketplace/discover?q=<term>&page=N`, 24 results a page, app names are the level-4 headings (agent-browser `atlassian` profile). A click on a result opens `/wiki/marketplace/discover/objects/<productId>` inside the product.
+8. **GA4 of the listing (property 420159616) has two paths.** The website page `/apps/<appId>/...` and, from about 2026-09-21, the in-product page `/wiki/marketplace/discover/objects/<productId>`. A table search for the app id misses the second; search `discover` too.
 
 ## Quick start
 

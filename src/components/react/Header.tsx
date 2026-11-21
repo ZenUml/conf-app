@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { trackEvent } from "@/utils/window";
 import { PublishButton } from "./PublishButton";
 import { setupCloseGuard } from "@/utils/closeGuard";
-import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, isDraftNewerThanSaved } from "@/utils/draftStore";
+import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, isDraftNewerThanSaved, clearDraftSync } from "@/utils/draftStore";
 import EventBus from "@/EventBus";
 import yaml from "js-yaml";
 import { openUrl } from "@/model/globals/forgeGlobal";
@@ -100,6 +100,19 @@ const Component = ({
     let closeGuardOff: (() => void) | null = null;
     let onSaved: ((id: string) => void) | null = null;
     let onSaveError: (() => void) | null = null;
+    let onPublishCommitting: (() => void) | null = null;
+    let onPublishCommitFailed: (() => void) | null = null;
+    // Set between Publish commit and its outcome; no writer may re-create the
+    // draft while view.submit tears the iframe down.
+    let publishCommitting = false;
+    // The spec just published; it is not an unsaved change.
+    let publishedSpec: string | null = null;
+    const isUnsavedSpec = (spec: string) =>
+      !publishCommitting
+      && originalSpec.current !== null
+      && spec !== originalSpec.current
+      && spec !== publishedSpec;
+    const currentSpec = () => window.specContent ?? window.diagram?.code ?? '';
 
     const resetSaving = () => {
       setIsSaving(false);
@@ -127,15 +140,15 @@ const Component = ({
 
       // Per-keystroke draft via Swagger's spec listener pipeline.
       saveOnChange = (spec: string) => {
-        if (originalSpec.current === null || spec === originalSpec.current) return;
+        if (!isUnsavedSpec(spec)) return;
         saver.save({ code: spec, title: (window as any).diagram?.title || '' });
       };
       window.specListeners!.push(saveOnChange);
 
       // view.onClose: synchronously flush the latest spec to localStorage.
       closeGuardOff = setupCloseGuard(() => {
-        const current = window.specContent ?? window.diagram?.code ?? '';
-        if (originalSpec.current === null || current === originalSpec.current) return;
+        const current = currentSpec();
+        if (!isUnsavedSpec(current)) return;
         const cloudId = getCachedCloudId();
         if (cloudId) {
           saveDraftSync(scope, cloudId, {
@@ -149,9 +162,35 @@ const Component = ({
       onSaved = () => {
         resetSaving();
         saver.cancel();
+        if (publishedSpec === null) publishedSpec = currentSpec();
+        publishCommitting = false;
         clearDraft(scope);
       };
       EventBus.$on('saved', onSaved);
+
+      // Publish saved the content and is about to call view.submit / view.close,
+      // which can destroy this iframe before 'saved' arrives: clear now.
+      onPublishCommitting = () => {
+        publishCommitting = true;
+        publishedSpec = currentSpec();
+        saver.cancel();
+        clearDraftSync(scope);
+      };
+      EventBus.$on('publish-committing', onPublishCommitting);
+
+      // view.submit / view.close threw after commit: write the draft back as
+      // the retry anchor.
+      onPublishCommitFailed = () => {
+        if (!publishCommitting) return;
+        publishCommitting = false;
+        publishedSpec = null;
+        const current = currentSpec();
+        const cloudId = getCachedCloudId();
+        if (cloudId && isUnsavedSpec(current)) {
+          saveDraftSync(scope, cloudId, { code: current, title: (window as any).diagram?.title || '' });
+        }
+      };
+      EventBus.$on('publish-commit-failed', onPublishCommitFailed);
 
       // Release the Publish button when a save fails — the editor stays open
       // for retry (see forge-swagger-editor.ts), so the spinner must clear.
@@ -186,6 +225,8 @@ const Component = ({
       if (savingTimeoutRef.current) clearTimeout(savingTimeoutRef.current);
       if (onSaved) EventBus.$off('saved', onSaved);
       if (onSaveError) EventBus.$off('save-error', onSaveError);
+      if (onPublishCommitting) EventBus.$off('publish-committing', onPublishCommitting);
+      if (onPublishCommitFailed) EventBus.$off('publish-commit-failed', onPublishCommitFailed);
       if (onRestoreRef.current) EventBus.$off('draft-restore', onRestoreRef.current);
     };
   }, []);

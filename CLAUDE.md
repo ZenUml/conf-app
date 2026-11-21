@@ -74,6 +74,12 @@ Before writing code for any new feature, define the analytics events first. For 
 
 **Why:** events retrofitted after the fact miss edge cases (e.g. "accepted vs modified" required understanding the full UX flow before implementation). Planning events up front forces clarity on what "success" looks like before the code is written.
 
+### Estimate Mixpanel cost and quota before adding events or session replay
+
+Before a change adds an event, raises a sampling rate, adds a forced session-replay source, or shows an existing forced-replay event to a wider audience, estimate its monthly volume against the two caps and state the estimate in the PR. The caps: 1,000,000 tracked events (billed above that) and 20,000 session replays (recording stops for the rest of the month above that). Count per occurrence, not per user: an event sent on mount fires once per macro iframe per page view. Measure the current rate with `.claude/skills/mixpanel/scripts/mp_quota.py`. Sampling sets are in `src/utils/analytics/eventSampling.ts`; forced replay sources are `FORCED_REPLAY_SOURCES` in `src/utils/analytics/trackAnalyticsEvent.ts`; caps and policy are in [docs/ops/mixpanel-quota-check.md](docs/ops/mixpanel-quota-check.md).
+
+**Why (2026-11-17):** the Lite site-policy license notice began to reuse `license_notice_shown`, a forced-replay event sized for a handful of Full sites. About 20,000 replays were then recorded in one day, as many as the monthly replay cap.
+
 ### Pure Forge — no Connect code
 
 All four variants (lite, full, diagramly, asyncapi) are **Forge-only** in production. The Connect runtime is fully removed.
@@ -82,14 +88,28 @@ All four variants (lite, full, diagramly, asyncapi) are **Forge-only** in produc
 
 For the full policy — banned APIs (`AP.*`, `xdm_e`, Connect hosts), `@forge/bridge` replacements, environment detection, DrawIO URL rules — see `docs/policies/forge-only.md` (create if absent when you need to capture a new decision).
 
-### Guest and anonymous viewers get no Forge user token
+### Anonymous viewers get no Forge user token (guests: changed 2026-11-10/11)
 
-Forge omits `x-forge-oauth-user` on `invokeRemote` for **unlicensed (guest)** and **anonymous** viewers: the token is "only sent for invocations that have a user in session", and Atlassian's [unlicensed-users guide](https://developer.atlassian.com/platform/forge/access-to-forge-apps-for-unlicensed-users/) says Confluence guests "can't make asUser calls" (open suggestion [ECO-1450](https://jira.atlassian.com/browse/ECO-1450)). The FIT carries no account-type claim, so the backend can only observe "user token absent". We have rendered macros for guests since ZEN-1170 (2026-05-22) and for anonymous visitors since `c7fb3658` (2026-10-06), so every backend endpoint that requires that header fails for them: `magic-writeback`, `forge-upload-attachment`, `forge-custom-content`, `metrics-cache/snapshot`, `api/diagram-impact`, `api/architecture-tokens/related`. Guests still save diagrams, because the frontend bridge (`requestConfluence`) runs as the guest.
+Forge omits `x-forge-oauth-user` on `invokeRemote` when no user is in session; the token is "only sent for invocations that have a user in session". Every backend endpoint that requires that header then fails: `magic-writeback`, `forge-upload-attachment`, `forge-custom-content`, `metrics-cache/snapshot`, `api/diagram-impact`, `api/architecture-tokens/related`. The FIT carries no account-type claim, so the backend can only observe "user token absent". Macros render for guests since ZEN-1170 (2026-05-22) and for anonymous visitors since `c7fb3658` (2026-10-06). Guests still save diagrams, because the frontend bridge (`requestConfluence`) runs as the guest.
 
-**Found 2026-10-08:** on one Lite customer site, guests (real accounts, each confined to one space) produced ~95% of all `magic_writeback_completed` `unavailable` outcomes — `magic-writeback.ts` answered their calls with 401 and the viewer recorded `client_exception`. Rules that follow:
+**Before 2026-11-10/11 (observed):** unlicensed (guest) viewers got no token either. Atlassian's [unlicensed-users guide](https://developer.atlassian.com/platform/forge/access-to-forge-apps-for-unlicensed-users/) said Confluence guests "can't make asUser calls" (open suggestion [ECO-1450](https://jira.atlassian.com/browse/ECO-1450)). On 2026-10-08, on one Lite customer site, guests (real accounts, each confined to one space) produced ~95% of all `magic_writeback_completed` `unavailable` outcomes; `magic-writeback.ts` answered them with 401.
 
-- **Frontend:** before any `callRemote` that needs the user token, gate on the viewer kind. Anonymous = no `accountId` in the Forge context. Guest = `isGuest: true` from `GET /wiki/rest/api/user/current` via the bridge (OpenAPI: "Whether the user is a guest user"; `isExternalCollaborator` is deprecated), cached per site+account in localStorage. `view.getContext()` documents no `accountType`, and the resolver-context `accountType` does not exist for a remote-only app.
-- **Backend:** a valid FIT without `x-forge-oauth-user` is a guest/anonymous invocation, not an auth failure — answer `403 { error: 'no_user_credential' }`, never 401, and never fall back to the app token to act for that viewer.
+**What changed (2026-11-17 diagnosis):**
+
+| Statement | Basis |
+|---|---|
+| On that site, guests' 403s on `/api/architecture-tokens/related` stopped between 2026-11-10 15:40Z and 2026-11-11 00:27Z, with no deploy or flag change on our side. Before that, Cloudflare 401/403 counts for the path matched Mixpanel `related_diagrams_lookup_failed` `error_kind: network` (19,276 vs 19,013, 10-19 to 11-10). | Observed |
+| A production tail on 2026-11-17: 0 of 1,593 requests answered 403. The 67 requests without `x-forge-oauth-user` were all `POST /forge-user-behavior` from `remote-page-behavior-trigger`, a product trigger with no user in session by design. | Observed |
+| Atlassian announced on 2026-11-02 that Forge is enabling user tokens for unlicensed users on function and Remote invocations, and that the change does not allow anonymous access ([changelog entry, CHANGE-3536](https://developer.atlassian.com/platform/forge/changelog/#CHANGE-3536); the page states no effective date). | Documented (re-read 2026-11-17; the entry is matched by title, the page does not print the ID) |
+| That this change is what stopped the 403s. | Inferred |
+| Anonymous viewers still get no token. | Documented only; not measured |
+
+**Telemetry trap:** `callRemote` throws on any non-200, and `RelatedDiagramsFooter.vue` recorded every such throw as `error_kind: network`. Those ~19,000 "network" failures were HTTP 403. A fix is in progress in another PR; it is not fixed here yet.
+
+Rules:
+
+- **Frontend:** before any `callRemote` that needs the user token, gate anonymous viewers (no `accountId` in the Forge context). The guest gate (`isGuest: true` from `GET /wiki/rest/api/user/current` via the bridge, cached per site+account in localStorage; `isExternalCollaborator` is deprecated) is possibly redundant now. Keep it until the platform change has proved stable, then re-evaluate. `view.getContext()` documents no `accountType`, and the resolver-context `accountType` does not exist for a remote-only app.
+- **Backend:** a valid FIT without `x-forge-oauth-user` is a no-user invocation, not an auth failure. Answer `403 { error: 'no_user_credential' }`, never 401, and never fall back to the app token to act for that viewer.
 - **Diagnosis:** `wrangler pages deployment tail <deployment-id> --project-name conf-lite --format json` shows each request's header set; a 401 with `x-forge-oauth-system` present and `x-forge-oauth-user` absent is this case. Do not read wall time as "which branch ran": the same D1-only path takes ~100 ms via SYD and ~480 ms via SIN/ICN/NRT (round trips to the MEL primary), which looks like a Confluence call and is not one.
 
 ### Client privacy — no client names in public files
@@ -98,6 +118,19 @@ Real Confluence tenant names (subdomain prefixes, `<customer>.atlassian.net` hos
 
 Full rules, artifact routing table, pre-commit grep, and background: [docs/policies/client-privacy.md](docs/policies/client-privacy.md).
 
+### Customer email: Marketplace Partner Agreement §8.4(c)
+
+[§8.4(c)](https://www.atlassian.com/licensing/marketplace/partneragreement) allows direct contact from end-user data only "where required by Law or as consented to or requested by the end user". **The owner's ruling (2026-11-17):** this clause stops us from emailing ordinary users of the app. It does not stop a first-touch email at first install.
+
+| Case | Allowed? |
+|---|---|
+| One first-touch email to the Marketplace contact of a new install or evaluation | Yes |
+| Reply to a user who asked us (feedback dialog, support ticket, email) | Yes |
+| Email to an ordinary user we found in Confluence, Forge, Mixpanel or D1 data, who did not contact us | No |
+
+- The privacy policy is not a blocker for the first-touch email (owner, 2026-11-17).
+- The other contact rules still apply: owner's yes for each send, no repeat when there is no reply, no internal telemetry in the message, no contact with inactive payers. See `.claude/skills/customer-followup/references/contact-policy.md`.
+
 ### Never commit directly to `main`
 
 Always use a feature branch. Exceptions, both requiring the change be **confined** to those paths: `.md`-only changes, and agent-skill changes under `.claude/skills/**` (any file type — `SKILL.md` *and* its `.py`/`.mjs`/`.sh` helpers; skills are agent tooling, and ordinary unit/build checks exclude `.claude/**`).
@@ -105,6 +138,10 @@ Always use a feature branch. Exceptions, both requiring the change be **confined
 **The primary checkout (`workspaces/zenuml/conf-app`) stays on `main`** — feature work goes in a worktree beside it (`../conf-app-<feature>`), because a branch can only be checked out in one worktree and a stale worktree holding `main` blocks `git switch main` in the primary directory. Still don't create a worktree reflexively: `.md`-only edits go straight to `main`, and changes to git-ignored files need no branch or worktree at all. See [docs/policies/git-workflow.md](docs/policies/git-workflow.md) for the full protocol — the overlap scan, per-worktree setup cost, start-of-issue steps, cleanup.
 
 **Keep the primary checkout in sync with `origin/main` — proactively, without asking.** At the start of any session in the primary checkout, and before committing there, run `git fetch origin main` and `git merge --ff-only origin/main`. A fast-forward changes no commit and discards nothing, so it needs no confirmation. If it refuses, do **not** stash, reset, rebase or discard to force it — that would displace another session's work (see the rule below). Instead report which case applies: local-only commits on `main` (list them with `git log origin/main..HEAD`), or uncommitted changes that overlap files the fast-forward would touch. When `main` is behind and a `.md`-only commit must go out now, build the commit on `origin/main` with a temporary index and push that, leaving the working tree untouched.
+
+### Merge low-risk PRs without asking, then report
+
+An agent session merges a non-destructive, low-technical-risk PR to `main` itself once every check is green and its validation is done; it does not wait for approval and does not offer the merge as an option. After the merge it reports: PR link, merge commit, risk reading, what is not yet verified. A destructive PR (deploys or releases directly, deletes or rewrites stored data, cannot be undone by a revert) still waits for the owner, and a production release still needs its own trigger. Rule, table and preconditions: [docs/policies/auto-lane.md](docs/policies/auto-lane.md#agent-sessions); commands: the **auto-lane** skill.
 
 ### Scan for overlapping work before starting a branch
 
@@ -223,9 +260,15 @@ SYNC, not waived async).
 
 ### Forge app versions — major vs minor (admin consent)
 
-A **major** version (requires **admin re-consent** on upgrade, rolls out only as admins approve) is caused **only** by: scope changes (add/swap/**remove**), new `dynamic` web triggers (or `static`→`dynamic`), and licensing/providers/remotes changes. See [Forge — App versions](https://developer.atlassian.com/platform/forge/versions/).
+A **major** version (requires **admin re-consent** on upgrade, rolls out only as admins approve) is caused by: scope changes (add/swap/**remove**), new `dynamic` web triggers (or `static`→`dynamic`), licensing/providers/remotes changes, and adding an egress or CSP host. See [Forge — App versions](https://developer.atlassian.com/platform/forge/versions/).
 
-**Egress / CSP / external-fetch URL changes are NOT major for our apps** — they auto-upgrade with no admin consent. Our variants (lite/full/diagramly/asyncapi) are all **Forge-from-Connect (Connect-migrated)** apps, and `manifest.yml` documents this exactly above the `permissions.external` block: *"Modifying content permissions CSP options, external permissions CSP options and URLs, or fetch permissions options and URLs does not require admin approval."* The retained Connect consent already covers the network permission, so adding an egress entry — **even a new scheme like `wss://*.zenuml.com`** — stays a **minor** bump. (Connect-migration exception; in a *pure* Forge app, adding egress WOULD force a major. The same principle covers Forge scopes that inherit an already-accepted Connect scope — see the note at the top of `permissions:` in `manifest.yml`.) **Evidence, 2026-07-11:** the agent-link release added `wss://*.zenuml.com` to `external.fetch.{backend,client}`; asyncapi deployed as **`10.7.0` (minor)** and all 8 prod installs auto-upgraded to `Latest` with no consent wall.
+**Adding an egress or CSP host IS major for our apps.** Adding one host to `permissions.external.images`, `fetch.client` or `fetch.backend` reports `MAJOR_VERSION_RULE` ("Change due to data residency or egress modification") on Lite, Diagramly and AsyncAPI staging (measured 2026-11-05). CI does not pass `--approve`, so the staging deploy fails. Before adding a host, classify the manifest without deploying: run `./scripts/forgex lint -e staging --verbose` and read the `"reason"`, not the exit code, which is 1 for an unmodified manifest too. The development environment reported minor for the same manifest, so it does not predict staging. Prefer a host that is already allowed, such as routing through our backend.
+
+**Incident, 2026-08-17:** #490 added backend egress `www.plantuml.com`. Diagramly production deployed as major `4.0.0`, all 49 installs stayed on major 3, and bulk upgrade reported no path, so only site admins could approve it. #498 removed the entry. Forge deployed that as minor `4.1.0`, and the `3 -> 4` bulk upgrade then moved 47 of 49. Removing the added host is the recovery.
+
+**The `analytics` egress category does not help (measured 2026-11-19).** Forge pre-approves a short vendor list for `category: analytics` ([analytics tool policy](https://developer.atlassian.com/platform/forge/analytics-tool-policy/)); Microsoft Clarity is not on it. Lite staging with three pre-approved Statsig hosts (`featureassets.org`, `prodregistryv2.org`, `statsigapi.net`) declared as `category: analytics`, `inScopeEUD: false` deployed as major `17.0.0`. `forge version bulk-upgrade start -e staging` then offered no path from 16 to 17, and from 13 it offered 14, 15 and 16 but never 17. Removing the hosts deployed as minor `17.1.0`. So a new session-replay or analytics vendor host means every site admin must approve. The June 2026 AsyncAPI result "major but bulk-upgrade still moved the installs" applies only when the major comes from removing or reworking egress, not from adding a host. To add a vendor without a major, send its traffic through a host that is already allowed (for example a `*.zenuml.com` proxy) or evaluate Forge rolling releases (`permissions.enforcement: app-managed`).
+
+**Earlier additions were minor:** `wss://*.zenuml.com` and `diagramly.ai` on Diagramly (`3.109.0`, `3.111.0`), and `wss://*.zenuml.com` on AsyncAPI (`10.7.0`). Why the result changed is not known. `6ed59fbb` (2026-07-12) strips `connectModules` from Lite, Full and Diagramly, but AsyncAPI keeps them and still reports major today, so a Forge rule change is equally possible. Atlassian's Connect-to-Forge page still describes a minor exception for an app "that contains at least one Connect module". Do not rely on it without the lint check.
 
 Changing a `trigger` module's `events:` list (e.g. removing `avi:confluence:viewed:page`) is **NOT** on that list, and as long as `permissions.scopes` is untouched it is a **minor** version → **auto-upgrades to all installs, no admin consent**. Do not claim otherwise. The docs don't state event-list changes explicitly, so the zero-cost confirmation is the **`forge deploy` output**, which reports the deployed version (and any major-version change) at deploy time.
 

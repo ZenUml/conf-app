@@ -163,6 +163,7 @@
 | [F44 作者与可选浏览信息](#f44) | G | G | · | G | · | · | · | · |
 | [F45 相关图表与参与者关系](#f45) | G | G | · | · | · | · | · | · |
 | [F46 Create 插入引导](#f46) | G | · | · | G | · | · | · | · |
+| [F54 用量提示与付费引导](#f54) | G | · | · | · | · | · | · | · |
 | [F57 Fullscreen 访问恢复](#f57) | · | G | · | · | · | · | · | · |
 | [F59 反馈报告](#f59) | ↗ | ↗ | G | ↗ | · | · | · | · |
 | [F64 外部 MCP 接入设置](#f64) | G | G | · | G | · | · | · | · |
@@ -506,7 +507,7 @@
 
 **交互面**：`inline-viewer` G；`page-editor-preview` G；`editor` G；`fullscreen-editor` G；`fullscreen-viewer` G；`graph-editor` ●；`embedded-viewer` G。
 
-**契约与边界**：SVG/transform/mxGraph 使用不同实现；普通滚轮滚动页面，Ctrl/Cmd-wheel 缩放；支持适配宽/高与拖动。导出采集可禁用交互。embedded Graph 有图页导航，但没有普通 Graph 的同等自定义 viewport 控件。
+**契约与边界**：SVG/transform/mxGraph 使用不同实现。`inline-viewer` 中普通滚轮滚动页面，Ctrl/Cmd-wheel 或触控板捏合在指针处缩放；`fullscreen-viewer` 与编辑器预览中普通滚轮在指针处缩放，Shift 或横向滚轮平移。缩放范围从打开尺寸到原始尺寸（1:1），平移时图边不进入框内；拖动 Sequence 不选中文字。支持适配宽/高与拖动。导出采集可禁用交互。embedded Graph 有图页导航，但没有普通 Graph 的同等自定义 viewport 控件。
 
 **代码证据**：[src/components/Viewer/DiagramViewport.vue:1](src/components/Viewer/DiagramViewport.vue#L1)；[src/components/Viewer/DiagramViewport.vue:95](src/components/Viewer/DiagramViewport.vue#L95)；[src/components/Viewer/DiagramTransformViewport.vue:1](src/components/Viewer/DiagramTransformViewport.vue#L1)；[src/components/Viewer/ForgeGraphViewer.vue:234](src/components/Viewer/ForgeGraphViewer.vue#L234)；[src/components/Viewer/ForgeGraphViewerEmbed.vue:1](src/components/Viewer/ForgeGraphViewerEmbed.vue#L1)；[src/components/Viewer/ForgeEmbedViewer.vue:12](src/components/Viewer/ForgeEmbedViewer.vue#L12)；[src/components/Viewer/GenericViewer.vue:12](src/components/Viewer/GenericViewer.vue#L12)。
 
@@ -814,9 +815,11 @@
 
 **交互面**：`plan-usage` ●；`page-banner` ↗。
 
-**契约与边界**：Plan and usage 接收后端统计，显示估算/陈旧提示；Page banner 的 View plan and usage 跳转到此入口。统计数值不是某页面的图表内容清单。
+**契约与边界**：Plan and usage 接收 `/api/plan-usage` 的站点统计及空间计数，显示陈旧提示；此公开遥测读取只用于展示，不能作为付款／许可判断。页面仅在计数达到或超过 100 的行显示空间购买候选，随后用独立、已认证的批量 `/api/space-status` 查询许可状态。只有明确 `isPaid=false` 且 `decisionKnown=true` 的行可购买；已付费（含用户级许可）、未知或 pending 状态均不提供购买操作。该行操作面向任何能打开此页面的人，不继承 banner 的 space-admin 限制。Page banner 的 View plan and usage 跳转到此入口。统计数值不是某页面的图表内容清单。既有共享单空间状态语义及 `useCustomerSuccessService` 的 `enterpriseBundleCheckout` 构造器继续复用。
 
-**代码证据**：[src/components/PlanUsage/PlanUsage.vue:32](src/components/PlanUsage/PlanUsage.vue#L32)；[src/components/PlanUsage/PlanUsage.vue:59](src/components/PlanUsage/PlanUsage.vue#L59)；[src/components/PlanUsage/PlanUsage.vue:266](src/components/PlanUsage/PlanUsage.vue#L266)；[src/components/UpgradePrompt/PaywallWarningBanner.vue:184](src/components/UpgradePrompt/PaywallWarningBanner.vue#L184)。
+**代码证据**：[src/components/PlanUsage/PlanUsage.vue:181](src/components/PlanUsage/PlanUsage.vue#L181)；[src/components/PlanUsage/PlanUsage.vue:189](src/components/PlanUsage/PlanUsage.vue#L189)；[src/components/PlanUsage/PlanUsage.vue:191](src/components/PlanUsage/PlanUsage.vue#L191)；[src/components/PlanUsage/PlanUsage.vue:204](src/components/PlanUsage/PlanUsage.vue#L204)；[src/components/PlanUsage/PlanUsage.vue:282](src/components/PlanUsage/PlanUsage.vue#L282)；[src/apis/spaceStatuses.ts:5](src/apis/spaceStatuses.ts#L5)；[functions/api/plan-usage.ts:1](functions/api/plan-usage.ts#L1)；[functions/api/space-status.ts:20](functions/api/space-status.ts#L20)；[src/composables/useCustomerSuccessService.ts:1](src/composables/useCustomerSuccessService.ts#L1)；[src/composables/useCustomerSuccessService.ts:88](src/composables/useCustomerSuccessService.ts#L88)；[src/utils/paywall/enterpriseBundleCheckout.ts:2](src/utils/paywall/enterpriseBundleCheckout.ts#L2)；[src/components/UpgradePrompt/PaywallWarningBanner.vue:184](src/components/UpgradePrompt/PaywallWarningBanner.vue#L184)。
+
+**验证状态**：候选源码 `a87551e99388d2a548ba837609b1d6c7a0037555` 的 Storybook（混合、pending、empty、unknown 行状态及 Fullscreen）、Forge Tunnel（SD 行）和 CI 部署 staging（两条 unpaid 行，含恰好 100 条；两个不同空间键生成不同 Stripe 跳转目标）均已观察；只验证了跳转目标，未付款。可审阅的 staging UI 证据：[PR 1192](https://github.com/ZenUml/conf-app/blob/59a61fc990aeeabe04c7979eaf4c394dd111d4c8/pr-1192/staging-ui-evidence.md)。
 
 <a id="f53"></a>
 ### F53 · 宏内容所在页面盘点 — `diagram-locations`
@@ -834,11 +837,11 @@
 
 **能力**：以当前用量、付款状态、豁免和受众决定非阻断提示。
 
-**交互面**：`page-banner` G；`plan-usage` ●。
+**交互面**：`inline-viewer` G；`page-banner` G；`plan-usage` ●。
 
-**契约与边界**：当前 shouldBlockActions 恒 false，旧 create/edit 阻断不接入常规流程。>=85 的 actionRequired 计算仍保留，但当前 Header/React Header 没有对应消费 UI；page banner 使用严格 >100 的 unpaid Lite 条件。Page banner 面向 recent author/space admin；当前组件没有 Dismiss 控件，也不按旧 impression taper 控制可见性。Fullscreen 独立访问策略见 fullscreen-access-recovery。
+**契约与边界**：当前 shouldBlockActions 恒 false，旧 create/edit 阻断不接入常规流程。>=85 的 actionRequired 计算仍保留，但当前 Header/React Header 没有对应消费 UI；page banner 使用严格 >100 的 unpaid Lite 条件。Page banner 面向 recent author/space admin，且其既有受众限制独立于 F52 的 Plan and usage 行购买；该页面行操作不要求 space admin。banner 当前组件没有 Dismiss 控件，也不按旧 impression taper 控制可见性。Fullscreen 独立访问策略见 fullscreen-access-recovery。 IV 的 G 是按站点的 enforcement 水印（非阻断）：仅 Lite；后端在确认 unpaid 后，按站点 policy（stage、effectiveAt）、豁免名单与空间缓存计数 >=150（ENFORCEMENT_THRESHOLD；对外公布的上限仍为 100）决定，任一输入未知即不启用（fail open）；space-status 响应缓存 5 分钟。查看器在图表区域叠加三行水印并显示提示条，水印不进入导出截图节点。没有站点 policy 时该路径不生效。block_create／block_edit 阶段未实现。同一 GenericViewer 路径没有排除全屏模式，但 `fullscreen-viewer` 的实际表现**待 UI 验证**，本轮不登记。**验证状态**：IV 水印已在 staging 实际页面观察（>=150 的空间显示，低计数空间不显示）；100..149 边界未在实际页面观察；该场景对没有 E2E，单元测试见代码旁 spec。
 
-**代码证据**：[src/composables/useCustomerSuccessService.ts:46](src/composables/useCustomerSuccessService.ts#L46)；[src/composables/useCustomerSuccessService.ts:60](src/composables/useCustomerSuccessService.ts#L60)；[src/utils/paywall/warningBanner.ts:247](src/utils/paywall/warningBanner.ts#L247)；[src/components/UpgradePrompt/PaywallWarningBanner.vue:13](src/components/UpgradePrompt/PaywallWarningBanner.vue#L13)；[src/components/Header/Header.vue:1](src/components/Header/Header.vue#L1)。
+**代码证据**：[src/composables/useCustomerSuccessService.ts:46](src/composables/useCustomerSuccessService.ts#L46)；[src/composables/useCustomerSuccessService.ts:60](src/composables/useCustomerSuccessService.ts#L60)；[src/utils/paywall/warningBanner.ts:247](src/utils/paywall/warningBanner.ts#L247)；[src/components/UpgradePrompt/PaywallWarningBanner.vue:13](src/components/UpgradePrompt/PaywallWarningBanner.vue#L13)；[src/components/Header/Header.vue:1](src/components/Header/Header.vue#L1)。[functions/service/paywallEnforcement.ts:86](functions/service/paywallEnforcement.ts#L86)；[functions/api/space-status.ts:102](functions/api/space-status.ts#L102)；[src/features/licenseNotice/siteEnforcementNotice.ts:44](src/features/licenseNotice/siteEnforcementNotice.ts#L44)；[src/components/Viewer/GenericViewer.vue:2231](src/components/Viewer/GenericViewer.vue#L2231)；[src/components/Viewer/GenericViewer.vue:390](src/components/Viewer/GenericViewer.vue#L390)；[src/components/Viewer/LicenseWatermark.vue:1](src/components/Viewer/LicenseWatermark.vue#L1)。
 
 <a id="f55"></a>
 ### F55 · Full 升级入口 — `marketplace-upgrade`
@@ -847,9 +850,11 @@
 
 **交互面**：`plan-usage` ↗；`request-full` ↗；`page-banner` ↗。
 
-**契约与边界**：付款发生在外部 Marketplace。当前直接入口、Request Full 理由引导和仅限 space admin 的 Bundle checkout 是三条不同路径；旧 UpgradePrompt 的按钮存在不表示旧模态框仍会正常打开。
+**契约与边界**：站点级 Full 入口仍打开 Atlassian Marketplace，由 Marketplace 处理站点级升级/购买；它不受新增空间 checkout 行为改变。Plan and usage 另提供每空间 Stripe checkout：仅对达到 100 条且状态明确为 unpaid 的行显示，用户身份不限制该行操作；使用明确的空间 key 构造 Stripe `client_reference_id`，既有字符替换与长度截断仍适用。Request Full 理由引导、空间 Stripe checkout 和 Full Marketplace 入口彼此独立；旧 UpgradePrompt 的按钮存在不表示旧模态框仍会正常打开。checkout 跳转不代表支付完成或许可生效。
 
-**代码证据**：[src/components/PlanUsage/PlanUsage.vue:76](src/components/PlanUsage/PlanUsage.vue#L76)；[src/components/PlanUsage/PlanUsage.vue:310](src/components/PlanUsage/PlanUsage.vue#L310)；[src/components/PlanUsage/PlanUsage.vue:349](src/components/PlanUsage/PlanUsage.vue#L349)；[src/components/UpgradePrompt/PaywallWarningBanner.vue:184](src/components/UpgradePrompt/PaywallWarningBanner.vue#L184)。
+**代码证据**：[src/components/PlanUsage/PlanUsage.vue:88](src/components/PlanUsage/PlanUsage.vue#L88)；[src/components/PlanUsage/PlanUsage.vue:145](src/components/PlanUsage/PlanUsage.vue#L145)；[src/components/PlanUsage/PlanUsage.vue:189](src/components/PlanUsage/PlanUsage.vue#L189)；[src/components/PlanUsage/PlanUsage.vue:204](src/components/PlanUsage/PlanUsage.vue#L204)；[src/components/PlanUsage/PlanUsage.vue:213](src/components/PlanUsage/PlanUsage.vue#L213)；[src/utils/paywall/enterpriseBundleCheckout.ts:2](src/utils/paywall/enterpriseBundleCheckout.ts#L2)；[src/composables/useCustomerSuccessService.ts:88](src/composables/useCustomerSuccessService.ts#L88)；[src/components/UpgradePrompt/PaywallWarningBanner.vue:184](src/components/UpgradePrompt/PaywallWarningBanner.vue#L184)。
+
+**验证状态**：候选 UI 与 staging 证据同 F52；验收仅打开/核实两个空间各自的 Stripe 目标，没有完成付款或验证 Stripe 履约。
 
 <a id="f56"></a>
 ### F56 · 向管理员请求 Full — `request-full`

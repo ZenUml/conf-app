@@ -94,15 +94,73 @@ if [[ -n "$SITE" ]]; then
   URL="https://${SITE}/wiki/create-content/page?spaceKey=${NEW_SPACE}&parentPageId=${NEW_PARENT}"
 fi
 
-steps=()
-steps+=("$(step open "$URL")")
-steps+=("$(step wait --load networkidle)")
-steps+=("$(step wait 500)")
+# --- Phase 1: open the page and find where to click ------------------------
+# Click an empty paragraph of the page body, not the content area. A click on
+# the content area lands at its centre; on a new unpublished page that point
+# can miss the body (observed 2026-11-18 on lite-stg: the centre was 2px above
+# the body's only paragraph, no editor took focus, "/" went nowhere and the
+# wait for "View more" timed out). A new page also has two `.ProseMirror`
+# elements: the "Describe or select what you want to create" compose box comes
+# first in the DOM, the page body second.
+#
+# The marker goes on the body root and the paragraph is addressed by child
+# index: ProseMirror removes an unknown attribute from a node it manages
+# (a `data-*` set on a paragraph was gone 1s later), so mark-then-click on the
+# paragraph itself fails with "Element not found".
+FOCUS_JS='(() => {
+  const area = document.querySelector("[data-testid=\"ak-editor-fp-content-area\"]");
+  if (!area) return "NO CONTENT AREA";
+  document.querySelectorAll("[data-ab-body]").forEach(e => e.removeAttribute("data-ab-body"));
+  const pms = [...area.querySelectorAll(".ProseMirror")];
+  const body = pms.find(p => (p.getAttribute("aria-label") || "").startsWith("Page editing area")) || pms[pms.length - 1];
+  if (!body) return "NO EDITOR";
+  const isEmpty = p => {
+    const c = p.cloneNode(true);
+    c.querySelectorAll(".ProseMirror-widget, .placeholder-decoration").forEach(e => e.remove());
+    return c.textContent.replace(/​/g, "").trim() === "";
+  };
+  const kids = [...body.children];
+  const empty = kids.filter(k => k.tagName === "P" && isEmpty(k)).pop();
+  if (!empty) return "area (no empty paragraph; editors: " + pms.length + ")";
+  body.setAttribute("data-ab-body", "1");
+  empty.scrollIntoView({ block: "center" });
+  return "nth:" + (kids.indexOf(empty) + 1) + " (empty paragraph; editors: " + pms.length + ")";
+})()'
 
-# --- Focus the editor and open the slash menu (real keystrokes only —
-# `fill`/`type` on a selector does not dispatch the keydown ProseMirror
-# needs; `keyboard type` does) ---------------------------------------------
-steps+=("$(step click '[data-testid="ak-editor-fp-content-area"]')")
+pre=()
+pre+=("$(step open "$URL")")
+pre+=("$(step wait --load networkidle)")
+pre+=("$(step wait '[data-testid="ak-editor-fp-content-area"] .ProseMirror')")
+pre+=("$(step wait 500)")
+pre+=("$(step eval "$FOCUS_JS")")
+set +e
+PRE_RESULT=$(printf '%s\n' "${pre[@]}" | jq -cs '.' | A batch --bail --json)
+PRE_EXIT=$?
+set -e
+if [[ $PRE_EXIT -ne 0 ]]; then
+  echo "insert-macro: opening the page failed (exit $PRE_EXIT):" >&2
+  echo "$PRE_RESULT" | jq -c '.[] | select(.success == false)' >&2
+  exit "$PRE_EXIT"
+fi
+FOCUS=$(echo "$PRE_RESULT" | jq -r '.[-1].result.result // empty')
+echo "focus target: ${FOCUS:-<none>}"
+case "$FOCUS" in
+  nth:*)
+    NTH="${FOCUS#nth:}"; NTH="${NTH%% *}"
+    FOCUS_SEL="[data-ab-body] > :nth-child(${NTH})" ;;
+  area*)
+    # No empty top-level paragraph: click the content area, as before.
+    FOCUS_SEL='[data-testid="ak-editor-fp-content-area"]' ;;
+  *)
+    echo "insert-macro: no page editor found (${FOCUS:-no result})" >&2
+    exit 1 ;;
+esac
+
+# --- Phase 2: focus the editor and open the slash menu (real keystrokes
+# only — `fill`/`type` on a selector does not dispatch the keydown
+# ProseMirror needs; `keyboard type` does) ---------------------------------
+steps=()
+steps+=("$(step click "$FOCUS_SEL")")
 steps+=("$(step keyboard type /)")
 # Wait for the menu itself, not a fixed sleep — the "New page" AI-compose
 # box briefly steals focus/timing on a cold page load, making a fixed

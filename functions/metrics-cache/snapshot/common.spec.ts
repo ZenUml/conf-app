@@ -8,6 +8,7 @@ import {
   claimKey,
   isSnapshotEnrolled,
   latestPointerKey,
+  normalizeCounts,
   tenantSnapshotPrefix,
   type MacroCounts,
   type SnapshotEnv,
@@ -122,6 +123,7 @@ describe('macro count validation', () => {
     mermaid: 0,
     plantuml: 0,
     asyncapi: 1,
+    markdown: 0,
     unknown: 0,
     ...over,
   });
@@ -146,6 +148,16 @@ describe('macro count validation', () => {
     const before = JSON.stringify(legacy);
     assertCounts(legacy);
     expect(JSON.stringify(legacy)).toBe(before);
+  });
+
+  it('accepts a payload without a markdown field and normalizes it to 0', () => {
+    const legacy = counts({ markdown: undefined as unknown as number });
+    expect(() => assertCounts(legacy)).not.toThrow();
+    expect(normalizeCounts(legacy)).toMatchObject({ markdown: 0 });
+  });
+
+  it('accepts a payload with a markdown bucket and a matching total', () => {
+    expect(() => assertCounts(counts({ total: 4, markdown: 1 }))).not.toThrow();
   });
 
   it('still rejects a genuine total-vs-buckets mismatch', () => {

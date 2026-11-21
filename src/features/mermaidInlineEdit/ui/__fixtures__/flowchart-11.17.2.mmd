@@ -1,0 +1,8 @@
+flowchart LR
+  A[Start] -->|yes| B(Round label)
+  B -- inline text --> C{Decide}
+  C --> D
+  E["quoted #quot;label#quot;"] --> F[line one<br/>line two]
+  G & H -->|shared| C
+  I["`**md** label`"] --> J[Linked]
+  click J href "https://example.com"

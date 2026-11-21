@@ -33,6 +33,7 @@ export type CountField =
   // such row would land in `unknown` with parseStatus 'unknown_diagram_type',
   // i.e. indistinguishable from genuinely corrupt content.
   | 'asyncapi'
+  | 'markdown'
   | 'unknown';
 
 export type FailureStage =
@@ -66,6 +67,7 @@ export interface MacroCounts {
   mermaid: number;
   plantuml: number;
   asyncapi: number;
+  markdown: number;
   unknown: number;
 }
 
@@ -156,6 +158,7 @@ const COUNT_FIELDS: readonly CountField[] = [
   'mermaid',
   'plantuml',
   'asyncapi',
+  'markdown',
   'unknown',
 ];
 
@@ -196,6 +199,7 @@ export function emptyCounts(): MacroCounts {
     mermaid: 0,
     plantuml: 0,
     asyncapi: 0,
+    markdown: 0,
     unknown: 0,
   };
 }
@@ -299,6 +303,7 @@ export function normalizeDiagramType(value: unknown): CountField {
     // DiagramType.AsyncApi is the string 'AsyncAPI' — matched here lowercased,
     // like OpenAPI above.
     case 'asyncapi': return 'asyncapi';
+    case 'markdown': return 'markdown';
     default: return 'unknown';
   }
 }

@@ -4,7 +4,6 @@ import { renderPlantUmlLocally } from './engine';
 import { PLANTUML_RENDERER_STORAGE_KEY } from './renderer';
 
 vi.mock('./engine', () => ({ renderPlantUmlLocally: vi.fn() }));
-vi.mock('@/apis/aiTitleFeatureFlag', () => ({ isPlantUmlLocalRendererEnabled: vi.fn(() => Promise.resolve(false)) }));
 
 // What @plantuml/core 1.2026.9 drew for a bad arrow on line 3, abridged.
 const SYNTAX_SVG =

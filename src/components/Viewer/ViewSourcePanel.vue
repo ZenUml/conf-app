@@ -137,6 +137,11 @@ export default {
   bottom: 0;
   /* ~300px side sheet; full-width overlay on narrow macros */
   width: min(300px, 100%);
+  /* Inline, the sheet spans the macro's height, which for a large OpenAPI
+     spec (Swagger UI lists every endpoint) is many screens. Cap it so the
+     header, Close and Copy stay near the top; the code scrolls inside.
+     The Forge iframe grows to its content, so vh would not bound it. */
+  max-height: 560px;
   display: flex;
   flex-direction: column;
   background: #fff;
@@ -154,6 +159,8 @@ export default {
 .view-source-panel--fullscreen {
   position: fixed;
   width: min(560px, 45vw);
+  /* Fixed to the fullscreen viewport, which already bounds it. */
+  max-height: none;
 }
 
 .view-source-panel--fullscreen .view-source-code {

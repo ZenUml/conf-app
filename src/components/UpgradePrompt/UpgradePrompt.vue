@@ -146,7 +146,8 @@ import PaywallHero from './PaywallHero.vue'
 import DraftCard from './DraftCard.vue'
 import AdvocacyButton from './AdvocacyButton.vue'
 import { useUpgradeTracking } from './useUpgradeTracking'
-import { trackUpgradeEvent, UpgradeEventName, UIComponent, bundleClientReferenceId } from '@/utils/upgradeTracking'
+import { trackUpgradeEvent, UpgradeEventName, UIComponent, bundleClientReferenceId, bundleCheckoutClickId } from '@/utils/upgradeTracking'
+import { openBundleCheckout } from '@/utils/paywall/openBundleCheckout'
 import type { PaywallActionType } from '@/utils/paywall/mountPaywallGate'
 import { CONTINUE_ATTEMPTS_STORAGE_SOURCE } from '@/utils/paywall/continueAttempts'
 import { getUpgradeContext, useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
@@ -294,12 +295,14 @@ function purchaseContext() {
  *  person in front of the modal might not have. */
 async function onUnlockSpace() {
   const reference = bundleClientReferenceId(props.enterpriseBundleUrl)
+  const clickId = bundleCheckoutClickId(props.enterpriseBundleUrl)
   trackUpgradeEvent(UpgradeEventName.PAYWALL_BUNDLE_CTA_CLICKED, {
     bundle_price_usd: ENTERPRISE_BUNDLE_ANNUAL_COST,
     ...(reference !== undefined ? { client_reference_id: reference } : {}),
+    ...(clickId !== undefined ? { checkout_click_id: clickId } : {}),
     ...purchaseContext(),
   })
-  await openUrl(props.enterpriseBundleUrl)
+  await openBundleCheckout(props.enterpriseBundleUrl, { surface: 'modal', checkoutSurface: 'upgrade_prompt' })
 }
 
 /** Marketplace (Full plan) rail — covers every space, but only a Confluence

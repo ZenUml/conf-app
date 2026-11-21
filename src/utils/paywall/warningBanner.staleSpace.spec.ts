@@ -79,6 +79,6 @@ describe('paywall page banner after an SPA navigation between spaces', () => {
   it('bills the Unlock this space purchase to the space the page is in', () => {
     bannerContext('SD', 'ENG')
     const url = new URL(useCustomerSuccessService().enterpriseBundleUrl.value)
-    expect(url.searchParams.get('client_reference_id')).toBe('example-tenant__ENG')
+    expect(url.searchParams.get('ref')).toBe('example-tenant__ENG')
   })
 })

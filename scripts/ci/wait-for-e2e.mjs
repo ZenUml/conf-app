@@ -165,23 +165,58 @@ export async function cleanupWithRecord(api, title, workflow, pause, marker) {
   await closeChild(api, title, workflow, pause, undefined, existsSync(marker));
 }
 
-export async function closeChild(api, title, workflow, pause, deadline = Date.now() + 8 * 60000, expected = false) {
-  // Look up again even if the dispatch step was interrupted before it saw the ID.
+// GitHub can list a dispatched run, or start its first job, several minutes late (seen
+// 2026-11-16: 3-4 minutes, three times in a row). Search long enough to cover that.
+export const DEFAULT_CHILD_DISCOVERY_SECONDS = 600;
+
+export function discoveryWindowMs(env = process.env) {
+  const raw = env.CHILD_DISCOVERY_SECONDS;
+  if (raw === undefined || raw === '') return DEFAULT_CHILD_DISCOVERY_SECONDS * 1000;
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds < 1 || seconds > 3600) throw new Error('Invalid child discovery window');
+  return seconds * 1000;
+}
+
+// Polls the run listing until the titled child appears or the deadline passes. Always
+// looks once. `onError` is set by callers that tolerate listing failures (cleanup).
+export async function discoverChild(api, workflow, title, pause, deadline, { now = Date.now, log = console.log, onError } = {}) {
+  const startedAt = now();
+  let lastLogged = startedAt;
   let child;
-  const discoveryDeadline = Math.min(deadline, Date.now() + 60000);
   do {
     try {
       child = findChild(api(`actions/workflows/${workflow}/runs?event=workflow_dispatch&per_page=100`).workflow_runs, title);
-    } catch (error) { console.error(`Retrying child discovery: ${error.message}`); }
-    if (!child) await pause();
-  } while (!child && Date.now() < discoveryDeadline);
+    } catch (error) {
+      if (!onError) throw error;
+      onError(error);
+    }
+    if (child) break;
+    await pause();
+    const elapsed = now() - startedAt;
+    if (now() < deadline && now() - lastLogged >= 60000) {
+      lastLogged = now();
+      log(`Still searching for child run after ${Math.round(elapsed / 60000)} min: ${title}`);
+    }
+  } while (now() < deadline);
+  return child;
+}
+
+export async function closeChild(api, title, workflow, pause, deadline, expected = false, options = {}) {
+  const now = options.now || Date.now;
+  const windowMs = options.discoveryMs ?? discoveryWindowMs();
+  if (deadline === undefined) deadline = now() + windowMs + 8 * 60000;
+  // Look up again even if the dispatch step was interrupted before it saw the ID.
+  const discoveryDeadline = Math.min(deadline, now() + windowMs);
+  let child = await discoverChild(api, workflow, title, pause, discoveryDeadline, {
+    now, log: options.log, onError: error => console.error(`Retrying child discovery: ${error.message}`),
+  });
   if (!child) {
     if (expected) throw new Error(`Dispatched child not found during cleanup: ${title}`);
     return;
   }
   if (child.status === 'completed') return;
   let cancellationRequested = false;
-  while (Date.now() < deadline) {
+  while (now() < deadline) {
     if (!cancellationRequested) {
       try {
         api(`actions/runs/${child.id}/cancel`, ['--method', 'POST']);
@@ -267,12 +302,7 @@ async function main() {
   process.on('SIGTERM', onSignal);
   try {
     dispatchWithRecord(api, workflow, dispatchBody(env), dispatchMarker);
-    const createdDeadline = Date.now() + 120000;
-    while (!child && Date.now() < createdDeadline) {
-      const result = api(`actions/workflows/${workflow}/runs?event=workflow_dispatch&per_page=100`);
-      child = findChild(result.workflow_runs, title);
-      if (!child) await pause();
-    }
+    child = await discoverChild(api, workflow, title, pause, Date.now() + discoveryWindowMs(env));
     if (!child) throw new Error(`No matching child run created: ${title}`);
     if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `run-id=${child.id}\n`);
     if (interrupted) throw new Error('Parent cancelled');

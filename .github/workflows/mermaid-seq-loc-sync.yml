@@ -1,0 +1,144 @@
+name: Mermaid seq-loc sync
+
+# Weekly check that the Mermaid position parsers (scripts/mermaid-seq-loc/: the
+# sequence grammar with loc.patch, the flowchart grammar with flowchart.loc.patch)
+# still build. Not run on push or pull_request: the unit tests (build.spec.ts)
+# already guard the installed Mermaid version in every PR.
+#
+#   installed  the pinned Mermaid: generated file is current, `patch` works on Linux, tests pass.
+#   latest     the newest published Mermaid: fetch both grammars, apply both patches, build,
+#              run the tests. Nothing is committed. On failure, open or update ONE issue.
+#
+# Upgrade procedure: scripts/mermaid-seq-loc/README.md
+
+on:
+  schedule:
+    - cron: '23 20 * * 0'   # Monday 07:23 AEDT / 06:23 AEST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mermaid-seq-loc-sync
+  cancel-in-progress: false
+
+jobs:
+  installed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      - name: Install dependencies (skip post-install scripts)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Generated parsers are up to date (also proves GNU patch works here)
+        run: node scripts/mermaid-seq-loc/build.mjs --check
+      - name: Sourcemap tests
+        run: pnpm vitest --run src/features/mermaidInlineEdit/sourcemap
+
+  latest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      - name: Install dependencies (skip post-install scripts)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Resolve versions
+        id: versions
+        run: |
+          installed=$(node -p "require('mermaid/package.json').version")
+          latest=$(npm view mermaid version)
+          echo "installed=$installed" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "installed mermaid: $installed, latest published: $latest"
+          if [ -z "$latest" ]; then
+            echo "::error::npm view mermaid version returned nothing"
+            exit 1
+          fi
+          if [ "$installed" = "$latest" ]; then
+            echo "Latest equals installed: nothing to check beyond the installed job." >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Fetch upstream grammars
+        id: fetch
+        if: steps.versions.outputs.skip != 'true'
+        run: node scripts/mermaid-seq-loc/build.mjs --fetch "${{ steps.versions.outputs.latest }}"
+      - name: Apply loc.patch and flowchart.loc.patch, and build
+        id: build
+        if: steps.versions.outputs.skip != 'true'
+        env:
+          MERMAID_SEQ_LOC_VERSION: ${{ steps.versions.outputs.latest }}
+        run: node scripts/mermaid-seq-loc/build.mjs
+      - name: Install the latest mermaid (this job only, not committed)
+        id: install_latest
+        if: steps.versions.outputs.skip != 'true'
+        # -w: the repo is a pnpm workspace; without it pnpm refuses with ERR_PNPM_ADDING_TO_ROOT.
+        run: pnpm add -w "mermaid@${{ steps.versions.outputs.latest }}" --ignore-scripts
+      - name: Sourcemap tests against the latest mermaid
+        id: tests
+        if: steps.versions.outputs.skip != 'true'
+        env:
+          MERMAID_SEQ_LOC_VERSION: ${{ steps.versions.outputs.latest }}
+        run: pnpm vitest --run src/features/mermaidInlineEdit/sourcemap
+      - name: Open or update the alert issue
+        if: failure() && steps.versions.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LATEST: ${{ steps.versions.outputs.latest }}
+          INSTALLED: ${{ steps.versions.outputs.installed }}
+          FETCH: ${{ steps.fetch.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+          INSTALL_LATEST: ${{ steps.install_latest.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+        run: |
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          readme="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/main/scripts/mermaid-seq-loc/README.md#upgrading-mermaid-in-conf-app"
+          if [ "$FETCH" = failure ]; then
+            what="Fetching an upstream grammar failed (HTTP error in the step log). The sequence or flowchart grammar may have moved or been replaced (Langium migration); see the README section on Langium."
+          elif [ "$BUILD" = failure ]; then
+            what="loc.patch or flowchart.loc.patch no longer applies to the new grammar (the step log names the file), or jison could not compile the patched grammar. Repair the patch as described in the README."
+          elif [ "$INSTALL_LATEST" = failure ]; then
+            what="Installing mermaid $LATEST failed in the CI workspace."
+          elif [ "$TESTS" = failure ]; then
+            what="The grammar patched and built, but the sourcemap tests fail against mermaid $LATEST (for example the database parity test: our parse and Mermaid's own database disagree)."
+          else
+            what="A step before the tests failed; see the run."
+          fi
+          LATEST="${LATEST:-(version not resolved)}"
+          INSTALLED="${INSTALLED:-(not resolved)}"
+          title="Mermaid position patch (sequence or flowchart) does not apply to mermaid $LATEST"
+          body=$(printf '%s\n' \
+            "Weekly check \`mermaid-seq-loc-sync\` failed for mermaid $LATEST (conf-app pins $INSTALLED)." \
+            "" \
+            "**What failed:** $what" \
+            "" \
+            "- Run: $run_url" \
+            "- Procedure: $readme" \
+            "" \
+            "Until fixed, nothing breaks for users: conf-app is pinned to $INSTALLED. The risk starts when the pin moves.")
+          gh label create mermaid-seq-loc-sync --color BFD4F2 \
+            --description "Mermaid position parsers (sequence, flowchart) upstream sync" 2>/dev/null || true
+          existing=$(gh issue list --label mermaid-seq-loc-sync --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --title "$title" --body "$body"
+            gh issue comment "$existing" --body "Still failing on $(date -u +%F): $run_url"
+          else
+            gh issue create --label mermaid-seq-loc-sync --title "$title" --body "$body"
+          fi

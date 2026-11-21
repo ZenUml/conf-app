@@ -66,6 +66,23 @@ export type TitleDraftAddFailure =
 /** Whether an Architecture Tokens lookup found index rows for the current diagram. */
 export type ArchitectureTokenLookupOutcome = "indexed" | "index_miss";
 
+/**
+ * Which case sits behind a `related_diagrams_lookup_failed` with `error_kind: 'stale_index'`.
+ * Mirrors `StaleReason` in functions/architecture-tokens/service.ts.
+ */
+export type ArchitectureTokenStaleReason =
+  | "version_mismatch"
+  | "not_in_live_read"
+  | "no_page_container";
+
+/**
+ * Which writer produced the index rows behind a `stale_index` failure, read from the rows'
+ * run id: `save` (the save-time sync, run id `save:N`), `heal` (a repair by the related lookup,
+ * `heal:N`), `backfill` (the upload tool, a `YYYY-MM-DD` run id), `unknown` (any other run id).
+ * Mirrors `IndexSource` in functions/architecture-tokens/service.ts.
+ */
+export type ArchitectureTokenIndexSource = "save" | "heal" | "backfill" | "unknown";
+
 /** Magic's finite failure vocabulary; never send source, SVG, or hashes. */
 export type MagicFailureReason =
   | "missing_artifact"
@@ -301,6 +318,12 @@ export type CacheState = "cold" | "warm" | "unknown";
 // high-confidence wipe. See utils/analytics/contentState.ts.
 export type ContentState = "default" | "authored" | "empty";
 
+// diagram_paste_handled: the info string of a Markdown fence found in a paste.
+// `none` = no fence, or a fence without a language.
+export type PasteFenceLanguage = "mermaid" | "plantuml" | "other" | "none";
+// diagram_paste_handled: what the editor did with the paste.
+export type DiagramPasteAction = "fence_removed" | "moved_to_mermaid" | "inserted_unchanged";
+
 // Where a `cached_svg` render sourced its SVG. `none` for `live_render`.
 // `cc_body` = SVG co-stored in the custom-content body (Phase 2);
 // `attachment` / `localstorage` reserved for a future static fast-path viewer.
@@ -401,6 +424,36 @@ export type GalleryOpenTrigger = "auto_first_open" | "manual";
 // so pairing the two values into a funnel would be lopsided by construction.
 export type CodePanelToggleTrigger = "panel_button" | "gutter_drag";
 
+// Mermaid inline edit (editor_inline_edit_*). Mirrors EditableKind
+// and EditRejection in src/features/mermaidInlineEdit/types.ts, in snake case
+// for Mixpanel; kept as literals so the catalog has no feature import.
+// `participant_label` / `message_text`: sequence diagrams; `node_label` /
+// `edge_label`: flowcharts (2026-11-21, registered ahead of the flowchart UI).
+export type InlineEditKind = "participant_label" | "message_text" | "node_label" | "edge_label";
+// Which Mermaid diagram type an editor_inline_edit_* event came from.
+export type InlineEditDiagram = "sequence" | "flowchart";
+// editor_inline_edit_unavailable: why the diagram or label is read-only.
+// `no_map`: the position parser gave no source map, so the whole diagram is
+// read-only (sequence: sent after the render; flowchart: sent on the
+// double-click). The others mirror FlowReadOnlyReason in
+// src/features/mermaidInlineEdit/types.ts (flowchart labels, sent on the
+// double-click of a read-only label).
+export type InlineEditUnavailableReason =
+  | "no_map"
+  | "markdown"
+  | "shape_data"
+  | "html"
+  | "shared_edge_label"
+  | "no_label"
+  | "linked_node"
+  | "unsupported";
+export type InlineEditRejection =
+  | "stale_source"
+  | "name_exists"
+  | "invalid_characters"
+  | "empty"
+  | "position_mismatch";
+
 // Effective Session Replay policy stamped on analytics events. `authoring`
 // means a sampled macro create/edit start requested recording independently of
 // the Forge flag cohort. See macro_create_started / macro_edit_started below.
@@ -421,6 +474,9 @@ export type SessionReplayEventSource =
   | "targeted"
   | "sampled"
   | "authoring"
+  // First empty new macro of a browser on a site (editor_template_gallery_opened
+  // with template_gallery_trigger "auto_first_open"): always recorded.
+  | "first_authoring"
   | "plan_usage_page"
   | "fullscreen"
   | "feedback"
@@ -438,10 +494,32 @@ export type SessionReplayEventSource =
 // the current sample. It does not prove that a recorder is inactive (an earlier
 // event or an SDK-resumed recording may already have started one). Its share
 // of authoring events is the live measurement of the sampling rate.
+// `skipped_daily_cap` means a license notice did not force a recording because
+// this browser already had its one forced license-notice replay for the site
+// today (or cannot remember the day).
 export type SessionReplayStartCallOutcome =
   | "returned"
   | "threw"
-  | "skipped_sampled";
+  | "skipped_sampled"
+  | "skipped_daily_cap";
+
+/**
+ * Microsoft Clarity replay start outcome, registered once per iframe as the
+ * `clarity_replay_outcome` super-property (no event of its own).
+ * `started`         — clarity.start() was called (text and images masked,
+ *                     no cookies, no account id).
+ * `skipped_surface` — not an editor or fullscreen iframe.
+ * `skipped_flag`    — `clarity-replay-enabled` is off for this user/site.
+ * `skipped_geo`     — stats.zenuml.com/clarity/allow refused (EEA/UK/CH
+ *                     visitor) or could not be reached.
+ * `failed`          — the SDK threw while starting.
+ */
+export type ClarityReplayOutcome =
+  | "started"
+  | "skipped_surface"
+  | "skipped_flag"
+  | "skipped_geo"
+  | "failed";
 
 /**
  * Which 404 NOT_FOUND envelope a failed custom-content CREATE returned.
@@ -839,7 +917,27 @@ export type AnalyticsEventName =
   // admin-targeted copy produces a purchase intent rather than another relay
   // hop. Distinct from `extension_request_clicked` (asks US for more free
   // time) and `advocacy_message_copied` (asks SOMEONE ELSE to act).
+  // Also fires on a Plan and usage row click: surface=dashboard, space_key,
+  // macro_count, macro_limit, bundle_price_usd and client_reference_id identify
+  // the selected space and its checkout attribution.
   | "paywall_bundle_cta_clicked"
+  // Bundle checkout path (spec 2026-11-20-bundle-checkout-path-design.md).
+  // The Bundle CTA opens our own handoff page on the backend host, because
+  // router.open shows Atlassian's "Opening external page" dialog for
+  // buy.stripe.com but not for *.zenuml.com (observed 2026-11-20).
+  // `bundle_checkout_redirected` (server): the handoff page was served
+  //   (`handoff_outcome: served`) or refused a bad link (`invalid_ref`).
+  // `bundle_checkout_continued` (server): the page sent the buyer on to Stripe;
+  //   `checkout_trigger` is auto (3 s countdown) or button, and
+  //   `countdown_stopped` says whether Stop was used first.
+  // `bundle_checkout_open_result` (client): router.open did not open the page
+  //   (`checkout_open_outcome: declined | error`). Opens are not sent; the
+  //   server event counts them.
+  // All three carry `checkout_click_id`, also on paywall_bundle_cta_clicked,
+  // so the click → page → Stripe funnel joins without a user id in the URL.
+  | "bundle_checkout_redirected"
+  | "bundle_checkout_continued"
+  | "bundle_checkout_open_result"
   // The Marketplace (Full plan) rail. Separate event from the bundle rail
   // because they need different people: Marketplace requires a Confluence SITE
   // admin, the bundle requires nobody. Splitting them is how we find out which
@@ -937,6 +1035,11 @@ export type AnalyticsEventName =
   | "editor_load_empty_active_field"
   | "swagger_editor_config_empty_with_modal"
   | "fullscreen_opened"
+  // The `fullscreen_` prefix is historical: these events serve ONE recovery gate with
+  // two features. `feature` ('fullscreen' | 'edit') tells them apart; for `edit`,
+  // `surface` is 'editor' and activation (first successful save) is reported with the
+  // same `_activation_completed` / `_activation_failed` events. `fullscreen_view_ready`
+  // is Fullscreen-only (the editor has no equivalent moment).
   // Contact recovery: intent, durable request, successful view and support outcomes
   // stay separate. Never put email addresses or free-form customer text in events.
   | "fullscreen_recovery_gate_shown"
@@ -971,6 +1074,14 @@ export type AnalyticsEventName =
   //     are not a behaviour change; filter `viewport_input == "toolbar"` for a
   //     series comparable with what came before (older events carry no
   //     `viewport_input` at all, so treat absent as toolbar).
+  //   2026-10 stopped (rate 0) under the event budget; no data until:
+  //   2026-11-18 restored at 10% (`sample_rate` stamped) when a plain wheel
+  //     started to zoom at the pointer in Fullscreen and the editor preview.
+  //     Wheel events from then carry `wheel_modifier` (none | ctrl_meta); one
+  //     event per gesture as before. Wheel zoom is continuous now, so
+  //     `viewport_action` is the gesture's first direction. The same change
+  //     retired `viewport_zoom_hint_shown` ("use Ctrl/Cmd + scroll"): the plain
+  //     wheel it explained now zooms, so there is nothing left to hint.
   // Header fit controls: one click on Fit height / Fit width fires this event
   // after the ready renderer applies the requested axis fit. Properties:
   // viewport_action=fit_height|fit_width, viewport_input=toolbar,
@@ -979,22 +1090,31 @@ export type AnalyticsEventName =
   // zoom clicks use zoom_in|zoom_out with the same location/outcome. Disabled
   // (not ready) controls do not emit. Existing editor/wheel events are retained.
   | "viewport_control_used"
-  // Shown when a reader wheels over a diagram WITHOUT the Ctrl/Cmd modifier on a
-  // surface where a plain wheel has nowhere to go (fullscreen and the editor
-  // preview both set `overflow: hidden`), so the gesture did nothing and the
-  // overlay tells them the modifier. Not fired on the page viewer, where a plain
-  // wheel correctly scrolls the Confluence page.
+  // One reader's zooming in one Fullscreen view, summed (proposal P2: does
+  // Fullscreen open too small, and does each click move far enough?). Sent
+  // from utils/viewport/fullscreenZoomSummary.ts, Fullscreen surface only.
   //
-  // This is the discovery half of the wheel gate: `viewport_control_used`
-  // counts people who already know how to zoom, and this counts people who
-  // tried and could not. A hint count that stays high per user is the signal
-  // that the affordance is not landing. Fires at most twice per viewer instance
-  // (createZoomHintTrigger) — someone who has been told twice and keeps
-  // wheeling is scrolling, not searching for the zoom.
-  | "viewport_zoom_hint_shown"
+  // Sent 10 s after the view settles (open, then each zoom) with the running
+  // totals, so one view can send several rows. They share `zoom_session_id`;
+  // `summary_seq` counts up. ANALYSIS: take the row with the highest
+  // `summary_seq` per `zoom_session_id`. The last send at teardown
+  // (`summary_trigger: unload`) is best-effort; a view closed within 10 s of
+  // opening may send nothing.
+  //
+  // Sampling is per view, not per row: 10% of views send all their rows
+  // (stamped `sample_rate: 0.1` by the caller), the rest send none, so the
+  // last-row rule still holds. Never a forced session replay.
+  //
+  // Properties: zoom_in_clicks / zoom_out_clicks / fit_clicks = toolbar
+  // clicks; wheel_gestures = whole wheel gestures (one per gesture, as in
+  // viewport_control_used); zoom_ratio_end / zoom_ratio_max = scale divided
+  // by the opening scale (1 = as opened); session_ms = time since the view
+  // opened.
+  | "fullscreen_zoom_summary"
   // Viewer "View source" panel (#333): read-only DSL affordance for all viewers
   // (including users without edit permission). Opened from the hover toolbar on
-  // text-DSL types only (sequence / mermaid / plantuml).
+  // text-DSL types only (sequence / mermaid / plantuml). `is_fullscreen` on
+  // viewer_source_opened splits inline from Fullscreen opens (2026-11-18).
   | "viewer_source_opened"
   | "viewer_source_copied"
   // Inline title rename from the viewer's top edge (no editor modal). Gated by
@@ -1007,6 +1127,11 @@ export type AnalyticsEventName =
   // (`rename_exit_reason`: escape / unchanged / empty — a blank title on
   // Enter is refused inline and keeps editing, so it fires nothing; `empty`
   // is a blank title on blur, where the previous title simply stands).
+  // All four carry `rename_trigger` (title_text / pencil / title_edge /
+  // keyboard / unknown: where the opening click landed) and `had_input` (the
+  // field changed before the exit) and `had_copy` (a copy event fired in the
+  // field) — see types.ts. Added 2026-11-18 to tell
+  // a mistaken title click from a rename that was dropped.
   // A rename writes a new custom-content version but is deliberately NOT a
   // macro_save_succeeded: that event is the edit-volume signal for dashboards
   // and rides on saveToPlatform (snapshot upload, CSAT, surface: editor), none
@@ -1424,6 +1549,11 @@ export type AnalyticsEventName =
   // Diagram attribution and audience impact (Phase 1): the read-only footer
   // and its three-second continuous-visibility registration flow.
   | "diagram_attribution_shown"
+  // `result` on _succeeded is the backend RegistrationResult:
+  // 'new_unique' | 'repeat' | 'excluded_contributor'. 'excluded_contributor'
+  // (the creator/updater/contributor viewing their own diagram) writes no
+  // audience row, so only 'new_unique' and 'repeat' are counted registrations.
+  // 'write_failed' is reported on _failed, never here.
   | "diagram_audience_registration_succeeded"
   | "diagram_audience_registration_failed"
   // Architecture Tokens Phase 1 (viewer footer + lifeline popover). No label
@@ -1740,6 +1870,18 @@ export type AnalyticsEventName =
   | "agent_link_mcp_dialog_opened"
   | "agent_link_mcp_dialog_copied"
   | "agent_link_mcp_dialog_closed"
+  // The dialog's step 1 is split into one tab per MCP client (2026-11), since
+  // a `claude mcp add` command alone fits only Claude Code users. Every
+  // opened / copied / closed row carries the tab showing at the time in
+  // `mcp_client_choice`; closed also says how it closed in `mcp_close_source`
+  // ('page_hidden' = the viewer left the page with the dialog open, which
+  // used to leave no closed row at all). client_selected = a tab click
+  // (`mcp_client_choice` is the new tab; the last choice is remembered per
+  // browser). install_clicked = a one-click install link for that client
+  // (Cursor, VS Code); whether the client then connected is still counted
+  // server-side by agent_link_mcp_initialized (`mcp_client_name`).
+  | "agent_link_mcp_client_selected"
+  | "agent_link_mcp_install_clicked"
   // MCP promo surfaces (2026-11). Besides the toolbar/More-menu entry, the
   // dialog is promoted by a dismissible card in Fullscreen
   // (`mcp_button_placement: 'fullscreen_card'`), a card for a new, untouched
@@ -1877,6 +2019,44 @@ export type AnalyticsEventName =
   // but a different surface and a different question ("does AI chat need the
   // code visible?"), so the two are not merged.
   | "editor_code_panel_toggled"
+  // Editor preview element click (P6 measurement, 2026-11-18). Replays show
+  // authors clicking boxes of the Mermaid/PlantUML preview, maybe expecting to
+  // edit the node or find it in the source; nothing else counts this. Fires at
+  // most once per editor session, 10 s after the first click on a diagram
+  // element (node, subgraph, edge or label; a press that moved more than 4 px
+  // is a pan drag and never starts the window), or when the editor closes
+  // inside that window (`preview_window_completed: false`).
+  // Mermaid and PlantUML only: the Sequence preview already edits in place and
+  // Graph is DrawIO. `preview_source_*_in_window` answer "did the author then
+  // look at (focus or press in the code pane) or change the source". Read-out rule:
+  // docs/features/editor-preview-click.md.
+  | "editor_preview_element_clicked"
+  // Mermaid sequence inline edit (2026-11-20; no flag, on in the editor).
+  // Editor preview only: a double-click on a participant label or a message
+  // text of a Mermaid sequence diagram opens an in-place text layer over it
+  // (the preview re-lays out live, the store is not written), and the commit
+  // rewrites the source once. `started` = the layer opened (the denominator);
+  // `succeeded` = the edit was written to the source (unchanged text sends
+  // nothing here); `rejected` = the edit function or the stale-source check
+  // refused it when the layer closed (`inline_edit_rejection`; an invalid text
+  // while typing sends nothing); `cancelled` = Esc, or the layer closed with
+  // unchanged text (`inline_edit_cancel_reason`); `unavailable` = a sequence
+  // diagram rendered in the editor, but the position parser gave no map, so
+  // the diagram stays read-only (at most once per editor session); for a
+  // flowchart it is sent on the double-click of a label that is read-only
+  // (or of any label when there is no map), at most once per editor session
+  // per reason (`inline_edit_unavailable_reason`).
+  // Properties: feature_area 'macro', surface 'editor', macro_type,
+  // inline_edit_kind, inline_edit_had_alias (participant only),
+  // inline_edit_ms_open, inline_edit_diagram ('sequence' | 'flowchart'; on every
+  // editor_inline_edit_* event once flowchart inline edit ships, absent on events
+  // sent before it). Flowchart labels use inline_edit_kind 'node_label' /
+  // 'edge_label'. Never diagram text or ids. docs/features/mermaid-inline-edit.md.
+  | "editor_inline_edit_started"
+  | "editor_inline_edit_succeeded"
+  | "editor_inline_edit_rejected"
+  | "editor_inline_edit_cancelled"
+  | "editor_inline_edit_unavailable"
   // Onboarding funnel — "second diagram" prompt (registered ahead of its
   // producer: this task only registers the event names + properties so the
   // catalog/types are ready; no call site exists yet in this codebase. A
@@ -1894,11 +2074,21 @@ export type AnalyticsEventName =
   // macro_type.
   // Full viewer decision settles or expires; flag-off views emit nothing.
   // license_notice_basis distinguishes Forge inactivity from explicit Legacy Free evidence.
+  // The Lite site-policy notice (basis 'site_policy_limit_reached') sends no
+  // `evaluated`: its only outcome is `shown`, and the watermark and strip render
+  // under one condition, so `license_notice_shown` (which carries
+  // enforcement_stage and macro_count) is its exposure event. On 2026-11-18 the
+  // duplicate was ~5,000 events a day.
   | "license_notice_evaluated"
   | "license_notice_shown"
   | "license_notice_upgrade_clicked"
   | "license_notice_ticket_clicked"
   | "license_notice_email_copied"
+  // Lite per-site enforcement notice (license_notice_basis
+  // 'site_policy_limit_reached'): the strip button "View plan and usage" was
+  // clicked. Properties: feature_area 'license_notice', surface, macro_type,
+  // license_notice_basis, enforcement_stage.
+  | "license_notice_plan_usage_clicked"
   // Foreign-dialect hint (#373: PlantUML pasted into a ZenUML sequence macro
   // renders as wrong-but-plausible nonsense — see detectForeignDialect.ts for
   // the detection rule). `shown` is the denominator, fired once per becoming-
@@ -1911,6 +2101,24 @@ export type AnalyticsEventName =
   | "foreign_dialect_hint_shown"
   | "foreign_dialect_hint_switch_clicked"
   | "foreign_dialect_hint_dismissed"
+  // Paste handling in the Sequence and Mermaid code editors (direction B,
+  // 2026-11-17: a Markdown code fence left in a paste, or Mermaid text pasted
+  // into the Sequence editor, stopped first saves and no event counted it).
+  // `diagram_paste_handled` fires once per paste that carried a Markdown
+  // fence or text of another dialect than the editor tab; a plain paste does
+  // not fire it (macro_authoring_ended already counts paste input).
+  // `macro_type` is the tab the paste landed in; `has_markdown_fence` and
+  // `fence_language` describe the fence; `detected_dialect` is what the
+  // pasted text looks like after the fence is removed; `paste_action` is what
+  // the editor did (`fence_removed`, `moved_to_mermaid`, `inserted_unchanged`);
+  // `content_state` is the tab's body BEFORE the paste (`default` = untouched
+  // starter), which is the condition for the move; `paste_chars` is the length
+  // of the inserted text. Never carries the pasted text.
+  // `diagram_paste_move_undone` fires when the user clicks Undo on the toast
+  // that follows `moved_to_mermaid`: the paste goes back into the Sequence tab
+  // and later pastes in that editor session are no longer moved.
+  | "diagram_paste_handled"
+  | "diagram_paste_move_undone"
   // Confluence Home page "Create a diagram" card (confluence:homepageFeed —
   // see manifest.yml). The only onboarding surface a non-admin end user
   // encounters without first inserting a macro; the pre-existing
@@ -1937,6 +2145,8 @@ export type AnalyticsEventName =
   // usage-only view. `plan_usage_request_full_clicked` fires when either
   // audience opens the Request-Full guidance page from here (the entry point
   // named in the spec: banner -> Plan and usage -> "申请 Full").
+  // Fires after usage and paid-status loading settle. purchasable_space_count
+  // counts rows with a confirmed unpaid decision and a purchase action.
   | "plan_usage_viewed"
   | "plan_usage_request_full_clicked"
   // Admin's direct purchase entry point on the Plan and usage page itself
@@ -2110,9 +2320,25 @@ export type AgentLinkOAuthTokenRefreshOutcome = "rotated" | "retried" | "rejecte
 export type AgentLinkWriteResult = "added" | "already_present" | "conflict" | "updated";
 
 // Which block of the Connect MCP dialog a Copy click targeted
-// (agent_link_mcp_dialog_copied): the one-time `claude mcp add` setup
-// command, or the prompt naming this diagram for the agent.
-export type AgentLinkMcpCopyTarget = "setup_command" | "prompt";
+// (agent_link_mcp_dialog_copied): the one-time CLI setup command
+// (`claude mcp add` or `codex mcp add`; `mcp_client_choice` says which), the
+// bare server URL (Claude web or desktop custom connector,
+// Cursor, VS Code and other clients), the Other tab's prompt asking a
+// terminal agent to add the server to its own configuration
+// ('install_prompt'), or the prompt naming this diagram.
+export type AgentLinkMcpCopyTarget = "setup_command" | "server_url" | "install_prompt" | "prompt";
+
+// The client tab of the Connect MCP dialog's step 1 (`mcp_client_choice`).
+// 'claude_app' = Claude on the web or desktop (custom connector by URL);
+// 'codex' = the Codex CLI (`codex mcp add`); 'chatgpt' = ChatGPT on the web
+// (custom MCP server by URL); 'other' = any other MCP client (a prompt asking
+// the agent to add the server, plus the URL and its name).
+export type AgentLinkMcpClientChoice = "claude_code" | "claude_app" | "cursor" | "codex" | "vscode" | "chatgpt" | "other";
+
+// How the Connect MCP dialog closed (`mcp_close_source` on
+// agent_link_mcp_dialog_closed): its Done button, its × button, a click on the
+// backdrop, Escape (inline viewer), or the viewer leaving the page with it open.
+export type AgentLinkMcpCloseSource = "done" | "close_button" | "backdrop" | "escape" | "page_hidden";
 
 // Where the Connect MCP entry sat: the macro's own header button, the More
 // (⋯) menu, where header collapse stage 3 moves it, or the Confluence Home

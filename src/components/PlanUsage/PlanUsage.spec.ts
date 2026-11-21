@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import PlanUsage from './PlanUsage.vue'
+import { getSpaceStatuses } from '@/apis/spaceStatuses'
+import { openUrl, openUrlForOutcome } from '@/model/globals/forgeGlobal'
+vi.mock('@/apis/spaceStatuses', () => ({ getSpaceStatuses: vi.fn() }))
 import { getFullscreenRecovery, requestFullscreenRecovery, activateFullscreenRecovery } from '@/apis/fullscreenRecovery'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 
@@ -12,6 +15,7 @@ vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
 vi.mock('@/model/globals/forgeGlobal', () => ({
   default: { zenumlRemoteBaseUrl: 'https://api.example.test', forgeContext: undefined, isForge: true },
   openUrl: vi.fn(),
+  openUrlForOutcome: vi.fn(async () => 'opened'),
 }))
 vi.mock('@/apis/fullscreenRecovery', () => ({
   getFullscreenRecovery: vi.fn(), requestFullscreenRecovery: vi.fn(), activateFullscreenRecovery: vi.fn(),
@@ -51,7 +55,68 @@ async function mountPage(body: unknown) {
 describe('PlanUsage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(getSpaceStatuses).mockResolvedValue({ ENG: { isPaid: false, decisionKnown: true } })
     forgeGlobal.forgeContext = undefined
+  })
+
+  it('offers checkout only for confirmed unpaid rows, including the exact limit and personal spaces', async () => {
+    vi.mocked(getSpaceStatuses).mockResolvedValue({ ENG: { isPaid: false, decisionKnown: true }, '~abc123': { isPaid: false, decisionKnown: true }, PAID: { isPaid: true, decisionKnown: true }, USER: { isPaid: true, decisionKnown: false }, UNKNOWN: { isPaid: false, decisionKnown: false } })
+    const w = await mountPage(usageBody({ overLimitSpaces: [{ spaceKey: 'ENG', macroCount: 143 }, { spaceKey: '~abc123', macroCount: 100 }, { spaceKey: 'PAID', macroCount: 400 }, { spaceKey: 'USER', macroCount: 400 }, { spaceKey: 'UNKNOWN', macroCount: 143 }] }))
+    expect(w.findAll('.space-purchase button')).toHaveLength(2)
+    expect(w.findAll('.license-state').map(x => x.text())).toEqual(['Covered by a paid license', 'Covered by a paid license', 'License status unavailable'])
+    await w.get('button[aria-label="Unlock this space: ENG"]').trigger('click')
+    expect(openUrlForOutcome).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/api\.example\.test\/bundle-checkout\?ref=example-tenant__ENG&space=ENG&surface=plan_usage&click=[A-Za-z0-9-]+$/))
+    await w.get('button[aria-label="Unlock this space: ~abc123"]').trigger('click')
+    expect(openUrlForOutcome).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/api\.example\.test\/bundle-checkout\?ref=example-tenant___abc123&space=%7Eabc123&surface=plan_usage&click=[A-Za-z0-9-]+$/))
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('paywall_bundle_cta_clicked', expect.objectContaining({ surface: 'dashboard', space_key: '~abc123', macro_count: 100, macro_limit: 100, bundle_price_usd: 299, client_reference_id: 'example-tenant___abc123', checkout_click_id: expect.stringMatching(/^[A-Za-z0-9-]{8,64}$/) }))
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('plan_usage_viewed', expect.objectContaining({ purchasable_space_count: 2 }))
+  })
+
+  it('tells the buyer checkout opens in a new tab, with tax and no admin', async () => {
+    const w = await mountPage(usageBody())
+    expect(w.get('[data-testid="plan-usage-purchase-help"]').text()).toBe(
+      'Unlock one space by card. Checkout opens in a new tab: $299 per space per year, plus tax where applicable. No Confluence admin needed.')
+  })
+
+  it('shows the row as opened after the checkout page opens, and offers to open it again', async () => {
+    const w = await mountPage(usageBody({ overLimitSpaces: [{ spaceKey: 'ENG', macroCount: 143 }] }))
+    await w.get('button[aria-label="Unlock this space: ENG"]').trigger('click')
+    await flushPromises()
+    expect(w.get('[data-testid="plan-usage-checkout-opened"]').text()).toBe('Checkout opened in a new tab')
+    expect(w.get('button[aria-label="Open checkout again: ENG"]').text()).toBe('Open again')
+    await w.get('button[aria-label="Open checkout again: ENG"]').trigger('click')
+    expect(openUrlForOutcome).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the Unlock button when the checkout page did not open', async () => {
+    vi.mocked(openUrlForOutcome).mockResolvedValueOnce('declined')
+    const w = await mountPage(usageBody({ overLimitSpaces: [{ spaceKey: 'ENG', macroCount: 143 }] }))
+    await w.get('button[aria-label="Unlock this space: ENG"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-testid="plan-usage-checkout-opened"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('bundle_checkout_open_result', expect.objectContaining({ checkout_open_outcome: 'declined', checkout_surface: 'plan_usage', surface: 'dashboard' }))
+  })
+
+  it('keeps counts and rows when paid lookup fails', async () => {
+    vi.mocked(getSpaceStatuses).mockRejectedValue(new Error('offline'))
+    const w = await mountPage(usageBody())
+    expect(w.text()).toContain('Purchase options are unavailable for now.')
+    expect(w.text()).toContain('118 / 100')
+    expect(w.findAll('.space-purchase button')).toHaveLength(0)
+    expect(w.text()).toContain('License status unavailable')
+  })
+
+  it('shows pending license checks without purchase options', async () => {
+    vi.mocked(getSpaceStatuses).mockReturnValue(new Promise(() => {}))
+    const w = await mountPage(usageBody())
+    expect(w.text()).toContain('Checking license…')
+    expect(w.findAll('.space-purchase button')).toHaveLength(0)
+  })
+
+  it('does not fetch licenses or render a table for no over-limit spaces', async () => {
+    const w = await mountPage(usageBody({ overLimitSpaces: [] }))
+    expect(w.find('.space-table').exists()).toBe(false)
+    expect(getSpaceStatuses).not.toHaveBeenCalled()
   })
 
   it('uses the viewer snapshot, not the query request id, and writes a Fullscreen reason', async () => {
@@ -62,6 +127,9 @@ describe('PlanUsage', () => {
       grant: { id: 'grant', activatedAt: '2026-10-01T00:00:00Z', expiresAt: '2026-10-08T00:00:00Z' },
     })
     const w = await mountPage(usageBody())
+    expect(w.get('button[aria-label="Unlock this space: ENG"]').text()).toBe('Unlock this space')
+    await w.get('button[aria-label="Unlock this space: ENG"]').trigger('click')
+    expect(openUrlForOutcome).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/api\.example\.test\/bundle-checkout\?ref=example-tenant__ENG&space=ENG&surface=plan_usage&click=[A-Za-z0-9-]+$/))
     expect(w.get('[data-testid="plan-usage-fullscreen-context"]').text()).toContain('Discuss it with colleagues')
     expect(w.get('[data-testid="plan-usage-fullscreen-context"]').text()).not.toContain('foreign-id')
     expect(w.get('.upgrade-block h2').text()).toBe('Explore a plan for your Fullscreen use')

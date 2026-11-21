@@ -5,6 +5,7 @@ import {
   getGuideByUri,
   getGuideText,
   listGuideResources,
+  renderGuideText,
   resolveGuideSelection,
   selectInstructions,
   selectToolHint,
@@ -185,6 +186,34 @@ describe('resources', () => {
     expect(getGuideByUri(MERMAID_DSL_GUIDE_URI)?.text).toBe(MERMAID_DSL_GUIDE);
     expect(getGuideByUri(PLANTUML_DSL_GUIDE_URI)?.text).toBe(PLANTUML_DSL_GUIDE);
     expect(getGuideByUri(OPENAPI_DSL_GUIDE_URI)?.text).toBe(OPENAPI_DSL_GUIDE);
+  });
+
+  it('the edit surface (default) still serves the Confluence guides unchanged', () => {
+    expect(getGuideByUri(ZENUML_DSL_GUIDE_URI, 'edit')?.text).toBe(ZENUML_DSL_GUIDE);
+    expect(listGuideResources().every((r) => r.description.includes('update_diagram'))).toBe(true);
+  });
+
+  it('the render surface rewrites every edit-loop sentence and leaves the rules intact', () => {
+    const originals = {
+      zenuml: ZENUML_DSL_GUIDE,
+      mermaid: MERMAID_DSL_GUIDE,
+      plantuml: PLANTUML_DSL_GUIDE,
+      openapi: OPENAPI_DSL_GUIDE,
+    } as const;
+    for (const dialect of Object.keys(originals) as Array<keyof typeof originals>) {
+      const { text, missed } = renderGuideText(dialect);
+      // A guide edit that breaks a rewrite fails here, not in production.
+      expect(missed, dialect).toEqual([]);
+      expect(text, dialect).not.toMatch(/update_diagram|read_diagram|bound diagram|`dsl`|rendered:true/);
+      expect(text, dialect).toContain('render_diagram');
+      // Everything from the dialect table on is the eval-tested body; only the
+      // closing "If the diagram is actually …" line may differ.
+      const body = (s: string) => s.slice(s.indexOf('## This is'), s.lastIndexOf('\n- If the '));
+      if (dialect !== 'openapi') expect(body(text), dialect).toBe(body(originals[dialect]));
+    }
+    const render = listGuideResources('render');
+    expect(render.every((r) => r.description.includes('render_diagram') && !r.description.includes('update_diagram'))).toBe(true);
+    expect(getGuideByUri(ZENUML_DSL_GUIDE_URI, 'render')?.text).toBe(renderGuideText('zenuml').text);
   });
 
   it('getGuideByUri returns undefined for an unknown URI', () => {

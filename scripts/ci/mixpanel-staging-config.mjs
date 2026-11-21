@@ -3,12 +3,15 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
 const sections = ['vars', 'env.production.vars'];
+// Absent from app sources older than the preview backend; staging can still deploy those.
+const optionalSections = ['env.preview.vars'];
 
 export function prepareMixpanelConfig(config, environment) {
   if (environment !== 'stg') return config;
-  for (const section of sections) {
+  for (const section of [...sections, ...optionalSections]) {
     const header = `[${section}]`;
     const start = config.indexOf(`${header}\n`);
+    if (start < 0 && optionalSections.includes(section)) continue;
     if (start < 0) throw new Error(`Staging config is missing ${header}`);
     const contentStart = start + header.length + 1;
     const nextSection = config.indexOf('\n[', contentStart);

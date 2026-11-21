@@ -971,6 +971,11 @@ export type AnalyticsProperties = {
   // 'swr_cache' (id-keyed content cache, the revisit fast path). Distinct from
   // cache_source (rendered-SVG cache). Absent when no content fetch was involved.
   content_source?: ContentSource;
+  // macro_viewed: the page that owns the custom content loaded by id. Differs
+  // from `page_id` (the page the macro is rendered on) for a macro on a copied
+  // page that still points at the source page's content. Absent when no by-id
+  // fetch completed before the event (e.g. a render from the content cache).
+  content_page_id?: string;
   duration_ms?: number;
   // Graph Diagram/Board chrome switch (graph_editor_mode_switch_*).
   // `from_mode` / `to_mode` are the chrome values, never document types.
@@ -1417,6 +1422,9 @@ export type AnalyticsProperties = {
   // `error_class` is 'structured' for a Confluence `{ errors: [...] }` body
   // and 'malformed' for a body with no `body.raw.value`. `http_status` /
   // `error_code` come from the first structured error.
+  // `page_id` is the page the macro is rendered on, when the Forge context
+  // has one; join it with `content_page_id` on macro_viewed for the same
+  // content id to tell a cross-page reference from a same-page one.
   load_status?: 'not_found' | 'other_error';
   // load_failed_shown (GenericViewer) reuses `error_class`, `http_status` and
   // `direct_fetch_status` from the store's load error, and adds 'thrown' for a

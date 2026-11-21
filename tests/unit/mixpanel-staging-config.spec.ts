@@ -29,7 +29,7 @@ describe('Mixpanel deployment config', () => {
 
   it('wires both staging preparation paths and staging-scoped Forge variables', () => {
     expect(prepareMixpanelConfig(readFileSync('wrangler-stg.toml', 'utf8'), 'stg')
-      .match(/^MIXPANEL_DISABLED = "true"$/gm)).toHaveLength(2);
+      .match(/^MIXPANEL_DISABLED = "true"$/gm)).toHaveLength(3);
     expect(readFileSync('.github/actions/wrangler-publish/action.yml', 'utf8'))
       .toContain('node scripts/ci/mixpanel-staging-config.mjs wrangler.toml "${{ inputs.environment }}"');
     expect(readFileSync('scripts/ci/lite-deploy-prepare.mjs', 'utf8'))

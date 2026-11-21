@@ -412,9 +412,14 @@ export default defineConfig(({ command }) => ({
   },
   ],
   test: {
-    environment: 'jsdom',
+    environment: './tests/setup/persistent-jsdom-environment.ts',
     globals: true,
-    setupFiles: ['./tests/test-setup.ts'],
+    // One module graph and one jsdom per worker; see "Unit test cleanup rules"
+    // in AGENTS.md. Random order exposes leaks between files and tests.
+    // Vitest prints the seed; reproduce a failure with `--sequence.seed=<seed>`.
+    isolate: false,
+    sequence: { shuffle: { files: true, tests: true } },
+    setupFiles: ['./tests/setup/shared-graph-reset.ts', './tests/test-setup.ts'],
     coverage: {
       provider: 'v8',
     },

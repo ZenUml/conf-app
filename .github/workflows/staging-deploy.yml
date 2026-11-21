@@ -12,6 +12,11 @@ on:
         type: choice
         options: [lite, full, diagramly, asyncapi]
         description: 'Variant to deploy to staging from this branch'
+      pages-branch:
+        required: false
+        type: string
+        default: 'production'
+        description: 'Cloudflare Pages branch: production, or a preview branch name'
   workflow_call:
     inputs:
       ref:
@@ -45,6 +50,11 @@ on:
         type: string
         default: ''
         description: 'Pinned workflow commit supplying deployment action and helpers'
+      pages-branch:
+        required: false
+        type: string
+        default: 'production'
+        description: 'Cloudflare Pages branch: production, or a preview branch name'
 
       variant:
         required: true
@@ -85,6 +95,7 @@ jobs:
       runner: ${{ steps.map.outputs.runner }}
       preparation-mode: ${{ steps.map.outputs.preparation-mode }}
       tooling-ref: ${{ steps.map.outputs.tooling-ref }}
+      pages-branch: ${{ steps.map.outputs.pages-branch }}
     steps:
       - id: map
         env:
@@ -95,13 +106,14 @@ jobs:
           IN_RUNNER: ${{ inputs.candidate-runner }}
           PREPARATION_MODE: ${{ inputs.preparation-mode }}
           IN_TOOLING_REF: ${{ inputs.workflow-ref }}
+          IN_PAGES_BRANCH: ${{ inputs.pages-branch }}
           APP_REF: ${{ inputs.ref || github.sha }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
           set -euo pipefail
           # Every supplied value can reach the line-based output protocol.
           # Reject delimiters before resolving or publishing any value.
-          for field in VARIANT IN_LICENSE IN_PROJECT IN_ENVIRONMENT IN_RUNNER PREPARATION_MODE IN_TOOLING_REF APP_REF WORKFLOW_SHA; do
+          for field in VARIANT IN_LICENSE IN_PROJECT IN_ENVIRONMENT IN_RUNNER PREPARATION_MODE IN_TOOLING_REF IN_PAGES_BRANCH APP_REF WORKFLOW_SHA; do
             case "${!field}" in
               *$'\r'*|*$'\n'*) echo 'Invalid staging input delimiters' >&2; exit 1 ;;
             esac
@@ -120,6 +132,8 @@ jobs:
             [ "$VARIANT" = lite ] && [ "$LICENSE" = lite ] &&
               [ "$PROJECT" = conf-stg-lite ] && [ "$ENVIRONMENT" = staging-lite ]
           }
+          PAGES_BRANCH="${IN_PAGES_BRANCH:-production}"
+          [[ "$PAGES_BRANCH" =~ ^[a-z0-9-]{1,28}$ ]] || { echo 'Invalid Pages branch' >&2; exit 1; }
           MODE="${PREPARATION_MODE:-auto}"
           case "$MODE" in
             auto) if is_lite_staging; then MODE=candidate; else MODE=baseline; fi ;;
@@ -149,6 +163,7 @@ jobs:
             echo "runner=$DEPLOY_RUNNER"
             echo "preparation-mode=$MODE"
             echo "tooling-ref=$TOOLING_REF"
+            echo "pages-branch=$PAGES_BRANCH"
           } >> "$GITHUB_OUTPUT"
 
   deploy:
@@ -328,6 +343,7 @@ jobs:
           # frontend in release.yml).
           preparation-mode: ${{ needs.resolve.outputs.preparation-mode }}
           skip-publish: 'true'
+          pages-branch: ${{ needs.resolve.outputs.pages-branch }}
           skip-migrations: ${{ inputs.skip-migrations && 'true' || 'false' }}
 
       # full/diagramly: strip the asyncapi-only modules. They live in
@@ -583,10 +599,11 @@ jobs:
           MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PAGES_BRANCH: ${{ needs.resolve.outputs.pages-branch }}
         run: |
           set -uo pipefail
           trap 'if [ -n "${PAGES_PID:-}" ]; then wait "$PAGES_PID" || true; fi; rm -f wrangler.toml' EXIT
-          ( set +e; pnpm exec wrangler pages deploy dist --branch production --project-name=${{ needs.resolve.outputs.project }} \
+          ( set +e; pnpm exec wrangler pages deploy dist --branch "$PAGES_BRANCH" --project-name=${{ needs.resolve.outputs.project }} \
               > pages-publish.log 2>&1; echo $? > pages-publish.exit ) &
           PAGES_PID=$!
           set -e

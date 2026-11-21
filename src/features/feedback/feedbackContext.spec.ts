@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { rememberLoadedCustomContentVersion, resetLoadedCustomContentVersions } from './loadedCustomContentVersion'
 import { deriveFeedbackContext, feedbackSurfaceForContext } from './feedbackContext'
 
@@ -91,6 +91,8 @@ describe('feedback context custom content version', () => {
   const diagram = { id: 'custom-content-example', diagramType: 'mermaid', title: 'Checkout flow' } as any
 
   beforeEach(() => resetLoadedCustomContentVersions())
+  // The loaded-version table is module state; the routing tests above must not see it.
+  afterEach(() => resetLoadedCustomContentVersions())
 
   it('carries the loaded version for the same custom content id', () => {
     rememberLoadedCustomContentVersion('custom-content-example', 12)

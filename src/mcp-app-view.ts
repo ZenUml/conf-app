@@ -848,6 +848,7 @@ export function onHostMessage(event: MessageEvent): void {
     const context = (msg.result as { hostContext?: unknown } | undefined)?.hostContext;
     if (context && typeof context === 'object') applyHostContext(context as HostContext);
     send('ui/notifications/initialized');
+    showOpenLinkSpike(msg.result);
     return;
   }
 
@@ -886,6 +887,51 @@ export function onHostMessage(event: MessageEvent): void {
       status('Loading the diagram…');
     }
   }
+}
+
+// SPIKE (#1271, not for merge): does the host honour `ui/open-link`?
+// Shows what the host declared in its `ui/initialize` result, and two ways to
+// open a link: the spec's request, and a plain anchor for comparison.
+const SPIKE_URL = 'https://zenuml.com/?ref=render_mcp_open_link_spike';
+
+function showOpenLinkSpike(initResult: unknown): void {
+  const r = (initResult ?? {}) as { hostInfo?: { name?: string; version?: string }; hostCapabilities?: Record<string, unknown>; protocolVersion?: string };
+  const caps = r.hostCapabilities ?? {};
+  console.info('[zenuml-spike] ui/initialize result', JSON.stringify(r));
+  const panel = document.createElement('div');
+  panel.id = 'zen-spike-open-link';
+  panel.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:9999;font:12px/1.4 system-ui,sans-serif;background:#fff8d6;color:#222;border:1px solid #c9a400;border-radius:6px;padding:6px 8px;max-width:95vw';
+  const info = document.createElement('div');
+  info.textContent = `host=${r.hostInfo?.name ?? '?'} ${r.hostInfo?.version ?? ''} proto=${r.protocolVersion ?? '?'} openLinks=${'openLinks' in caps ? 'declared' : 'absent'} caps=[${Object.keys(caps).join(',')}]`;
+  const out = document.createElement('div');
+  out.id = 'zen-spike-open-link-result';
+  out.textContent = 'result: (not tried)';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.id = 'zen-spike-open-link-request';
+  btn.textContent = 'ui/open-link';
+  btn.addEventListener('click', () => {
+    out.textContent = 'result: waiting…';
+    ask('ui/open-link', { url: SPIKE_URL })
+      .then(({ result, error }) => {
+        out.textContent = error ? `result: ERROR ${JSON.stringify(error)}` : `result: OK ${JSON.stringify(result)}`;
+      })
+      .catch((e) => {
+        out.textContent = `result: NO ANSWER (${e instanceof Error ? e.message : String(e)})`;
+      });
+  });
+  const a = document.createElement('a');
+  a.href = SPIKE_URL + '&via=anchor';
+  a.target = '_blank';
+  a.rel = 'noopener';
+  a.id = 'zen-spike-open-link-anchor';
+  a.textContent = '<a target=_blank>';
+  a.style.marginLeft = '8px';
+  a.addEventListener('click', () => {
+    out.textContent = 'result: anchor clicked (check for a new tab)';
+  });
+  panel.append(info, btn, a, out);
+  document.body.appendChild(panel);
 }
 
 export function start(): void {

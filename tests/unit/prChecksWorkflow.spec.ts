@@ -19,8 +19,8 @@ describe('PR checks that do not touch staging', () => {
     expect(text('pr-checks')).not.toContain('conf-app-staging');
   });
 
-  it('runs unit tests, the AsyncAPI build and the Viewer preview', () => {
-    expect(Object.keys(checks.jobs).sort()).toEqual(['asyncapi-build', 'authorize-preview', 'basic-scope', 'build', 'preview-e2e', 'unit']);
+  it('runs unit tests, the AsyncAPI and MCP app builds and the Viewer preview', () => {
+    expect(Object.keys(checks.jobs).sort()).toEqual(['asyncapi-build', 'authorize-preview', 'basic-scope', 'build', 'mcp-app-build', 'preview-e2e', 'unit']);
     const guard = checks.jobs['authorize-preview'];
     expect(guard.steps.find((step: any) => step.uses?.startsWith('actions/checkout@')).with.ref).toBe('${{ github.event.repository.default_branch }}');
     expect(guard.steps.find((step: any) => step.run?.includes('pr-decision.mjs check'))).toBeDefined();
@@ -32,8 +32,18 @@ describe('PR checks that do not touch staging', () => {
     expect(checks.jobs['asyncapi-build'].if).toContain("github.event.action != 'labeled'");
     expect(guard.if).toContain("github.event.label.name == 'test:run'");
     const runs = checks.jobs['asyncapi-build'].steps.map((step: any) => step.run);
-    expect(runs).toContain('pnpm build:asyncapi');
-    expect(runs).toContain('node --test scripts/ci/*.node-test.mjs scripts/test-selection/tests/*.node-test.mjs');
+    expect(runs).toContain('pnpm build:asyncapi:app');
+    // The two halves of `build:asyncapi` run in two jobs; together they are the whole script.
+    const scripts = JSON.parse(readFileSync('package.json', 'utf8')).scripts;
+    expect(scripts['build:asyncapi']).toBe('pnpm run build:asyncapi:app && pnpm run build:mcp-app');
+    const mcp = checks.jobs['mcp-app-build'];
+    expect(mcp.needs).toBe('basic-scope');
+    expect(mcp.if).toContain("github.event.action != 'labeled'");
+    expect(mcp.if).toContain("needs.basic-scope.outputs.run != 'false'");
+    const mcpRuns = mcp.steps.map((step: any) => step.run);
+    expect(mcpRuns).toContain('pnpm build:mcp-app');
+    expect(mcpRuns).toContain('node --test scripts/ci/*.node-test.mjs scripts/test-selection/tests/*.node-test.mjs');
+    expect(JSON.stringify(mcp.steps)).not.toContain('asyncapi-studio');
   });
 
   it('splits the unit tests into four shards that all run even if one fails', () => {
@@ -47,19 +57,20 @@ describe('PR checks that do not touch staging', () => {
   it('keeps one Build and Unit Test result that fails unless every part succeeded', () => {
     const { build } = checks.jobs;
     expect(build.name).toContain('Build and Unit Test');
-    expect(build.needs).toEqual(['basic-scope', 'unit', 'asyncapi-build']);
+    expect(build.needs).toEqual(['basic-scope', 'unit', 'asyncapi-build', 'mcp-app-build']);
     expect(build.if).toContain("needs.basic-scope.outputs.run != 'false'");
     expect(build.if).toContain('always()');
     expect(build.if).toContain("github.event.action != 'labeled'");
     const env = build.steps[0].env;
     expect(env.UNIT).toBe('${{ needs.unit.result }}');
     expect(env.ASYNCAPI).toBe('${{ needs.asyncapi-build.result }}');
+    expect(env.MCP_APP).toBe('${{ needs.mcp-app-build.result }}');
     const script = build.steps[0].run;
-    for (const results of [['failure', 'success'], ['success', 'failure'], ['cancelled', 'success'], ['skipped', 'success']]) {
-      const { status } = spawnSync('bash', ['-c', script], { env: { UNIT: results[0], ASYNCAPI: results[1] } });
+    for (const results of [['failure', 'success', 'success'], ['success', 'failure', 'success'], ['success', 'success', 'failure'], ['cancelled', 'success', 'success'], ['skipped', 'success', 'success'], ['success', 'success', 'skipped']]) {
+      const { status } = spawnSync('bash', ['-c', script], { env: { UNIT: results[0], ASYNCAPI: results[1], MCP_APP: results[2] } });
       expect(status).not.toBe(0);
     }
-    expect(spawnSync('bash', ['-c', script], { env: { UNIT: 'success', ASYNCAPI: 'success' } }).status).toBe(0);
+    expect(spawnSync('bash', ['-c', script], { env: { UNIT: 'success', ASYNCAPI: 'success', MCP_APP: 'success' } }).status).toBe(0);
   });
 
   it('never deploys and receives no staging credentials', () => {

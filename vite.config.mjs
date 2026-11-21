@@ -7,6 +7,7 @@ import copy from 'rollup-plugin-copy'
 import { visualizer } from 'rollup-plugin-visualizer'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import { fileURLToPath } from 'url';
+import { zenumlCoreClosureGuard } from './scripts/build/zenumlCoreClosureGuard.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -161,7 +162,17 @@ export default defineConfig(({ command }) => ({
   },
   build: {
     rollupOptions: {
-      input: getHtmlFiles('./', { isBuild: command === 'build' })
+      input: getHtmlFiles('./', { isBuild: command === 'build' }),
+      treeshake: {
+        // @zenuml/codemirror-extensions' index re-exports its linter, whose
+        // module body runs `new ZenUml(div)` and so imports all of
+        // @zenuml/core statically. We use our own lazy linter
+        // (src/components/Editor/zenumlLinter.ts); marking that module
+        // side-effect free lets Rollup drop it, keeping the 3.5 MB core out
+        // of every editor's static imports. zenumlCoreClosureGuard (below)
+        // fails the build if this path stops matching.
+        moduleSideEffects: (id) => !/@zenuml[/+]codemirror-extensions.*[/]extensions[/]zenuml-linter\.js$/.test(id),
+      },
     },
 
     // @asyncapi/parser's transitive deps (qs, avsc, readable-stream, …)
@@ -304,6 +315,7 @@ export default defineConfig(({ command }) => ({
   // If a refactor renames these entry chunks the family silently drops out of
   // the manifest — the renderer-prefetch unit test on family presence guards
   // a built dist (see docs/features/renderer-prefetch.md).
+  zenumlCoreClosureGuard(),
   {
     name: 'prefetch-manifest',
     apply: 'build',

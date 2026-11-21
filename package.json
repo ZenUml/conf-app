@@ -109,7 +109,7 @@
     "@sindresorhus/slugify": "3.0.0",
     "@vitejs/plugin-vue": "^6.0.2",
     "@vue/compiler-sfc": "^3.1.0",
-    "@zenuml/codemirror-extensions": "^0.3.1",
+    "@zenuml/codemirror-extensions": "^0.3.2",
     "@zenuml/core": "~4.13.1",
     "autoprefixer": "^10.4.13",
     "clarity-js": "0.8.77",
@@ -220,6 +220,7 @@
   },
   "pnpm": {
     "overrides": {
+      "@mermaid-js/mermaid-zenuml>@zenuml/core": "$@zenuml/core",
       "local-crm>react": "19.2.8",
       "local-crm>react-dom": "19.2.8",
       "react-dom@19.2.8>react": "19.2.8"

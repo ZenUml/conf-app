@@ -96,3 +96,77 @@ describe('createRenderLoop', () => {
     expect(h.rendered).toEqual([]);
   });
 });
+
+describe('createRenderLoop: slow-render debounce', () => {
+  function timed(delayMs: () => number) {
+    let text = 'base';
+    let clock = 0;
+    const timers: Array<{ at: number; run: () => void; live: boolean }> = [];
+    const renders: string[] = [];
+    const pending: Array<ReturnType<typeof deferred>> = [];
+    const loop = createRenderLoop({
+      initialCode: 'base',
+      now: () => clock,
+      delay: delayMs,
+      setTimer: (run, ms) => { const t = { at: clock + ms, run, live: true }; timers.push(t); return t; },
+      clearTimer: (t) => { (t as { live: boolean }).live = false; },
+      next: () => ({ code: text }),
+      render: (code) => { renders.push(code); const d = deferred(); pending.push(d); return d.promise; },
+      onRendered: () => undefined,
+    });
+    const advance = (ms: number) => {
+      clock += ms;
+      for (const t of timers.filter((x) => x.live && x.at <= clock)) { t.live = false; t.run(); }
+    };
+    return {
+      loop, renders, advance,
+      type: (t: string) => { text = t; loop.request(); },
+      finish: async () => { pending.shift()!.resolve(true); await new Promise((r) => setTimeout(r, 0)); },
+    };
+  }
+
+  it('waits for a pause of `delay` ms after the last request, then renders the newest text once', () => {
+    const h = timed(() => 250);
+    h.type('a');
+    h.advance(100);
+    h.type('ab');
+    h.advance(200);
+    expect(h.renders).toEqual([]);
+    h.advance(50);
+    expect(h.renders).toEqual(['ab']);
+  });
+
+  it('a request during a render waits for the rest of the pause after the render lands', async () => {
+    const h = timed(() => 250);
+    h.type('a');
+    h.advance(250);
+    expect(h.renders).toEqual(['a']);
+    h.advance(100);
+    h.type('ab');
+    await h.finish();
+    expect(h.renders).toEqual(['a']);
+    h.advance(249);
+    expect(h.renders).toEqual(['a']);
+    h.advance(1);
+    expect(h.renders).toEqual(['a', 'ab']);
+  });
+
+  it('delay 0 is the plain loop: render at once', () => {
+    const h = timed(() => 0);
+    h.type('a');
+    expect(h.renders).toEqual(['a']);
+  });
+
+  it('cancelPending and dispose drop a waiting render', async () => {
+    const h = timed(() => 250);
+    h.type('a');
+    h.loop.cancelPending();
+    h.advance(1000);
+    expect(h.renders).toEqual([]);
+    await h.loop.idle();
+    h.type('b');
+    h.loop.dispose();
+    h.advance(1000);
+    expect(h.renders).toEqual([]);
+  });
+});

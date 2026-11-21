@@ -392,12 +392,15 @@ export default {
      * `getZoom()` the same state relative to the fit. The pan limit goes in
      * after the opening layout, so the opening position is untouched by it.
      */
-    applyLimits() {
+    applyLimits(openScale) {
       const sizes = this.panZoom.getSizes();
       const real = sizes?.realZoom;
       const relative = this.panZoom.getZoom();
       if (!(real > 0) || !(relative > 0)) return;
-      const { min, max } = zoomLimits(real);
+      // The current view is always inside the limits, so nothing jumps.
+      const limits = zoomLimits(openScale > 0 ? openScale : real);
+      const min = Math.min(limits.min, real);
+      const max = Math.max(limits.max, real);
       this.zoomMin = min * relative / real;
       this.zoomMax = max * relative / real;
       this.zoomRelative = relative;
@@ -446,13 +449,23 @@ export default {
      * Mermaid inline edit: while held, attach() keeps the new SVG at
      * svg-pan-zoom's initial state instead of reset(), and zoom/pan limits are
      * off, so the caller can put the edited text back where it was on screen.
-     * Releasing re-applies limits around the current view.
+     * Releasing re-applies the opening..natural limits of the diagram now shown
+     * (widened to the current view), not limits around the view the edit ended
+     * in: released at natural size, those would be 1..1 and pin the zoom.
      */
     holdView(held) {
       this.viewHeld = !!held;
       if (!this.panZoom) return;
       if (this.viewHeld) this.releaseLimits();
-      else this.applyLimits();
+      else this.applyLimits(this.openingScale());
+    },
+    /** The realZoom reset() would open the current diagram at (fit, 0.875 here, never above 1). */
+    openingScale() {
+      const real = this.panZoom?.getSizes().realZoom;
+      const relative = this.panZoom?.getZoom();
+      if (!(real > 0) || !(relative > 0)) return null;
+      const fit = real / relative;
+      return Math.min(1, (this.isFullscreenMode || !this.isDisplayMode) ? fit * 0.875 : fit);
     },
     releaseLimits() {
       this.panZoom.setBeforePan(null);

@@ -421,9 +421,12 @@
                 :diagram-host="getCaptureNode"
               />
             </div>
+            <!-- Inline macro only. Fullscreen opens from the inline macro, where
+                 the reader has already seen this strip; there the watermark
+                 alone carries the message. -->
             <LicenseNoticeStrip
-              v-if="showLicenseNotice"
-              :surface="isFullscreenMode ? 'fullscreen' : 'viewer'"
+              v-if="showLicenseNotice && !isFullscreenMode"
+              surface="viewer"
               :macro-type="diagramType ?? 'none'"
               :basis="licenseNoticeBasis"
               :count="siteNotice?.count"

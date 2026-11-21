@@ -3813,6 +3813,17 @@ describe('GenericViewer license notice (Lite, per-site enforcement)', () => {
     wrapper.unmount()
   })
 
+  it('keeps the watermark but leaves the strip out in the Fullscreen viewer', async () => {
+    // The reader saw the strip on the inline macro before opening Fullscreen.
+    window.forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } } as any
+    siteEnforcement.value = enforcement(true)
+    const wrapper = mountViewer()
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(true))
+    expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('license_notice_shown', expect.anything())
+    wrapper.unmount()
+  })
+
   it('does not look up the space status on a Full build', async () => {
     vi.stubEnv('PRODUCT_TYPE', 'full')
     siteEnforcement.value = enforcement(true)

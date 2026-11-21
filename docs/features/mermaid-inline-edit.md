@@ -222,13 +222,23 @@ Alignment measured 2026-11-21 (layer text box against the hidden label, Chromium
 dx 0 to 0.02 px, dy 0 to 0.09 px at 100%; dy up to 0.8 px at the fit zoom
 of a wide chart (0.37, 6 px type).
 
+## Known limitation: Esc with Vimium
+
+With the Vimium browser extension (2.4.2 measured, 2026-11-21) Esc commits the
+edit instead of cancelling it. Vimium swallows Esc while an editable element has
+focus and blurs that element: the page gets `focusout` and no `keydown` for
+Escape, and the layer treats that blur as "click elsewhere". Reproduced in a
+clean Chrome for Testing with only Vimium loaded, on Storybook; the same result
+by hand in the Forge editor. Without the extension Esc cancels. Sequence and
+flowchart share the handler. Owner's decision (2026-11-21): document, do not
+change the behaviour. A possible change, not made: treat a blur with no
+`pointerdown` and no Tab `keydown` before it as cancel.
+
 ## Not verified
 
-- Escape inside the Forge editor modal: the layer calls `preventDefault` on
-  Esc and stops it at window capture, but whether the Confluence host still
-  closes the modal has not been checked on a tunnel.
 - A real OS IME (measured only with CDP `imeSetComposition`).
 - Browsers other than Chromium: alignment and the custom cursor were measured
   in Chromium only.
-- Flowcharts in the Forge editor: verified in Storybook only, not on a tunnel
-  or staging. Flowchart E2E cases are listed, not run.
+- Flowcharts on staging. On a Forge tunnel (2026-11-21, Lite, development
+  environment) node and edge label edits were observed; the flowchart E2E cases
+  are listed, not run.

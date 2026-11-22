@@ -193,6 +193,6 @@ export const NO_E2E_IMPACT = [
   'tests/unit/**', 'tests/export-modal/**', 'src/sandbox.ts', 'sandbox.html', 'src/test-viewer.ts',
   'test-viewer.html', 'src/components/Debug/**',
   'docs/**', '**/*.md', '.claude/**', '.cursor/**', 'private', 'private/**',
-  'public/image/**', 'scripts/**', 'eslint.config.mjs', '.storybook/**',
+  'public/image/**', 'scripts/**', '.oxlintrc.json', '.storybook/**',
   '.gitignore', '.gitmodules', '.nvmrc', '.npmrc', '.prettierrc*', '.editorconfig', 'LICENSE*',
 ];

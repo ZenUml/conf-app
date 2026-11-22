@@ -75,6 +75,8 @@ export class PageCreator {
 
   /** True when a bare macro key can only resolve to the environment under test. */
   async legacyMacroKeyUsable(): Promise<boolean> {
+    // Unpinned profiles write bare keys anyway; nothing to compare against.
+    if (!testConfig.pinForgeKey) return true;
     return (await this.forgeIdentity()).environmentCount === 1;
   }
 
@@ -238,6 +240,10 @@ export class PageCreator {
     if (options.embed) specs.push(this.getEmbedSpec());
     if (options.mermaid) specs.push(this.getMermaidSpec());
 
+    if (!testConfig.pinForgeKey) {
+      for (const spec of specs) content.content.push(this.legacyNode(spec));
+      return content;
+    }
     const identity = await this.forgeIdentity();
     // A body-only macro has no Forge form: its body lives in Connect macro params.
     const bodyOnly = typeof options.sequence === 'object' && !!options.sequence.bodyOnly;

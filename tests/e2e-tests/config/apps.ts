@@ -80,6 +80,11 @@ export interface AppProfile {
    * utils/forge-extension.ts.
    */
   forgeEnvironment?: string;
+  /**
+   * false = API-created pages keep the bare macro key (no environment lookup).
+   * For a profile whose Forge environment could not be confirmed on its site.
+   */
+  pinForgeKey?: boolean;
 }
 
 /** Forge app id of each variant; one app per variant, environments inside it (package.json forge:* scripts). */
@@ -201,6 +206,9 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     renderMacros: ['openapi'],
     addonKey: 'my-api',
     sequenceMacroKey: 'zenuml-asyncapi-macro',
+    // Not confirmed: the test robot cannot open asyncapi-stg, so the macro
+    // lookup was never run there (2026-11-23). Keep the bare key until it is.
+    pinForgeKey: false,
     customContentKey: 'async-api-doc',
     appLabel: 'AsyncAPI for Confluence',
   },

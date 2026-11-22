@@ -29,6 +29,8 @@ interface TestConfig {
   forgeAppId: string;
   /** Forge environment key under test, or undefined = the only one installed. */
   forgeEnvironment: string | undefined;
+  /** false = keep the bare macro key on API-created pages (see AppProfile.pinForgeKey). */
+  pinForgeKey: boolean;
   credentials: {
     username: string;
     password: string;
@@ -110,6 +112,7 @@ export const testConfig: TestConfig = {
   renderMacros: profile.renderMacros,
   macroNameOverrides: profile.macroNameOverrides ?? {},
   forgeAppId: FORGE_APP_IDS[profile.productType],
+  pinForgeKey: profile.pinForgeKey ?? true,
   forgeEnvironment: process.env.E2E_FORGE_ENVIRONMENT || profile.forgeEnvironment || defaultForgeEnvironment(profile.id),
 
   credentials: {

@@ -46,6 +46,7 @@ async function fixture(files = [{ filename: 'docs/guide.md', status: 'modified',
     if (route === '/check-runs' && method === 'POST') return body;
     if (route === 'graphql' && method === 'POST') { state.pr.draft = true; return {}; }
     if (route.startsWith('/git/commits/')) return structuredClone(state.commit);
+    if (route.startsWith('/compare/') && state.compare?.[route.slice('/compare/'.length)]) return structuredClone(state.compare[route.slice('/compare/'.length)]);
     throw new Error(`Unexpected API call: ${method} ${path}`);
   };
   const context = await readContext(api, 42);
@@ -622,4 +623,73 @@ test('synchronization and publication reject a target that moved after inspectio
   await assert.rejects(synchronize(f.api, f.context, { valid: false, reason: 'triage-requested' }), /PR changed before synchronization/);
   await assert.rejects(publish(f.api, f.context, f.decision), /PR changed before publication/);
   assert.equal(f.state.comments.length, 0);
+});
+
+// --- A decision survives target-branch commits that do not touch the PR's files ---
+const TIP = 'e'.repeat(40), MID = '9'.repeat(40);
+const ahead = (from, files = [{ filename: 'src/unrelated.ts' }]) => ({ status: 'ahead', ahead_by: 2, merge_base_commit: { sha: from }, files });
+async function movedBase(compare) {
+  const f = await fixture();
+  f.state.targetSha = TIP; f.state.compare = compare; f.state.comments = [comment(f.decision)];
+  return f;
+}
+
+test('a selected decision carries over target commits that touch none of the PR files', async () => {
+  const f = await movedBase({ [`${BASE}...${TIP}`]: ahead(BASE) });
+  const found = await findDecision(f.api, await readContext(f.api, 42));
+  assert.equal(found.valid, true);
+  // The merge GitHub built on the decision's base is still an accepted candidate.
+  const authorized = await authorize(f.api, 42);
+  assert.equal(authorized.candidate, MERGE);
+  assert.equal(authorized.selection.base_sha, BASE, 'records the base that was tested, not the moving tip');
+});
+
+test('a merge candidate built on any carried-over target commit is accepted', async () => {
+  const f = await movedBase({ [`${BASE}...${TIP}`]: ahead(BASE), [`${MID}...${TIP}`]: ahead(MID) });
+  f.state.commit.parents = [{ sha: MID }, { sha: HEAD }];
+  assert.equal((await authorize(f.api, 42)).selection.base_sha, MID);
+  // A decision published at the tip also accepts the older merge.
+  f.state.comments = [comment({ ...f.decision, base_sha: TIP }, 11)];
+  assert.equal((await authorize(f.api, 42)).selection.base_sha, MID);
+});
+
+test('target commits that touch a PR file, by name or by rename source, make the decision stale', async () => {
+  for (const files of [[{ filename: 'docs/guide.md' }], [{ filename: 'docs/moved.md', previous_filename: 'docs/guide.md' }]]) {
+    const f = await movedBase({ [`${BASE}...${TIP}`]: ahead(BASE, files) });
+    await assert.rejects(authorize(f.api, 42), /missing-or-stale-decision/);
+  }
+});
+
+test('base carry-over fails closed', async () => {
+  const many = Array.from({ length: 300 }, (_, i) => ({ filename: `src/f${i}.ts` }));
+  for (const [name, response] of [
+    ['diverged history', { ...ahead(BASE), status: 'diverged' }],
+    ['decision base ahead of the target', { ...ahead(BASE), status: 'behind' }],
+    ['different merge base', ahead(MID)],
+    ['truncated file list', ahead(BASE, many)],
+    ['missing file list', { ...ahead(BASE), files: undefined }],
+    ['invalid file entry', ahead(BASE, [{}])],
+  ]) {
+    const f = await movedBase({ [`${BASE}...${TIP}`]: response });
+    await assert.rejects(authorize(f.api, 42), /missing-or-stale-decision/, name);
+  }
+  const unavailable = await movedBase({});
+  await assert.rejects(authorize(unavailable.api, 42), /missing-or-stale-decision/);
+});
+
+test('a full approval never carries over a moved base', async () => {
+  const f = await movedBase({ [`${BASE}...${TIP}`]: ahead(BASE) });
+  f.state.comments = [comment({ ...f.decision, mode: 'all', source: 'triage', full_reason: 'Shared runtime change.' })];
+  await assert.rejects(authorize(f.api, 42), /missing-or-stale-decision/);
+});
+
+test('carry-over never changes the head, diff or candidate-head binding', async () => {
+  const f = await movedBase({ [`${BASE}...${TIP}`]: ahead(BASE) });
+  f.state.commit.parents = [{ sha: BASE }, { sha: MID }];
+  await assert.rejects(authorize(f.api, 42), /stale or unrelated candidate/);
+  f.state.commit.parents = [{ sha: BASE }, { sha: HEAD }];
+  f.state.comments = [comment({ ...f.decision, head_sha: MID })];
+  await assert.rejects(authorize(f.api, 42), /missing-or-stale-decision/);
+  f.state.comments = [comment({ ...f.decision, diff_fingerprint: 'other' })];
+  await assert.rejects(authorize(f.api, 42), /changed-diff/);
 });

@@ -166,9 +166,11 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # The deploy waits for the decision (about 20 s). Without a current decision no
+  # E2E follows, so a deploy would hold the PR slot for minutes for nothing.
   staging-lite:
-    if: needs.gate.outputs.run == 'true'
-    needs: gate
+    if: ${{ needs.select.result == 'success' && needs.gate.outputs.run == 'true' }}
+    needs: [gate, select]
     name: "Deploy: Lite"
     uses: ./.github/workflows/staging-deploy.yml
     with:

@@ -42,10 +42,13 @@ test('all PR browser E2E lanes require successful current selection, including D
   }
 });
 
-test('build, unit tests and deployment remain independent of test triage', () => {
+test('build and unit tests remain independent of test triage; the PR-slot deploy waits for the decision', () => {
+  // The deploy exists to feed PR E2E. Without a current decision no E2E follows,
+  // so deploying would only hold the single PR slot against other PRs.
   for (const id of ['staging-lite']) {
-    assert.ok(!needs(pr.jobs[id]).includes('select'));
-    assert.equal(allows(pr.jobs[id], {'needs.select.result':'failure'}), true);
+    assert.ok(needs(pr.jobs[id]).includes('select'));
+    assert.equal(allows(pr.jobs[id]), true);
+    for (const result of ['failure','cancelled','skipped']) assert.equal(allows(pr.jobs[id], {'needs.select.result':result}), false, `${id} blocks ${result} authorization`);
     assert.equal(allows(pr.jobs[id], {'needs.gate.outputs.run':'false'}), false);
   }
   assert.ok(!pr.jobs.build, 'unit tests live in independent PR checks');

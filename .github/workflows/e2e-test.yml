@@ -75,6 +75,20 @@ on:
           caller's run, under its deploy jobs, instead of after them. Empty
           (the default, and what release.yml / smoke-test.yml pass) keeps the
           bootstrap inside this workflow.
+      verify-backend-variant:
+        type: string
+        default: ''
+        required: false
+        description: >-
+          Variant name for scripts/test-selection/verify-backend.mjs. With
+          `verify-backend-url` set, the `plan` job first checks that the
+          pinned staging backend serves the `ref` commit (--sha-only). Needs
+          `planned: true`, because only `plan` runs the check.
+      verify-backend-url:
+        type: string
+        default: ''
+        required: false
+        description: 'Backend origin checked by verify-backend.mjs (see verify-backend-variant)'
       backend-url:
         type: string
         default: ''
@@ -257,6 +271,13 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.sha }}
+      - name: Verify pinned staging backend source
+        if: inputs.verify-backend-variant != '' && inputs.verify-backend-url != ''
+        env:
+          TARGET_SHA: ${{ inputs.ref || github.sha }}
+          VERIFY_VARIANT: ${{ inputs.verify-backend-variant }}
+          VERIFY_URL: ${{ inputs.verify-backend-url }}
+        run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant "$VERIFY_VARIANT" --url "$VERIFY_URL" --sha-only
       - name: Check out trusted PR test controller
         if: inputs.require-pr-decision
         uses: actions/checkout@v5

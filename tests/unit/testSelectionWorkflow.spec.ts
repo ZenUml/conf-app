@@ -230,7 +230,7 @@ describe('staging workflow safety contracts', () => {
     expect(canRecover(['E2E: Lite / shard 1/10', 'E2E auth: Lite / auth bootstrap'])).toBe(true);
     expect(canRecover(['Validate: Lite', 'Validate: Full', 'Validate: Diagramly', 'Validate: AsyncAPI'])).toBe(true);
     // A lane now calls its E2E workflow, so its failures carry the lane prefix.
-    expect(canRecover(['Validate: Full / regression / shard 2/4', 'Validate: Lite / Verify staging backend', 'Validate: AsyncAPI / render / plan concrete tests'])).toBe(true);
+    expect(canRecover(['Validate: Full / regression / shard 2/4', 'Validate: Lite / regression / plan concrete tests', 'Validate: AsyncAPI / render / plan concrete tests'])).toBe(true);
     expect(canRecover(['Validate: Full / regression / shard 2/4', 'Deploy: Full / deploy'])).toBe(false);
     expect(canRecover(['E2E validation', 'Pipeline outcome'])).toBe(true);
     for (const failure of ['Build and Unit Test', 'Deploy: Lite', 'Jev category selection', 'Select E2E for this PR', 'Draft: Lite']) {

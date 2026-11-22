@@ -126,10 +126,24 @@ setup('create diagram test pages', async ({ page }) => {
     }
     await page.goto(testConfig.baseUrl);
 
+    // Committed fixtures were created with the bare macro key that pages
+    // migrated from Connect carry: they are this suite's legacy-key case. A
+    // bare key names no Forge environment, so with two environments of the app
+    // on the site Confluence may render them with the other one. Reuse them
+    // only where that cannot happen; otherwise create pages pinned to the
+    // environment under test (utils/forge-extension.ts).
+    const legacyKeyUsable = await pageCreator.legacyMacroKeyUsable();
+    if (fixturesForProfile && !legacyKeyUsable) {
+      console.log(
+        `⚠️  ${testConfig.domain} has more than one environment of the app installed: ` +
+          'skipping the bare-key committed fixtures and creating pinned pages instead.',
+      );
+    }
+
     for (const macroType of RENDER_MACRO_TYPES) {
       if (!testConfig.renderMacros.includes(macroType)) continue;
 
-      const committedId = fixturesForProfile?.[macroType];
+      const committedId = legacyKeyUsable ? fixturesForProfile?.[macroType] : undefined;
       if (committedId && (await isPageStillCurrent(page.request, committedId))) {
         console.log(`♻️  Reusing committed ${macroType} fixture: ${committedId}`);
         testPages[macroType] = committedId;

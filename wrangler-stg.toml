@@ -126,13 +126,18 @@ id = "bd0839878af744eb8057c8d094456dcb"
 # every binding below must stay identical to its env.production twin;
 # tests/unit/pagesPreviewConfig.spec.ts enforces that. Pages ignores top-level
 # bindings once an environment overrides one, so the whole set is repeated.
-# The vars differ in two places: ENVIRONMENT, and the Forge environment type,
-# because the PR Forge environment is a custom development environment.
+# The vars differ in three places: ENVIRONMENT; the Forge environment type,
+# because the PR Forge environment is a custom development environment; and
+# the OAuth callback host, because the PR slot has its own host.
 
 [env.preview.vars]
 MIXPANEL_DISABLED = "true"
 ATLASSIAN_OAUTH_CLIENT_ID = "f1Q7H7v2bf0ax9ThXvL8n3aewQENg6hp"
-ATLASSIAN_OAUTH_REDIRECT_URI = "https://conf-stg-lite.zenuml.com/agent-link/oauth/callback"
+# The PR slot serves this environment on its own host (the Pages branch
+# alias), and agent-link refuses a request whose host differs from the
+# callback host. The callback itself is not registered for this host, so
+# the full OAuth sign-in does not complete here; the discovery challenge does.
+ATLASSIAN_OAUTH_REDIRECT_URI = "https://conf-stg-lite-pr.zenuml.com/agent-link/oauth/callback"
 ENVIRONMENT = "preview"
 DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
 ALLOWED_FORGE_APP_IDS = "8ad26115-211f-4216-971b-0540f606303d,d9e4002b-120b-426b-834b-402a4a5adce7,01ede8b1-4e88-451a-b9ef-89eeef93afaf,49017727-af19-4ab6-8d5a-7d28108936b6" # ZenUML Lite, Full, Diagramly and AsyncAPI

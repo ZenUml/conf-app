@@ -42,11 +42,13 @@ describe('staging Pages preview environment', () => {
     expect(tables(config, 'preview')).toEqual(tables(config, 'production'));
   });
 
-  it('differs from the production branch only in the environment name and the expected Forge environment type', () => {
+  it('differs from the production branch only in the environment name, the expected Forge environment type and the OAuth callback host', () => {
     expect(vars(config, 'preview')).toEqual({
       ...vars(config, 'production'),
       ENVIRONMENT: '"preview"',
       EXPECTED_FORGE_ENVIRONMENT_TYPE: '"DEVELOPMENT"',
+      // The PR slot serves this environment on its own host; see prSlotOAuthHost.spec.ts.
+      ATLASSIAN_OAUTH_REDIRECT_URI: '"https://conf-stg-lite-pr.zenuml.com/agent-link/oauth/callback"',
     });
   });
 

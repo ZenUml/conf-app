@@ -5,11 +5,11 @@ name: E2E Auth Bootstrap
 # the `auth` job that used to live inside e2e-test.yml, pulled out so it can be
 # called from TWO places:
 #
-#   1. e2e-test.yml — its own `auth` job, when a caller does not hand it a
-#      ready-made artifact (the pre-existing behaviour, unchanged).
+#   1. smoke-test.yml and release.yml — an auth job right before their
+#      e2e-test.yml call (e2e-test.yml has no auth job of its own any more).
 #   2. build-test-deploy.yml — once per site at t=0 of the run, BEFORE any
 #      staging deploy has finished. The suites then pass that artifact down as
-#      `auth-artifact` and skip (1) entirely. Measured on main run 34602804979
+#      `auth-artifact`. Measured on main run 34602804979
 #      (2026-09-11), the Lite insert suite could not start its shards until
 #      6m40s in: the deploy finished at 5m20s, then its bootstrap queued 78s
 #      behind the two other Lite bootstraps on the `e2e-auth` group below and

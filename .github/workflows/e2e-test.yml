@@ -70,11 +70,10 @@ on:
         description: >-
           Name of an artifact that already holds this app's
           auth-state-<domain>.json, published by e2e-auth.yml earlier in the
-          calling run. When set, the `auth` job below is SKIPPED and every shard
-          downloads this artifact instead — the login happened at t=0 of the
-          caller's run, under its deploy jobs, instead of after them. Empty
-          (the default, and what release.yml / smoke-test.yml pass) keeps the
-          bootstrap inside this workflow.
+          calling run. Every shard downloads this artifact. Callers run
+          e2e-auth.yml themselves (build-test-deploy-style at t=0 under their
+          deploy jobs, or smoke-test.yml / release.yml right before this call).
+          If the artifact is missing, a shard falls through to its own login.
       verify-backend-variant:
         type: string
         default: ''
@@ -151,7 +150,7 @@ on:
         required: true
         description: 'TOTP secret used by tests/e2e-tests/utils/otp.js'
 
-# Auth is DEDUPLICATED. A single `auth` job (e2e-auth.yml) logs in once and
+# Auth is DEDUPLICATED. The caller runs e2e-auth.yml once, which logs in and
 # uploads the Playwright storageState as an artifact; every shard downloads it,
 # so auth.setup.ts's `fs.existsSync(AUTH_STATE_PATH)` skip fires and the shards
 # never log in. This removes the per-shard Atlassian OTP login — the dominant
@@ -160,10 +159,10 @@ on:
 # multiplies the chance of a slow run. If the artifact is missing, the shard
 # falls through to its own login (the pre-existing behavior, kept as fallback).
 #
-# A caller that already ran e2e-auth.yml itself (build-test-deploy.yml does, at
-# t=0, per site) passes the artifact's name as `auth-artifact`; the `auth` job
-# is then skipped and `test` downloads that artifact instead. See the input's
-# description.
+# Every caller runs e2e-auth.yml itself (main staging at t=0 per site;
+# smoke-test.yml and release.yml in an auth job just before this call) and
+# passes the artifact's name as `auth-artifact`; `test` downloads it. This
+# workflow has no auth job of its own, so it draws no skipped auth node.
 #
 # Spec-level parallelism via Playwright's `--shard=N/M`. With auth deduped above,
 # shards do pure test work (no per-shard login), so scaling shards finally cuts
@@ -347,31 +346,10 @@ jobs:
           path: tests/e2e-tests/selection-metrics.json
           retention-days: 30
 
-  # Log in ONCE per run and publish the storageState so every shard reuses it
-  # instead of doing its own (flaky) Atlassian OTP login.
-  auth:
-    # Shows as "auth / auth bootstrap" — the inner job carries the long name.
-    name: auth
-    # Skipped when the caller hands in a pre-built artifact (see the
-    # `auth-artifact` input); `test` below tolerates the skip.
-    if: inputs.auth-artifact == ''
-    uses: ./.github/workflows/e2e-auth.yml
-    with:
-      app: ${{ inputs.app }}
-      artifact-name: auth-state-${{ inputs.artifact-suffix }}
-      node-version: ${{ inputs.node-version }}
-    secrets:
-      username: ${{ secrets.username }}
-      password: ${{ secrets.password }}
-      otp: ${{ secrets.otp }}
-
   test:
     name: shard ${{ matrix.shard }}/${{ strategy.job-total }}
-    needs: [auth, plan]
-    # `auth` is skipped (not failed) when `auth-artifact` is set, and a plain
-    # `needs` would skip this job with it. A failed bootstrap still stops the
-    # shards: nothing they could do without a session is worth a runner.
-    if: ${{ !cancelled() && (needs.auth.result == 'success' || needs.auth.result == 'skipped') && (!inputs.planned || (needs.plan.result == 'success' && needs.plan.outputs.count != '0')) }}
+    needs: plan
+    if: ${{ !cancelled() && (!inputs.planned || (needs.plan.result == 'success' && needs.plan.outputs.count != '0')) }}
     runs-on: ubuntu-24.04
     # Reap a wedged shard before a human would (a test stuck at the 300s test
     # timeout x3 retries = ~15 min), while leaving room for the SLOWEST legit
@@ -450,8 +428,8 @@ jobs:
         if: steps.pw-cache.outputs.cache-hit != 'true'
         run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
       - name: Download shared auth state
-        # From the `auth` job — or from the caller's own e2e-auth.yml run when
-        # `auth-artifact` names it: drops auth-state-<domain>.json into
+        # From the caller's own e2e-auth.yml run, which
+        # `auth-artifact` names: drops auth-state-<domain>.json into
         # tests/e2e-tests/ so auth.setup.ts's fs.existsSync skip fires and this
         # shard does NOT log in. continue-on-error → if the artifact is absent
         # the shard falls through to its own login (the pre-existing behavior).

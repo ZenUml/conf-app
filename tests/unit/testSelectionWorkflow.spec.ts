@@ -68,15 +68,21 @@ describe('staging workflow safety contracts', () => {
       expect(child.on).not.toHaveProperty('workflow_dispatch');
       expect(child).not.toHaveProperty('concurrency');
       expect(child.permissions.actions).toBe('read');
-      const testJobs = Object.entries(child.jobs).filter(([id]) => id !== 'parent') as [string, any][];
+      const testJobs = Object.entries(child.jobs) as [string, any][];
       expect(testJobs.length).toBeGreaterThan(0);
+      expect(child.jobs).not.toHaveProperty('parent');
       for (const [, job] of testJobs) {
         expect(job.uses).toBe('./.github/workflows/e2e-test.yml');
-        expect([job.needs].flat()).toContain('parent');
+        expect(job.needs).toBeUndefined();
+        // One run deploys and tests, so the plan job checks the backend, not a parent run.
+        expect(job.with.planned).toBe(true);
+        expect(job.with['verify-backend-variant']).toMatch(/^(lite|full|diagramly|asyncapi)$/);
+        expect(job.with['verify-backend-url']).toMatch(/^https:\/\/conf-stg-(lite|full)\.zenuml\.com$/);
       }
-      // One run deploys and tests, so the child checks the backend, not a parent run.
-      expect(JSON.stringify(child.jobs.parent.steps)).not.toContain('--verify-parent');
-      expect(child.jobs.parent.steps.some((step: any) => step.name === 'Verify pinned staging backend source')).toBe(true);
+      const verify = structure('e2e-test').jobs.plan.steps.find((step: any) => step.name === 'Verify pinned staging backend source');
+      expect(verify.run).toContain('scripts/test-selection/verify-backend.mjs');
+      expect(verify.run).toMatch(/--sha-only$/);
+      expect(JSON.stringify(verify)).not.toContain('--verify-parent');
       expect(child.on.workflow_call.inputs['source-sha'].required).toBe(true);
     }
     for (const name of ['pr-validation']) {

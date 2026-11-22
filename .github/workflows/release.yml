@@ -220,13 +220,30 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+  # Login for the production smoke, split out of e2e-test.yml so the smoke
+  # call no longer draws an always-skipped internal `auth` node. Same app,
+  # artifact name and credentials as e2e-test.yml's old internal auth job. The
+  # name keeps the "Smoke Test" prefix that release-jobs.sh matches on.
+  smoke-auth:
+    if: ${{ needs.release.outputs.license != 'asyncapi' }}
+    needs: release
+    name: Smoke Test Auth (Prod) — ${{ needs.release.outputs.license }}
+    uses: ./.github/workflows/e2e-auth.yml
+    with:
+      app: ${{ needs.release.outputs.license == 'lite' && 'zenuml-lite@prod' || needs.release.outputs.license == 'full' && 'zenuml-full@prod' || 'diagramly@prod' }}
+      artifact-name: auth-state-${{ needs.release.outputs.license }}-prod-smoke
+    secrets:
+      username: ${{ vars.ZENUML_PROD_USERNAME }}
+      password: ${{ vars.ZENUML_PROD_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
   smoke-test:
     # AsyncAPI has no prod tenant + no `asyncapi@prod` profile in
     # tests/e2e-tests/config/apps.ts yet. Skip the prod smoke for that variant
     # until both land — wire them up alongside the conf-asyncapi Cloudflare
     # Pages project mentioned in scripts/forge-wizard.mjs.
     if: ${{ needs.release.outputs.license != 'asyncapi' }}
-    needs: release
+    needs: [release, smoke-auth]
     name: Smoke Test (Prod) — ${{ needs.release.outputs.license }}
     uses: ./.github/workflows/e2e-test.yml
     with:
@@ -243,6 +260,7 @@ jobs:
       # release report waits on the last shard.
       grep: '@smoke'
       artifact-suffix: ${{ needs.release.outputs.license }}-prod-smoke
+      auth-artifact: auth-state-${{ needs.release.outputs.license }}-prod-smoke
       # Post-deploy smoke: a cold-render wedge can't pass on retry, so retries
       # just burn the shard's 8-min budget. Fail fast (with trace) instead.
       retries: '1'

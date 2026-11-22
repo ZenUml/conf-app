@@ -1,20 +1,16 @@
 name: Draft preparation
-run-name: "Draft preparation · parent ${{ inputs.parent-run-id }} · attempt ${{ inputs.parent-attempt }} · source ${{ inputs.source-sha }}"
 on:
-  workflow_dispatch:
+  # Called by build-test-deploy.yml: every phase runs inside the root run.
+  workflow_call:
     inputs:
-      parent-run-id: {type: string, required: true}
-      parent-attempt: {type: string, required: true}
       source-sha: {type: string, required: true}
       version: {type: string, required: true}
-      artifact-run-id: {type: string, required: true}
-      staging-run-id: {type: string, required: true}
 permissions:
   contents: read
   actions: read
 jobs:
   parent:
-    name: Verify root ownership
+    name: Read root options
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -33,17 +29,12 @@ jobs:
           # this job gates the deploys and the drafts.
           fetch-depth: 0
           filter: blob:none
-      - name: Check the active root
+      - name: Read this attempt's root options
         id: owner
         env:
           GH_TOKEN: ${{ github.token }}
-          PARENT_RUN_ID: ${{ inputs.parent-run-id }}
-          PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
           SOURCE_SHA: ${{ inputs.source-sha }}
-          EXPECTED_PARENT_JOBS: '["Draft preparation"]'
-        run: |
-          node scripts/ci/wait-for-e2e.mjs --verify-parent
-          echo "run=true" >> "$GITHUB_OUTPUT"
+        run: node scripts/ci/wait-for-e2e.mjs --root-options
       - name: Require fresh successful daily regression for drafts
         id: regression
         env:
@@ -67,13 +58,15 @@ jobs:
           NODE
       - uses: actions/upload-artifact@v6
         with:
-          name: daily-gate
+          # Attempt suffix: the outcome job reads it by name with `gh run download`,
+          # and a partial rerun keeps the earlier attempt's artifact in the run.
+          name: daily-gate-${{ github.run_attempt }}
           path: daily-gate.json
           if-no-files-found: error
           retention-days: 30
 
-  # Runs beside `parent`, not after it: it only reads the producer runs and
-  # their provenance artifacts, and every draft still needs both jobs to succeed.
+  # Runs beside `parent`, not after it: it only reads the provenance artifacts
+  # that the build and staging phases uploaded to this same root run.
   provenance:
     name: Resolve variant draft eligibility
     runs-on: ubuntu-latest
@@ -84,39 +77,12 @@ jobs:
       diagramly: ${{ steps.eligibility.outputs.diagramly }}
       asyncapi: ${{ steps.eligibility.outputs.asyncapi }}
     steps:
-      - name: Verify immutable artifact producers
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BUILD_RUN_ID: ${{ inputs.artifact-run-id }}
-          STAGING_RUN_ID: ${{ inputs.staging-run-id }}
-          PARENT_RUN_ID: ${{ inputs.parent-run-id }}
-          PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
-          SOURCE_SHA: ${{ inputs.source-sha }}
-        run: |
-          node --input-type=module <<'NODE'
-          import { execFileSync } from 'node:child_process';
-          const env = process.env;
-          const verify = (id, path, title, conclusions) => {
-            const run = JSON.parse(execFileSync('gh', ['api', `repos/${env.GITHUB_REPOSITORY}/actions/runs/${id}`], { encoding: 'utf8' }));
-            const expected = `${title} · parent ${env.PARENT_RUN_ID} · attempt ${env.PARENT_ATTEMPT} · source ${env.SOURCE_SHA}`;
-            if (run.path !== `.github/workflows/${path}.yml` || run.display_title !== expected ||
-                run.status !== 'completed' || run.run_attempt !== 1 || !conclusions.includes(run.conclusion)) {
-              throw new Error(`Artifact producer does not match this root source and attempt: ${id}`);
-            }
-          };
-          verify(env.BUILD_RUN_ID, 'main-build-preparation', 'Build preparation', ['success', 'failure']);
-          verify(env.STAGING_RUN_ID, 'main-staging-validation', 'Staging validation', ['success', 'failure']);
-          NODE
       - uses: actions/download-artifact@v7
         with:
           name: build-provenance
-          run-id: ${{ inputs.artifact-run-id }}
-          github-token: ${{ github.token }}
       - uses: actions/download-artifact@v7
         with:
           name: staging-provenance
-          run-id: ${{ inputs.staging-run-id }}
-          github-token: ${{ github.token }}
       - name: Require matching source and successful variant prerequisites
         id: eligibility
         env:
@@ -161,8 +127,6 @@ jobs:
       - name: Download the production bundle built for this version
         uses: actions/download-artifact@v7
         with:
-          run-id: ${{ inputs.artifact-run-id }}
-          github-token: ${{ github.token }}
           name: dist-prod-lite
 
       - name: Create Release Draft
@@ -181,7 +145,7 @@ jobs:
             Daily regression gate: ${{ needs.parent.outputs.gate-reason }}
             Daily regression: ${{ needs.parent.outputs.regression-run-url }}
             Bypass reason: ${{ needs.parent.outputs.bypass-reason }}
-            E2E: validated by staging run https://github.com/${{ github.repository }}/actions/runs/${{ inputs.staging-run-id }}
+            E2E: validated by staging run https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           draft: true
 
   draft-release-full:
@@ -204,8 +168,6 @@ jobs:
       - name: Download the production bundle built for this version
         uses: actions/download-artifact@v7
         with:
-          run-id: ${{ inputs.artifact-run-id }}
-          github-token: ${{ github.token }}
           name: dist-prod-full
 
       - name: Create Release Draft
@@ -245,8 +207,6 @@ jobs:
       - name: Download the production bundle built for this version
         uses: actions/download-artifact@v7
         with:
-          run-id: ${{ inputs.artifact-run-id }}
-          github-token: ${{ github.token }}
           name: dist-prod-diagramly
 
       - name: Create Release Draft
@@ -286,8 +246,6 @@ jobs:
       - name: Download the production bundle built for this version
         uses: actions/download-artifact@v7
         with:
-          run-id: ${{ inputs.artifact-run-id }}
-          github-token: ${{ github.token }}
           name: dist-prod-asyncapi
 
       - name: Create Release Draft

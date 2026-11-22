@@ -4,18 +4,26 @@ import { readFileSync } from 'node:fs';
 import yaml from 'js-yaml';
 const workflow = name => yaml.load(readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), 'utf8'));
 
-test('manual controls belong to the five-node root, never direct child dispatch', () => {
+test('manual controls belong to the five-node root, and the phases are its called workflows', () => {
   const root = workflow('build-test-deploy');
   assert.equal(Object.keys(root.jobs).length, 5);
   assert.deepEqual(Object.keys(root.on.workflow_dispatch.inputs), ['full-tests', 'bypass-regression-gate', 'bypass-reason']);
   assert.equal(root.on.workflow_dispatch.inputs['full-tests'].type, 'boolean');
   assert.ok(root.jobs.version.steps.some(step => step.with?.name === 'main-root-options-${{ github.run_attempt }}'));
-  for (const phase of ['main-staging-validation', 'main-draft-preparation']) {
+  const phases = { 'build-preparation': 'main-build-preparation', 'staging-validation': 'main-staging-validation', 'draft-preparation': 'main-draft-preparation' };
+  for (const [job, phase] of Object.entries(phases)) {
+    assert.equal(root.jobs[job].uses, `./.github/workflows/${phase}.yml`);
+    assert.equal(root.jobs[job].secrets, 'inherit');
+    assert.deepEqual(root.jobs[job].with, { 'source-sha': '${{ needs.version.outputs.source-sha }}', version: '${{ needs.version.outputs.version }}' });
     const child = workflow(phase);
-    assert.equal('bypass-regression-gate' in child.on.workflow_dispatch.inputs, false);
-    assert.equal('full-tests' in child.on.workflow_dispatch.inputs, false);
-    assert.match(child.jobs.parent.steps.find(step => step.id === 'owner').run, /--verify-parent/);
+    // Called only: no dispatch trigger, so no input can bypass the root's options.
+    assert.deepEqual(Object.keys(child.on), ['workflow_call']);
+    assert.deepEqual(Object.keys(child.on.workflow_call.inputs), ['source-sha', 'version']);
+    assert.match(child.jobs.parent.steps.find(step => step.id === 'owner').run, /--root-options/);
   }
+  // A called workflow's jobs get at most the caller job's permissions.
+  assert.deepEqual(root.jobs['draft-preparation'].permissions, { actions: 'read', contents: 'write', 'pull-requests': 'write', 'repository-projects': 'write' });
+  for (const job of ['build-preparation', 'staging-validation']) assert.deepEqual(root.jobs[job].permissions, { actions: 'read', contents: 'read' });
 });
 
 test('main child plans consume the verified producer and complete variant inventories', () => {
@@ -67,12 +75,15 @@ test('root outcome reports the verified failed draft gate without adding a root 
   assert.equal(Object.keys(root.jobs).length, 5);
   const report = root.jobs.outcome.steps.find(step => step.name === 'Report verified daily draft gate');
   assert.match(report.if, /always\(\)/);
-  assert.equal(report.env.DRAFT_RUN_ID, '${{ needs.draft-preparation.outputs.run-id }}');
-  assert.match(report.run, /verifyDailyGate/);
+  assert.match(report.if, /needs\.draft-preparation\.result == 'failure'/);
+  // The draft phase runs inside this root, so the gate comes from this run and attempt.
+  assert.match(report.run, /'run', 'download', env\.GITHUB_RUN_ID/);
+  assert.match(report.run, /`daily-gate-\$\{env\.GITHUB_RUN_ATTEMPT\}`/);
+  assert.match(report.run, /verifyDailyGate\(.*env\.GITHUB_RUN_ID, env\.GITHUB_RUN_ATTEMPT, env\.SOURCE_SHA\)/);
   assert.match(report.run, /bypass-regression-gate → enter bypass-reason/);
   assert.equal(root.jobs.outcome.steps.at(-1).if, 'always()');
   const draft = workflow('main-draft-preparation');
-  const upload = draft.jobs.parent.steps.find(step => step.with?.name === 'daily-gate');
+  const upload = draft.jobs.parent.steps.find(step => step.with?.name === 'daily-gate-${{ github.run_attempt }}');
   assert.equal(upload.with.path, 'daily-gate.json');
   assert.equal(upload.with['if-no-files-found'], 'error');
 });

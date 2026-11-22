@@ -153,37 +153,22 @@ describe('draft phase provenance and independent variant gates', () => {
       expect(job.if).toContain(`needs.provenance.outputs.${variant} == 'true'`);
       const download = job.steps.find((step: any) => step.uses?.startsWith('actions/download-artifact@'));
       expect(download.with.name).toBe(`dist-prod-${variant}`);
-      expect(download.with['run-id']).toBe('${{ inputs.artifact-run-id }}');
-      expect(download.with['github-token']).toBe('${{ github.token }}');
+      // The build phase runs in this same root run, so no other run is named.
+      expect(download.with['run-id']).toBeUndefined();
       expect(job.permissions.actions).toBe('read');
       const release = job.steps.find((step: any) => step.id === 'createDraft');
       expect(release.with.commit).toBe('${{ inputs.source-sha }}');
     }
     const downloads = draft.provenance.steps.filter((step: any) => step.uses?.startsWith('actions/download-artifact@'));
     expect(downloads.map((step: any) => [step.with.name, step.with['run-id']])).toEqual([
-      ['build-provenance', '${{ inputs.artifact-run-id }}'], ['staging-provenance', '${{ inputs.staging-run-id }}'],
+      ['build-provenance', undefined], ['staging-provenance', undefined],
     ]);
   });
-  it('rejects artifact producers from another root, source, attempt or phase', () => {
-    const verifyStep = draft.provenance.steps.find((step: any) => step.name === 'Verify immutable artifact producers');
-    const run = (title: string, path: string, conclusion = 'success') => ({
-      path: `.github/workflows/${path}.yml`, display_title: `${title} · parent root · attempt 2 · source source`,
-      status: 'completed', run_attempt: 1, conclusion,
-    });
-    const build = run('Build preparation', 'main-build-preparation');
-    const staging = run('Staging validation', 'main-staging-validation', 'failure');
-    const verify = (producer = build, stageProducer = staging) => Function('execFileSync', 'process', nodeScript(verifyStep))(
-      (_: string, args: string[]) => JSON.stringify(args[1].endsWith('/build') ? producer : stageProducer),
-      { env: { BUILD_RUN_ID: 'build', STAGING_RUN_ID: 'stage', PARENT_RUN_ID: 'root', PARENT_ATTEMPT: '2', SOURCE_SHA: 'source', GITHUB_REPOSITORY: 'example/repo' } });
-    expect(() => verify()).not.toThrow();
-    expect(() => verify({ ...build, conclusion: 'failure' })).not.toThrow();
-    for (const patch of [{ path: '.github/workflows/pr-validation.yml' }, { display_title: build.display_title.replace('source source', 'source other') },
-      { display_title: build.display_title.replace('parent root', 'parent other') }, { display_title: build.display_title.replace('attempt 2', 'attempt 1') },
-      { status: 'in_progress' }, { run_attempt: 2 }, { conclusion: 'cancelled' }]) {
-      expect(() => verify({ ...build, ...patch })).toThrow('Artifact producer does not match');
-    }
-    expect(() => verify(build, { ...staging, conclusion: 'cancelled' })).toThrow('Artifact producer does not match');
-    const downloadIndex = draft.provenance.steps.findIndex((step: any) => step.uses?.startsWith('actions/download-artifact@'));
-    expect(draft.provenance.steps.indexOf(verifyStep)).toBeLessThan(downloadIndex);
+  it('reads provenance from its own root run, so no producer run is verified', () => {
+    // The phases are called workflows of the root: a producer from another root,
+    // attempt or workflow cannot be named, because no run ID is passed in.
+    expect(draft.provenance.steps.some((step: any) => step.name === 'Verify immutable artifact producers')).toBe(false);
+    const inputs = Object.keys((load(readFileSync('.github/workflows/main-draft-preparation.yml', 'utf8')) as any).on.workflow_call.inputs);
+    expect(inputs).toEqual(['source-sha', 'version']);
   });
 });

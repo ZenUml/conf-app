@@ -158,11 +158,9 @@ source_line="$(jq -r '
 source_jobs_ok=0
 if [[ "$source_line" == success\ * ]]; then
   source_id="$(jq -r 'map(select(.conclusion=="success")) | .[0].databaseId' <<<"$source_json")"
-  source_jobs="$(gh run view "$source_id" --repo "$repo" --json jobs --jq .jobs)"
-  if jq -e '
-    [.[] | select(.name=="Staging validation")][0].conclusion == "success"
-    and [.[] | select(.name=="Draft preparation")][0].conclusion == "success"
-  ' <<<"$source_jobs" >/dev/null; then
+  # All pages: a one-graph root has more than 100 jobs.
+  source_jobs="$(gh api --paginate --slurp "repos/$repo/actions/runs/$source_id/jobs?per_page=100" | jq '[.[].jobs[]]')"
+  if bash "$here/source-jobs.sh" <<<"$source_jobs"; then
     source_jobs_ok=1
   else
     source_line="BLOCK: source run $source_id is green but Staging validation or Draft preparation is not"

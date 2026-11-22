@@ -29,12 +29,15 @@ name: Run recovery
 #    root. A draft that really failed, root ownership or draft eligibility that
 #    failed, a cancelled job, and a draft skipped for any other reason (a closed
 #    daily regression gate, a failed build or migration) stay real failures.
+#    Since the phases became called workflows, their jobs are root jobs named
+#    "<Phase> / <job>"; phase-recovery.mjs reads every page of them, strips the
+#    prefix and applies the same rule. Roots started earlier still have child runs.
 #
 #    The re-run is always the WHOLE root, never `--failed`. `Source and version`
 #    uploads `main-root-options-<attempt>` and a failed-jobs-only re-run does
-#    not execute it again, so every phase the re-run starts fails at "Verify
-#    root ownership", unable to download the artifact for the new attempt (run
-#    38745939051, attempt 2).
+#    not execute it again, so every phase the re-run starts fails at "Read
+#    root options", unable to download the artifact for the new attempt (run
+#    38745939051, attempt 2, then named "Verify root ownership").
 #
 # 2. Resurrection of a `main` run cancelled while it was still pending.
 #
@@ -93,8 +96,9 @@ jobs:
           set -euo pipefail
           FAILED=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
             --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .name]')
-          # Phase names alone do not identify a test failure. Resolve their exact
-          # child attempt before applying the existing E2E-only retry rule.
+          # Phase names alone do not identify a test failure. phase-recovery.mjs
+          # reads the phase jobs (root jobs, or an older root's child runs; FAILED
+          # is used only for the latter) before the E2E-only retry rule applies.
           FAILED=$(FAILED="$FAILED" node scripts/ci/phase-recovery.mjs)
           echo "failed jobs: $FAILED"
           COUNT=$(jq 'length' <<<"$FAILED")

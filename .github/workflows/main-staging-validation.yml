@@ -1,10 +1,8 @@
 name: Staging validation
-run-name: "Staging validation · parent ${{ inputs.parent-run-id }} · attempt ${{ inputs.parent-attempt }} · source ${{ inputs.source-sha }}"
 on:
-  workflow_dispatch:
+  # Called by build-test-deploy.yml: every phase runs inside the root run.
+  workflow_call:
     inputs:
-      parent-run-id: {type: string, required: true}
-      parent-attempt: {type: string, required: true}
       source-sha: {type: string, required: true}
       version: {type: string, required: true}
 permissions:
@@ -12,7 +10,7 @@ permissions:
   actions: read
 jobs:
   parent:
-    name: Verify root ownership
+    name: Read root options
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -28,23 +26,18 @@ jobs:
           # this job gates the deploys and the drafts.
           fetch-depth: 0
           filter: blob:none
-      - name: Check the active root
+      - name: Read this attempt's root options
         id: owner
         env:
           GH_TOKEN: ${{ github.token }}
-          PARENT_RUN_ID: ${{ inputs.parent-run-id }}
-          PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
           SOURCE_SHA: ${{ inputs.source-sha }}
-          EXPECTED_PARENT_JOBS: '["Staging validation"]'
-        run: |
-          node scripts/ci/wait-for-e2e.mjs --verify-parent
-          echo "run=true" >> "$GITHUB_OUTPUT"
+        run: node scripts/ci/wait-for-e2e.mjs --root-options
       - name: Find previous successful main validation
         id: baseline
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ inputs.source-sha }}
-          ROOT_RUN_ID: ${{ inputs.parent-run-id }}
+          ROOT_RUN_ID: ${{ github.run_id }}
         run: node scripts/test-selection/main-policy.mjs --baseline
       - name: Classify and resolve main coverage
         id: selection

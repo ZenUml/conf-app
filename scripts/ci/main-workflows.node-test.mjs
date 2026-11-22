@@ -26,7 +26,8 @@ test('main child plans consume the verified producer and complete variant invent
       assert.equal(inputs.planned, true);
       assert.equal(inputs['selection-scope'], 'main');
       assert.equal(inputs.suite, suite);
-      assert.equal(inputs['source-run-id'], '${{ inputs.parent-run-id }}');
+      // Called inside the staging run: artifacts come from this same run.
+      assert.equal(inputs['source-run-id'], undefined);
       assert.equal(inputs.ref, '${{ inputs.source-sha }}');
     }
     assert.equal(child.jobs.render.with['shard-matrix'], '[1]');

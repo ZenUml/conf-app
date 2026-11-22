@@ -75,16 +75,24 @@ The helper checks the current identity and publishes a new decision comment. Edi
 - `test:triage`: E2E blocked, PR remains or returns to Draft.
 - `test:all-approved`: only manual triage can issue this for the current commit.
 
-If publishing reports a stale identity, inspect the new diff and decide again. A push or base change invalidates the previous decision; it does not inherit permission to run full coverage.
+If publishing reports a stale identity, inspect the new diff and decide again. A push invalidates the previous decision; it does not inherit permission to run full coverage. A base change invalidates it only in the cases below.
 
 ### Recover when the base branch moved
 
-A decision binds the PR head and the base tip. When `main` moves after publishing, CI blocks E2E even though the PR itself did not change. Read the blocking line in the `Select E2E for this PR` job, then act on it:
+A decision binds the PR head and a base commit. A `selected` decision stays valid while `main` moves, as long as its base is in `main`'s history and no new commit on `main` touches a path the PR changes ([policy table](../../../docs/policies/pr-test-decisions.md#authorization-record)). So do not merge `main` and republish as a routine step. CI still blocks E2E when:
+
+| `main` since the decision's base | Result |
+|---|---|
+| A commit touches a file the PR changes, or renames one | Stale |
+| A catalog changed (`IMPACT-MAP.md`, scenario coverage, categories, selectors) | Stale (`stale-policy-or-catalog`) |
+| 300 or more files changed, or the decision is `all` | Stale |
+
+Read the blocking line in the `Select E2E for this PR` job, then act on it:
 
 | CI message | Meaning | Action |
 |---|---|---|
 | `E2E blocked: missing-or-stale-decision` | The published decision names an older head or base. | Run the full cycle below. |
-| `E2E blocked: stale or unrelated candidate` | The decision is current, but the tested merge commit does not have the current base and head as its parents: GitHub built the PR's merge ref from an older base. Publishing again does not change it. | Run the full cycle below; the push in step 2 rebuilds the merge ref. |
+| `E2E blocked: stale or unrelated candidate` | The decision is current, but the tested merge commit is not the PR head merged into a base that carries over: `main` changed a PR file after GitHub built the merge ref. Publishing again does not change it. | Run the full cycle below; the push in step 2 rebuilds the merge ref. |
 
 Full cycle, in this order:
 

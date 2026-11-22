@@ -187,6 +187,14 @@ describe('PR validation that owns the PR slot', () => {
     expect(validation.jobs['staging-lite'].if).toContain("needs.gate.outputs.run == 'true'");
   });
 
+  it('deploys to the PR slot only after the test decision is authorized', () => {
+    // A blocked decision must not spend the slot on a deploy that no E2E follows.
+    const deploy = validation.jobs['staging-lite'];
+    expect(deploy.needs).toEqual(['gate', 'select']);
+    expect(deploy.if).toContain("needs.select.result == 'success'");
+    expect(deploy.if).toContain("needs.gate.outputs.run == 'true'");
+  });
+
   it('skips the E2E run when a newer push lands during the deploy, and still closes the child', () => {
     const job = validation.jobs['pr-e2e-validation'];
     const names = job.steps.map((step: any) => step.id ?? step.name);

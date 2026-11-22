@@ -22,7 +22,12 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // One worker per shard unless the calling workflow passes E2E_WORKERS (the
+  // `workers` input of e2e-test.yml). The shard balancer keeps each file in
+  // one indivisible group and fullyParallel is false, so a second worker only
+  // runs a different FILE of the same shard at the same time — the same
+  // cross-file concurrency that separate shards already have.
+  workers: process.env.CI ? Math.max(1, Number(process.env.E2E_WORKERS) || 1) : undefined,
   // On CI a shard's log otherwise shows only one summary line (e.g.
   // "6 passed (4.8m)") with no per-test names and no sign that a test was
   // retried — and retries is 2 on CI above, so flakes are invisible without

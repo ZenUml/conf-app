@@ -57,17 +57,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: "24"
-          cache: pnpm
-      - name: Install dependencies (skip post-install scripts)
-        run: pnpm install --frozen-lockfile --ignore-scripts
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Install dependencies
+        uses: ./.github/actions/install-deps
       # Unit integration tests discover the real E2E inventory through its config.
       # Install its locked module dependencies only; --list needs no browsers.
       - name: Install E2E discovery dependencies
@@ -120,17 +111,8 @@ jobs:
           restore-keys: |
             studio-${{ steps.studio-sha.outputs.sha }}-
             studio-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: "24"
-          cache: pnpm
-      - name: Install dependencies (skip post-install scripts)
-        run: pnpm install --frozen-lockfile --ignore-scripts
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Install dependencies
+        uses: ./.github/actions/install-deps
       # Verify the asyncapi variant builds even on feature-branch PRs. AsyncAPI
       # staging only deploys from the default branch (like full/diagramly), so
       # this is the smoke test for PRs.
@@ -158,17 +140,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-      - name: Setup Node
-        uses: actions/setup-node@v5
+      - name: Install dependencies
+        uses: ./.github/actions/install-deps
         with:
-          node-version: "24"
-          cache: pnpm
-      - name: Install dependencies (skip post-install scripts)
-        run: pnpm install --frozen-lockfile --ignore-scripts
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
+          save: 'true'
       - run: node --test scripts/ci/*.node-test.mjs scripts/test-selection/tests/*.node-test.mjs
       - name: Verify MCP app build
         run: pnpm build:mcp-app
@@ -264,20 +239,12 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v5
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "24"
-          cache: pnpm
       # Deliberately NO asyncapi-studio submodule init. vite.config only copies
       # the Studio when `command === 'build'`, and mermaid is served in dev by
       # an in-config middleware straight out of node_modules, so `vite dev`
       # needs neither. Skipping it is most of what keeps this job cheap.
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
+        uses: ./.github/actions/install-deps
       - name: Install E2E test dependencies
         run: cd tests/e2e-tests && pnpm install --ignore-workspace
       - name: Cache Playwright browsers

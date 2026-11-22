@@ -81,4 +81,21 @@ describe('findZenumlCoreClosureViolations', () => {
       'assets/mermaid-zenuml-core.js statically imports the renderer',
     ]);
   });
+  it("allows core's own lazily loaded parts to import the renderer chunk", () => {
+    const icons = chunk('assets/cloud-icons-abc.js', {
+      imports: [core.fileName],
+      isDynamicEntry: true,
+      facade: '/repo/node_modules/.pnpm/@zenuml+core@4.13.1/node_modules/@zenuml/core/dist/cloud-icons-w-sGmXgI.js',
+    });
+    expect(findZenumlCoreClosureViolations(bundleOf(core, icons))).toEqual([]);
+  });
+
+  it('still flags an entry chunk even if its facade is a core file', () => {
+    const entry = chunk('assets/index-1.js', {
+      isEntry: true,
+      imports: [core.fileName],
+      facade: '/repo/node_modules/@zenuml/core/dist/cloud-icons-x.js',
+    });
+    expect(findZenumlCoreClosureViolations(bundleOf(core, entry))).toEqual(['assets/index-1.js statically imports the renderer']);
+  });
 });

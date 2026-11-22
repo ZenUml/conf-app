@@ -17,6 +17,21 @@ on:
         type: string
         default: 'production'
         description: 'Cloudflare Pages branch: production, or a preview branch name'
+      forge-environment:
+        required: false
+        type: string
+        default: 'staging'
+        description: 'Forge environment to deploy to. Default staging; any other value selects a dedicated slot and requires the Lite variant'
+      forge-site:
+        required: false
+        type: string
+        default: ''
+        description: 'Atlassian site to install on. Empty keeps the per-variant staging site'
+      backend-url:
+        required: false
+        type: string
+        default: ''
+        description: 'Backend origin (https://<name>.zenuml.com) for a dedicated slot. Empty keeps the per-variant staging backend'
   workflow_call:
     inputs:
       ref:
@@ -55,6 +70,21 @@ on:
         type: string
         default: 'production'
         description: 'Cloudflare Pages branch: production, or a preview branch name'
+      forge-environment:
+        required: false
+        type: string
+        default: 'staging'
+        description: 'Forge environment to deploy to. Default staging; any other value selects a dedicated slot and requires the Lite variant'
+      forge-site:
+        required: false
+        type: string
+        default: ''
+        description: 'Atlassian site to install on. Empty keeps the per-variant staging site'
+      backend-url:
+        required: false
+        type: string
+        default: ''
+        description: 'Backend origin (https://<name>.zenuml.com) for a dedicated slot. Empty keeps the per-variant staging backend'
 
       variant:
         required: true
@@ -74,9 +104,11 @@ on:
         description: 'GitHub environment name'
 
 # workflow_call inherits ownership from the caller. Only the standalone dispatch
-# acquires the shared lock; a nested same-group lock would deadlock.
+# acquires the shared lock; a nested same-group lock would deadlock. A dispatch
+# that targets a dedicated Forge environment takes the slot's own lock instead
+# of the shared staging one.
 concurrency:
-  group: ${{ github.workflow == 'Staging Deploy' && 'conf-app-staging' || format('staging-inner-{0}-{1}', github.run_id, inputs.variant) }}
+  group: ${{ github.workflow == 'Staging Deploy' && inputs.forge-environment != '' && inputs.forge-environment != 'staging' && 'conf-app-pr-slot' || github.workflow == 'Staging Deploy' && 'conf-app-staging' || format('staging-inner-{0}-{1}', github.run_id, inputs.variant) }}
   cancel-in-progress: false
   queue: max
 
@@ -96,6 +128,9 @@ jobs:
       preparation-mode: ${{ steps.map.outputs.preparation-mode }}
       tooling-ref: ${{ steps.map.outputs.tooling-ref }}
       pages-branch: ${{ steps.map.outputs.pages-branch }}
+      forge-environment: ${{ steps.map.outputs.forge-environment }}
+      forge-site: ${{ steps.map.outputs.forge-site }}
+      backend-url: ${{ steps.map.outputs.backend-url }}
     steps:
       - id: map
         env:
@@ -107,14 +142,17 @@ jobs:
           PREPARATION_MODE: ${{ inputs.preparation-mode }}
           IN_TOOLING_REF: ${{ inputs.workflow-ref }}
           IN_PAGES_BRANCH: ${{ inputs.pages-branch }}
+          IN_FORGE_ENVIRONMENT: ${{ inputs.forge-environment }}
+          IN_FORGE_SITE: ${{ inputs.forge-site }}
+          IN_BACKEND_URL: ${{ inputs.backend-url }}
           APP_REF: ${{ inputs.ref || github.sha }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
           set -euo pipefail
           # Every supplied value can reach the line-based output protocol.
           # Reject delimiters before resolving or publishing any value.
-          for field in VARIANT IN_LICENSE IN_PROJECT IN_ENVIRONMENT IN_RUNNER PREPARATION_MODE IN_TOOLING_REF IN_PAGES_BRANCH APP_REF WORKFLOW_SHA; do
-            case "${!field}" in
+          for field in VARIANT IN_LICENSE IN_PROJECT IN_ENVIRONMENT IN_RUNNER PREPARATION_MODE IN_TOOLING_REF IN_PAGES_BRANCH IN_FORGE_ENVIRONMENT IN_FORGE_SITE IN_BACKEND_URL APP_REF WORKFLOW_SHA; do
+            case "${!field:-}" in
               *$'\r'*|*$'\n'*) echo 'Invalid staging input delimiters' >&2; exit 1 ;;
             esac
           done
@@ -134,6 +172,18 @@ jobs:
           }
           PAGES_BRANCH="${IN_PAGES_BRANCH:-production}"
           [[ "$PAGES_BRANCH" =~ ^[a-z0-9-]{1,28}$ ]] || { echo 'Invalid Pages branch' >&2; exit 1; }
+          FORGE_ENVIRONMENT="${IN_FORGE_ENVIRONMENT:-staging}"
+          [[ "$FORGE_ENVIRONMENT" =~ ^[a-z0-9_-]{1,32}$ ]] || { echo 'Invalid Forge environment' >&2; exit 1; }
+          FORGE_SITE="${IN_FORGE_SITE:-}"
+          [ -z "$FORGE_SITE" ] || [[ "$FORGE_SITE" =~ ^[a-z0-9-]+\.atlassian\.net$ ]] || { echo 'Invalid Forge site' >&2; exit 1; }
+          BACKEND_URL="${IN_BACKEND_URL:-}"
+          [ -z "$BACKEND_URL" ] || [[ "$BACKEND_URL" =~ ^https://[a-z0-9.-]+\.zenuml\.com$ ]] || { echo 'Invalid backend URL' >&2; exit 1; }
+          # The dedicated-slot commands rely on the Lite manifest defaults; the
+          # Full, Diagramly and AsyncAPI deploy scripts hard-code their own
+          # identity and backend.
+          if [ "$FORGE_ENVIRONMENT" != staging ] || [ -n "$FORGE_SITE" ] || [ -n "$BACKEND_URL" ]; then
+            [ "$VARIANT" = lite ] || { echo 'A dedicated Forge slot supports only the Lite variant' >&2; exit 1; }
+          fi
           MODE="${PREPARATION_MODE:-auto}"
           case "$MODE" in
             auto) if is_lite_staging; then MODE=candidate; else MODE=baseline; fi ;;
@@ -164,6 +214,9 @@ jobs:
             echo "preparation-mode=$MODE"
             echo "tooling-ref=$TOOLING_REF"
             echo "pages-branch=$PAGES_BRANCH"
+            echo "forge-environment=$FORGE_ENVIRONMENT"
+            echo "forge-site=$FORGE_SITE"
+            echo "backend-url=$BACKEND_URL"
           } >> "$GITHUB_OUTPUT"
 
   deploy:
@@ -344,6 +397,8 @@ jobs:
           preparation-mode: ${{ needs.resolve.outputs.preparation-mode }}
           skip-publish: 'true'
           pages-branch: ${{ needs.resolve.outputs.pages-branch }}
+          forge-environment: ${{ needs.resolve.outputs.forge-environment }}
+          backend-url: ${{ needs.resolve.outputs.backend-url }}
           skip-migrations: ${{ inputs.skip-migrations && 'true' || 'false' }}
 
       # full/diagramly: strip the asyncapi-only modules. They live in
@@ -600,6 +655,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PAGES_BRANCH: ${{ needs.resolve.outputs.pages-branch }}
+          FORGE_ENVIRONMENT: ${{ needs.resolve.outputs.forge-environment }}
+          BACKEND_URL: ${{ needs.resolve.outputs.backend-url }}
         run: |
           set -uo pipefail
           trap 'if [ -n "${PAGES_PID:-}" ]; then wait "$PAGES_PID" || true; fi; rm -f wrangler.toml' EXIT
@@ -618,25 +675,25 @@ jobs:
             asyncapi) FORGE_STAGING_APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 ;;
             *) FORGE_STAGING_APP_ID=8ad26115-211f-4216-971b-0540f606303d ;;
           esac
-          APP_ID="$FORGE_STAGING_APP_ID" pnpm exec forge variables set MIXPANEL_DISABLED true -e staging
+          APP_ID="$FORGE_STAGING_APP_ID" pnpm exec forge variables set MIXPANEL_DISABLED true -e "$FORGE_ENVIRONMENT"
           if [ "${{ needs.resolve.outputs.preparation-mode }}" != candidate ]; then
           case "${{ needs.resolve.outputs.variant }}" in
             full)
-              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
-              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-full.zenuml.com" -e staging
+              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e "$FORGE_ENVIRONMENT"
+              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-full.zenuml.com" -e "$FORGE_ENVIRONMENT"
               ;;
             diagramly)
-              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
-              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
+              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e "$FORGE_ENVIRONMENT"
+              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e "$FORGE_ENVIRONMENT"
               ;;
             asyncapi)
-              APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
+              APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e "$FORGE_ENVIRONMENT"
               # AsyncAPI uses the shared Lite Cloudflare Pages backend.
-              APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
+              APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e "$FORGE_ENVIRONMENT"
               ;;
             *)
-              pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e staging
-              pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e staging
+              pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e "$FORGE_ENVIRONMENT"
+              pnpm exec forge variables set BACKEND_API_BASE_URL "${BACKEND_URL:-https://conf-stg-lite.zenuml.com}" -e "$FORGE_ENVIRONMENT"
               ;;
           esac
           fi
@@ -653,10 +710,17 @@ jobs:
             if [ "${{ needs.resolve.outputs.preparation-mode }}" = candidate ]; then
               export TSESTREE_SINGLE_RUN=true
             fi
+            # The manifest remote is ${BACKEND_API_BASE_URL}; a dedicated slot
+            # supplies its own backend through the deploy shell environment.
+            if [ -n "$BACKEND_URL" ]; then
+              export BACKEND_API_BASE_URL="$BACKEND_URL"
+            fi
             if [ -n "${{ inputs.benchmark-sample }}" ]; then
               node scripts/ci/lite-deploy-forge-timing.mjs "${{ needs.resolve.outputs.variant }}"
-            else
+            elif [ "$FORGE_ENVIRONMENT" = staging ]; then
               pnpm forge:deploy:${{ needs.resolve.outputs.variant }}:staging
+            else
+              pnpm exec forge deploy -e "$FORGE_ENVIRONMENT" --non-interactive --verbose
             fi
           )
           FORGE_EXIT=0
@@ -674,25 +738,40 @@ jobs:
         run: |
           case "${{ needs.resolve.outputs.variant }}" in
             lite)
-              pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e staging
+              pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e "$FORGE_ENVIRONMENT"
               ;;
             full)
-              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e staging
+              APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7 pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e "$FORGE_ENVIRONMENT"
               ;;
             diagramly)
-              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e staging
+              APP_ID=01ede8b1-4e88-451a-b9ef-89eeef93afaf pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e "$FORGE_ENVIRONMENT"
               ;;
             asyncapi)
-              APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e staging
+              APP_ID=49017727-af19-4ab6-8d5a-7d28108936b6 pnpm exec forge variables set PAGE_CAPTURE_SECRET "$PAGE_CAPTURE_SECRET" --encrypt -e "$FORGE_ENVIRONMENT"
               ;;
           esac
         env:
           PAGE_CAPTURE_SECRET: ${{ vars.PAGE_CAPTURE_SECRET }}
+          FORGE_ENVIRONMENT: ${{ needs.resolve.outputs.forge-environment }}
       - name: Install Lite to lite-stg.atlassian.net
         if: needs.resolve.outputs.variant == 'lite'
         env:
           PREPARATION_MODE: ${{ needs.resolve.outputs.preparation-mode }}
+          FORGE_ENVIRONMENT: ${{ needs.resolve.outputs.forge-environment }}
+          FORGE_SITE: ${{ needs.resolve.outputs.forge-site }}
         run: |
+          # Dedicated slot: install on the named site and Forge environment.
+          # The shared staging commands below stay byte-for-byte as before.
+          if [ -n "${FORGE_SITE:-}" ] || [ "${FORGE_ENVIRONMENT:-staging}" != staging ]; then
+            slot_install() { pnpm exec forge install --site "${FORGE_SITE:-lite-stg.atlassian.net}" --product confluence --non-interactive -e "${FORGE_ENVIRONMENT:-staging}" --verbose; }
+            slot_upgrade() { pnpm exec forge install --upgrade --site "${FORGE_SITE:-lite-stg.atlassian.net}" --product confluence --non-interactive -e "${FORGE_ENVIRONMENT:-staging}" --verbose; }
+            if [ "$PREPARATION_MODE" = candidate ]; then
+              slot_upgrade || slot_install
+            else
+              slot_install || slot_upgrade
+            fi
+            exit 0
+          fi
           if [ "$PREPARATION_MODE" = candidate ]; then
             pnpm forge:upgrade:lite:staging || pnpm forge:install:lite:staging
           else
@@ -700,7 +779,9 @@ jobs:
           fi
         # A benchmark sample must prove this deployment is installed. Keep
         # the ordinary staging caller's existing tolerated install outcome.
-        continue-on-error: ${{ inputs.benchmark-sample == '' }}
+        # A dedicated slot names its own site: a failed install there must
+        # fail the job, or the validation would run against a stale install.
+        continue-on-error: ${{ inputs.benchmark-sample == '' && needs.resolve.outputs.forge-site == '' }}
       - name: Install Full to full-stg.atlassian.net
         if: needs.resolve.outputs.variant == 'full'
         run: pnpm forge:install:full:staging || pnpm forge:upgrade:full:staging

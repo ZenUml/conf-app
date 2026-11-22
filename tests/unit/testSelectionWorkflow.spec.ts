@@ -12,7 +12,8 @@ const phases = ['main-build-preparation', 'main-staging-validation', 'main-draft
 const children = ['pr-e2e-validation', 'staging-lite-e2e', 'staging-full-e2e', 'staging-diagramly-e2e', 'staging-asyncapi-e2e'];
 describe('staging workflow safety contracts', () => {
   it('holds queued staging ownership through parent deploy/test runs without nested same-group locks', () => {
-    for (const name of ['build-test-deploy', 'pr-validation', 'daily-regression']) { const yaml = workflow(name); expect(yaml).toMatch(/concurrency:\n  group: conf-app-staging\n  cancel-in-progress: false\n  queue: max/); }
+    for (const name of ['build-test-deploy', 'daily-regression']) { const yaml = workflow(name); expect(yaml).toMatch(/concurrency:\n  group: conf-app-staging\n  cancel-in-progress: false\n  queue: max/); }
+    expect(workflow('pr-validation')).toMatch(/concurrency:\n  group: conf-app-pr-slot\n  cancel-in-progress: false\n  queue: max/);
     expect(workflow('staging-deploy')).toContain("github.workflow == 'Staging Deploy' && 'conf-app-staging'");
     expect(workflow('staging-transaction')).not.toContain('concurrency:');
   });
@@ -52,7 +53,9 @@ describe('staging workflow safety contracts', () => {
       expect(verifier.env.PARENT_RUN_ID).toBe('${{ inputs.parent-run-id }}');
       expect(verifier.env.PARENT_ATTEMPT).toBe('${{ inputs.parent-attempt }}');
       const dispatcherNames = ['main-staging-validation', 'pr-validation'].flatMap(parent => Object.values(structure(parent).jobs).map((job: any) => job.name));
-      for (const expected of JSON.parse(verifier.env.EXPECTED_PARENT_JOBS)) expect(dispatcherNames).toContain(expected);
+      // A dispatcher's name may be an expression that yields the expected name while the job runs.
+      const names = (name: string) => name.startsWith('${{') ? [...name.matchAll(/'([^']+)'/g)].map(match => match[1]) : [name];
+      for (const expected of JSON.parse(verifier.env.EXPECTED_PARENT_JOBS)) expect(dispatcherNames.flatMap(names)).toContain(expected);
       expect(child.jobs.parent.if).toBeUndefined();
       expect(child.on.workflow_dispatch.inputs['source-sha'].required).toBe(true);
     }

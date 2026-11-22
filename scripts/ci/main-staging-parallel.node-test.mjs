@@ -28,8 +28,9 @@ test('one pinned shared migration gates every normal combined staging deployment
   assert.equal(stage.jobs.migrations.environment, 'staging-lite');
   const steps = stage.jobs.migrations.steps;
   assert.equal(steps[0].with.ref, '${{ inputs.source-sha }}');
-  assert.equal(steps.filter(step => step.run?.includes('d1 migrations apply')).length, 1);
-  assert.match(steps.find(step => step.run?.includes('d1 migrations apply')).run, /cp wrangler-stg.toml wrangler.toml\n.*d1 migrations apply DB --remote --env production/);
+  // The apply command lives in one script shared by every migrations job.
+  assert.equal(steps.filter(step => step.run?.includes('staging-d1-migrations.sh')).length, 1);
+  assert.match(readFileSync('scripts/ci/staging-d1-migrations.sh', 'utf8'), /cp wrangler-stg.toml wrangler.toml\n.*d1 migrations apply DB --remote --env production/);
   assert.equal('backend-lite' in stage.jobs, false);
   assert.equal('backend-full' in stage.jobs, false);
   for (const variant of variants) {

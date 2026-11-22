@@ -69,6 +69,46 @@ describe('PR checks that do not touch staging', () => {
     expect(packageJson.scripts.lint).toBe(`oxlint -c .oxlintrc.json ${paths}`);
   });
 
+  it('installs through the node_modules cache action, and exactly one PR job saves it', () => {
+    const installJobs = ['unit', 'asyncapi-build', 'mcp-app-build', 'preview-e2e'];
+    for (const name of installJobs) {
+      const steps = checks.jobs[name].steps;
+      expect(steps.filter((step: any) => step.uses === './.github/actions/install-deps')).toHaveLength(1);
+      expect(JSON.stringify(steps)).not.toContain('cache: pnpm');
+      expect(steps.map((step: any) => step.run).filter(Boolean).join('\n')).not.toMatch(/^pnpm install --frozen-lockfile --ignore-scripts$/m);
+    }
+    expect(JSON.stringify(checks.jobs.lint.steps)).not.toContain('install-deps');
+    const savers = Object.entries<any>(checks.jobs).filter(([, job]) =>
+      (job.steps ?? []).some((step: any) => step.uses === './.github/actions/install-deps' && String(step.with?.save) === 'true'));
+    expect(savers.map(([name]) => name)).toEqual(['mcp-app-build']);
+  });
+
+  it('keys node_modules on every root install input, with no partial fallback', () => {
+    const action = structure('../actions/install-deps/action') as any;
+    const steps = action.runs.steps;
+    const restore = steps.find((step: any) => step.uses?.startsWith('actions/cache/restore@'));
+    expect(restore.with.key).toContain("hashFiles('pnpm-lock.yaml', 'patches/**', '.npmrc', 'pnpm-workspace.yaml', 'package.json', 'forge-console/package.json', 'local-crm/package.json', 'workers/cron-aggregate/package.json', 'workers/agent-link/package.json')");
+    expect(restore.with['restore-keys']).toBeUndefined();
+    expect(steps.find((step: any) => step.uses?.startsWith('actions/setup-node@')).with).toMatchObject({ 'package-manager-cache': false });
+    expect(steps.find((step: any) => step.uses?.startsWith('actions/setup-node@')).with.cache).toBeUndefined();
+    const save = steps.find((step: any) => step.uses?.startsWith('actions/cache/save@'));
+    expect(save.if).toContain("cache-hit != 'true'");
+    expect(save.if).toContain("inputs.save == 'true'");
+    expect(save.with.key).toBe(restore.with.key);
+    expect(save.with.path).toBe(restore.with.path);
+  });
+
+  it('seeds the node_modules cache from main with read-only permissions', () => {
+    const seed = structure('seed-dependency-cache');
+    expect(seed.on.push.branches).toEqual(['main']);
+    expect(seed.on.push.paths).toEqual(expect.arrayContaining(['pnpm-lock.yaml', 'patches/**', '.npmrc', 'pnpm-workspace.yaml', 'package.json', 'forge-console/package.json', 'local-crm/package.json', 'workers/cron-aggregate/package.json', 'workers/agent-link/package.json']));
+    expect(seed.on).toHaveProperty('workflow_dispatch');
+    expect(seed.permissions).toEqual({ contents: 'read' });
+    expect(text('seed-dependency-cache')).not.toContain('secrets.');
+    const step = seed.jobs.seed.steps.find((s: any) => s.uses === './.github/actions/install-deps');
+    expect(String(step.with.save)).toBe('true');
+  });
+
   it('splits the unit tests into four shards that all run even if one fails', () => {
     const { unit } = checks.jobs;
     expect(unit.strategy.matrix.shard).toEqual([1, 2, 3, 4]);
@@ -112,13 +152,23 @@ describe('PR checks that do not touch staging', () => {
   });
 });
 
-describe('PR validation that owns staging', () => {
+describe('PR validation that owns the PR slot', () => {
   const validation = structure('pr-validation');
   const expectedSha = '${{ steps.gate.outputs.head-sha }}';
   const prNumber = '${{ github.event.pull_request.number || inputs.pr-number }}';
 
   it('keeps one queued, uncancelled lock across the deploy and the E2E run', () => {
-    expect(validation.concurrency).toEqual({ group: 'conf-app-staging', 'cancel-in-progress': false, queue: 'max' });
+    // PR runs hold the PR slot's lock, not the staging lock of main and daily.
+    expect(validation.concurrency).toEqual({ group: 'conf-app-pr-slot', 'cancel-in-progress': false, queue: 'max' });
+    expect(validation.jobs['staging-lite'].with).toMatchObject({
+      project: 'conf-stg-lite', environment: 'staging-lite', 'pages-branch': 'pr',
+      'forge-environment': 'pr', 'forge-site': 'lite-dev.atlassian.net', 'backend-url': 'https://conf-stg-lite-pr.zenuml.com',
+    });
+    expect(validation.jobs['e2e-auth-lite'].with).toMatchObject({ app: 'zenuml-lite@dev', 'artifact-name': 'auth-state-pre-lite-dev' });
+    const dispatch = validation.jobs['pr-e2e-validation'].steps.find((step: any) => step.env?.CHILD_KIND === 'pr');
+    expect(dispatch.env).toMatchObject({
+      CHILD_APP: 'zenuml-lite@dev', CHILD_AUTH_ARTIFACT: 'auth-state-pre-lite-dev', CHILD_BACKEND_URL: 'https://conf-stg-lite-pr.zenuml.com',
+    });
     expect(validation.jobs['staging-lite'].uses).toBe('./.github/workflows/staging-deploy.yml');
     expect(validation.jobs['pr-e2e-validation'].needs).toContain('staging-lite');
     expect(validation.jobs).not.toHaveProperty('build');
@@ -133,8 +183,42 @@ describe('PR validation that owns staging', () => {
     expect(current.run).toBe('node scripts/ci/pr-head-current.mjs');
     expect(current.env).toMatchObject({ PR_NUMBER: prNumber, EXPECTED_SHA: expectedSha });
     expect(gate.permissions['pull-requests']).toBe('read');
-    expect(gate.outputs.run).toBe("${{ steps.gate.outputs.run == 'true' && steps.current.outputs.current != 'false' }}");
+    expect(gate.outputs.run).toContain("steps.gate.outputs.run == 'true' && steps.current.outputs.current != 'false'");
     expect(validation.jobs['staging-lite'].if).toContain("needs.gate.outputs.run == 'true'");
+  });
+
+  it('deploys to the PR slot only after the test decision is authorized', () => {
+    // A blocked decision must not spend the slot on a deploy that no E2E follows.
+    const deploy = validation.jobs['staging-lite'];
+    expect(deploy.needs).toEqual(['gate', 'select']);
+    expect(deploy.if).toContain("needs.select.result == 'success'");
+    expect(deploy.if).toContain("needs.gate.outputs.run == 'true'");
+  });
+
+  it('skips a run that an earlier run of the same head already covers', () => {
+    const { gate } = validation.jobs;
+    const covered = gate.steps.find((step: any) => step.id === 'covered');
+    expect(covered.run).toBe('node scripts/ci/pr-run-covered.mjs');
+    expect(covered.env).toMatchObject({ PR_NUMBER: prNumber, EXPECTED_SHA: expectedSha });
+    // Listing earlier runs and their jobs needs the Actions read scope.
+    expect(gate.permissions.actions).toBe('read');
+    expect(gate.outputs.run).toBe("${{ steps.gate.outputs.run == 'true' && steps.current.outputs.current != 'false' && steps.covered.outputs.covered-by == '' }}");
+    expect(gate.outputs['covered-by']).toBe('${{ steps.covered.outputs.covered-by }}');
+    // The lookup comes after the cheaper head check and only when that passed.
+    const ids = gate.steps.map((step: any) => step.id);
+    expect(ids.indexOf('covered')).toBeGreaterThan(ids.indexOf('current'));
+    expect(covered.if).toContain("steps.current.outputs.current != 'false'");
+  });
+
+  it('a skipped E2E job cannot replace the earlier run\'s passed check of the same name', () => {
+    // GitHub shows a skipped job with an expression name as the raw expression,
+    // so only a job that really ran is called "E2E validation" or "Pipeline outcome".
+    for (const id of ['pr-e2e-validation', 'pr-pipeline-outcome']) {
+      const name = validation.jobs[id].name;
+      expect(name).toMatch(/^\$\{\{.*\}\}$/);
+    }
+    expect(validation.jobs['pr-e2e-validation'].name).toContain("'E2E validation'");
+    expect(validation.jobs['pr-pipeline-outcome'].name).toContain("'Pipeline outcome'");
   });
 
   it('skips the E2E run when a newer push lands during the deploy, and still closes the child', () => {

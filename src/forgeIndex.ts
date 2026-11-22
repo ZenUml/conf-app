@@ -1119,9 +1119,9 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
       trackPageEditorAuthoringStarted();
     }
   } else if(isGraph) {
-    await import(editable ? "@/forge-graph-editor" : "@/forge-graph-viewer");
+    await (editable ? import("@/forge-graph-editor") : import("@/forge-graph-viewer"));
   } else if(isEmbed) {
-    await import(editable ? "@/forge-embed-editor" : "@/forge-embed-viewer");
+    await (editable ? import("@/forge-embed-editor") : import("@/forge-embed-viewer"));
   } else if(isAsyncApi && (import.meta.env.PRODUCT_TYPE === 'asyncapi' || import.meta.env.PRODUCT_TYPE === 'lite')) {
     // Build-time literal: Vite replaces PRODUCT_TYPE via `define` so
     // full/diagramly short-circuit and dead-code-eliminate the dynamic
@@ -1151,14 +1151,14 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
         isEmbedMacro: isAsyncApiEmbed,
         isViewModeEditModal,
       });
-      await import(entry === 'embed-picker'
-        ? "@/forge-asyncapi-embed-editor"
-        : "@/forge-asyncapi-editor");
+      await (entry === 'embed-picker'
+        ? import("@/forge-asyncapi-embed-editor")
+        : import("@/forge-asyncapi-editor"));
     } else {
       await import("@/forge-asyncapi-viewer");
     }
   } else {
-    await import(editable ? "@/forge-swagger-editor" : "@/forge-swagger-ui");
+    await (editable ? import("@/forge-swagger-editor") : import("@/forge-swagger-ui"));
   }
 
   // Last, and for every macro kind: if THIS macro is the one the user just

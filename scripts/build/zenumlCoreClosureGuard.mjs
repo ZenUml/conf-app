@@ -7,8 +7,10 @@
 //   the renderer's own (for example the editor's `Workspace`) contains it;
 // - an entry or lazily loaded chunk reaches a renderer chunk through static
 //   imports.
-// The one allowed static importer is @mermaid-js/mermaid-zenuml's diagram
-// definition chunk, which Mermaid itself loads lazily for a `zenuml` diagram.
+// Allowed static importers: @mermaid-js/mermaid-zenuml's diagram definition
+// chunk, which Mermaid itself loads lazily for a `zenuml` diagram, and core's
+// own lazily loaded parts (e.g. `dist/cloud-icons-*.js`), which only core
+// imports and so only load after it.
 //
 // What it protects: vite.config.mjs drops @zenuml/codemirror-extensions'
 // linter module (which imports all of core) by its package-private path. If a
@@ -18,6 +20,8 @@
 const CORE_MODULE = /[/\\]@zenuml[/\\]core[/\\]dist[/\\]zenuml\.esm\.m?js$/;
 const ALLOWED_IMPORTER =
   /[/\\]@mermaid-js[/\\]mermaid-zenuml[/\\]dist[/\\]chunks[/\\][^/\\]+[/\\]zenuml-definition-[^/\\]+\.mjs$/;
+
+const CORE_PACKAGE = /[/\\]@zenuml[/\\]core[/\\]dist[/\\]/;
 
 const containsCore = (chunk) => Object.keys(chunk.modules || {}).some((id) => CORE_MODULE.test(id));
 const isLoadRoot = (chunk) => chunk.isEntry || chunk.isDynamicEntry;
@@ -58,6 +62,7 @@ export function findZenumlCoreClosureViolations(bundle) {
   for (const c of chunks) {
     if (!isLoadRoot(c) || coreNames.has(c.fileName)) continue;
     if (ALLOWED_IMPORTER.test(c.facadeModuleId || '')) continue;
+    if (!c.isEntry && CORE_PACKAGE.test(c.facadeModuleId || '')) continue;
     if (reachesCore(c)) problems.push(`${c.fileName} statically imports the renderer`);
   }
   return problems;

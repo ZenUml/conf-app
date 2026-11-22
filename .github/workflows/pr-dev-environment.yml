@@ -104,6 +104,8 @@ jobs:
         run: |
           # Same as staging: PR builds do not count in Mixpanel.
           pnpm exec forge variables set MIXPANEL_DISABLED true -e "$FORGE_ENV"
+          # forgex execs `forge` by name; the CLI is a devDependency.
+          export PATH="$PWD/node_modules/.bin:$PATH"
           ./scripts/forgex deploy -e "$FORGE_ENV" --non-interactive --verbose
 
       # A fresh install needs the CI Forge account to be a site admin of
@@ -111,6 +113,7 @@ jobs:
       # takes a minor version automatically; --upgrade covers a major one.
       - name: Install / upgrade on ${{ env.SITE }}
         run: |
+          export PATH="$PWD/node_modules/.bin:$PATH"
           ./scripts/forgex install --site "$SITE" --product confluence -e "$FORGE_ENV" --non-interactive \
             || ./scripts/forgex install --upgrade --site "$SITE" --product confluence -e "$FORGE_ENV" --non-interactive
 

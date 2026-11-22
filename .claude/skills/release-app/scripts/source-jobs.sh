@@ -7,8 +7,10 @@
 # - before the one-graph change, one root job per phase, named "Staging validation"
 #   and "Draft preparation", each waiting for a dispatched child run;
 # - one graph: the phases are called workflows, so their jobs are root jobs named
-#   "Staging validation / …" and "Draft preparation / …". A phase succeeded when it has
-#   jobs and none of them failed, was cancelled or timed out (skipped jobs are normal).
+#   "Staging validation / …" and "Draft preparation / …". Both must be present, and
+#   "Pipeline outcome" must be green: it fails unless every phase's result is success.
+#   Single jobs are not judged: a job with job-level continue-on-error (E2E report
+#   merging) shows "failure" while its phase still succeeds.
 set -euo pipefail
 
 jobs="$(cat)"
@@ -17,8 +19,7 @@ jobs="$(cat)"
 
 jq -e '
   def old($n): [.[] | select(.name == $n)][0].conclusion == "success";
-  def phase($n): [.[] | select(.name | startswith($n + " / "))]
-    | length > 0 and all(.conclusion == "success" or .conclusion == "skipped");
+  def present($n): any(.[]; .name | startswith($n + " / "));
   (old("Staging validation") and old("Draft preparation"))
-  or (phase("Staging validation") and phase("Draft preparation"))
+  or (present("Staging validation") and present("Draft preparation") and old("Pipeline outcome"))
 ' >/dev/null <<<"$jobs"

@@ -4,7 +4,7 @@ import { createApi, dispatchBody, findChild, closeChild, discoverChild, discover
 import { largeRunListing, withFakeGh } from './fake-gh.mjs';
 
 test('dispatch serializes regex without changing its escapes', () => {
-  const env = { GITHUB_REF_NAME: 'main', GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '2', SOURCE_SHA: 'abc', GREP: '(?:^|\\s)@smoke' };
+  const env = { CHILD_KIND: 'pr', MODE: 'selected', GITHUB_REF_NAME: 'main', GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '2', SOURCE_SHA: 'abc', GREP: '(?:^|\\s)@smoke' };
   const body = JSON.parse(JSON.stringify(dispatchBody(env)));
   assert.equal(body.inputs.grep, env.GREP);
   assert.equal(body.inputs['source-sha'], 'abc');
@@ -48,15 +48,25 @@ test('phase dispatch carries version and exact producing run IDs without E2E inp
   assert.equal('suite' in body.inputs, false);
 });
 
-test('phase E2E requires an active root and matching source provenance', () => {
+test('only phase and PR children are dispatched', () => {
+  // Staging E2E lanes are called workflows inside the staging run (#1294).
+  for (const kind of [undefined, '', 'staging']) {
+    assert.throws(() => dispatchBody({ CHILD_KIND: kind, GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '2', SOURCE_SHA: 'abc' }), /Unknown child kind/);
+  }
+});
+
+test('the staging run is never a dispatching parent', () => {
   const parent = { status: 'in_progress', run_attempt: 1, path: '.github/workflows/main-staging-validation.yml', display_title: 'Staging validation · parent 12 · attempt 2 · source abc' };
   const jobs = [{ name: 'Validate: Lite', status: 'in_progress' }];
   const provenance = { sourceSha: 'abc', rootId: '12', rootAttempt: '2', root: { status: 'in_progress', run_attempt: 2, path: '.github/workflows/build-test-deploy.yml', head_sha: 'abc' }, rootJobs: [{ name: 'Staging validation', status: 'in_progress' }] };
-  verifyParent(parent, '1', jobs, ['Validate: Lite'], provenance);
-  assert.throws(() => verifyParent(parent, '1', jobs, ['Validate: Lite']), /root/);
-  assert.throws(() => verifyParent(parent, '1', jobs, ['Validate: Lite'], { ...provenance, sourceSha: 'other' }), /source/);
-  assert.throws(() => verifyParent(parent, '1', jobs, ['Validate: Lite'], { ...provenance, rootJobs: [] }), /active staging parent/);
-  assert.throws(() => verifyParent(parent, '1', jobs, ['Validate: Lite'], { ...provenance, rootAttempt: '1' }), /active staging parent/);
+  assert.throws(() => verifyParent(parent, '1', jobs, ['Validate: Lite'], provenance), /active staging parent/);
+});
+
+test('a phase child of the root checks the root source', () => {
+  const parent = { status: 'in_progress', run_attempt: 2, path: '.github/workflows/build-test-deploy.yml', head_sha: 'abc' };
+  const jobs = [{ name: 'Staging validation', status: 'in_progress' }];
+  verifyParent(parent, '2', jobs, ['Staging validation'], { sourceSha: 'abc' });
+  assert.throws(() => verifyParent(parent, '2', jobs, ['Staging validation'], { sourceSha: 'other' }), /Phase source/);
 });
 
 test('children reject manual dispatch and reruns before verifying their parent', () => {
@@ -250,7 +260,7 @@ test('CLI records the actual gh missing-ref response across workflow steps', asy
     chmodSync(gh, 0o755);
     const env = { ...process.env, PATH: `${dir}${delimiter}${process.env.PATH}`, FAKE_GH_CALLS: calls,
       RUNNER_TEMP: dir, GITHUB_REPOSITORY: 'example/repo', GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '1',
-      CHILD_WORKFLOW: 'child.yml', CHILD_TITLE: 'Child', SOURCE_SHA: 'abc', DISPATCH_REF: 'deleted' };
+      CHILD_KIND: 'phase', CHILD_WORKFLOW: 'child.yml', CHILD_TITLE: 'Child', SOURCE_SHA: 'abc', DISPATCH_REF: 'deleted' };
     const script = new URL('./wait-for-e2e.mjs', import.meta.url).pathname;
     const dispatch = spawnSync(process.execPath, [script], { env, encoding: 'utf8', timeout: 3000 });
     assert.equal(dispatch.status, 1);

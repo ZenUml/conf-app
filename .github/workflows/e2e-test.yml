@@ -91,6 +91,17 @@ on:
           Playwright `--grep` filter applied on top of the suite's project list.
           The production release smoke passes '@smoke' to run only the tests
           tagged as the smoke tier (ADR-0006). Empty = the whole suite.
+      workers:
+        type: string
+        default: '1'
+        required: false
+        description: >-
+          Playwright workers per shard (exported as E2E_WORKERS, read by
+          playwright.config.ts). The org runs on the free plan, which caps
+          concurrent jobs at 20; on main the four variants' shards plus the
+          dispatch waiters hit that cap and Lite's shards (the critical path)
+          queued 56-122 s in 5 of 6 runs (2026-11-22). Two workers on half the
+          shards keep the same test concurrency on half the runners.
       shard-matrix:
         type: string
         default: '[1, 2, 3, 4, 5]'
@@ -448,6 +459,7 @@ jobs:
           TEST_EVIDENCE_PATH: test-evidence.json
           PLAN_SHARD: ${{ matrix.shard }}
           RETRIES: ${{ inputs.retries }}
+          E2E_WORKERS: ${{ inputs.workers }}
         run: |
           RUNNER_SETUP_DURATION_MS=$(( $(date +%s%3N) - RUNNER_STARTED_AT_MS ))
           export RUNNER_SETUP_DURATION_MS
@@ -547,6 +559,7 @@ jobs:
           APP: ${{ inputs.app }}
           E2E_BACKEND_BASE_URL: ${{ inputs.backend-url }}
           GREP: ${{ inputs.grep }}
+          E2E_WORKERS: ${{ inputs.workers }}
           CI: true
           ZENUML_STAGE_USERNAME: ${{ secrets.username }}
           ZENUML_STAGE_PASSWORD: ${{ secrets.password }}

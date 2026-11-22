@@ -49,7 +49,11 @@ jobs:
       source-run-id: ${{ inputs.parent-run-id }}
       source-attempt: ${{ inputs.parent-attempt }}
       ref: ${{ inputs.source-sha }}
-      shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8]'
+      # 4 runners x 2 Playwright workers instead of up to 8 x 1: same test
+      # concurrency, half the runners, so Lite's shards (the critical path)
+      # are not queued behind this variant's at the free plan's 20-job cap.
+      shard-matrix: '[1, 2, 3, 4]'
+      workers: '2'
       timeout-minutes: 30
       artifact-suffix: full-stg-regression
     secrets:

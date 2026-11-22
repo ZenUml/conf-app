@@ -23,7 +23,7 @@ check success 0 '[
   {"name":"Smoke Test (Prod) — diagramly / auth / auth bootstrap","status":"completed","conclusion":"success"},
   {"name":"Smoke Test (Prod) — diagramly / plan concrete tests","status":"completed","conclusion":"skipped"},
   {"name":"Smoke Test (Prod) — diagramly / shard 1/5","status":"completed","conclusion":"success"},
-  {"name":"Smoke Test (Prod) — diagramly / aggregate concrete evidence","status":"completed","conclusion":"skipped"}
+  {"name":"Smoke Test (Prod) — diagramly / report shards","status":"completed","conclusion":"skipped"}
 ]'
 
 check "smoke shard failed" 1 '[

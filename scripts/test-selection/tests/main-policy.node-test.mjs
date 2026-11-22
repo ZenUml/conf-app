@@ -128,7 +128,7 @@ test('fresh workflow metadata cannot replace fresh test coverage', async () => {
   const job = name => ({ name, status: 'completed', conclusion: 'success', completed_at: new Date(now - 1000).toISOString(), run_attempt: 1 });
   for (const variant of ['Lite', 'Full', 'Diagramly', 'AsyncAPI']) {
     required.push(job(`${variant} / Deploy: app / deploy`), job(`${variant} / verify-version`));
-    for (const suite of ['E2E full live regression', 'E2E full render regression']) for (const task of ['plan concrete tests', 'shard 1/1', 'aggregate concrete evidence']) required.push(job(`${variant} / ${suite} / ${task}`));
+    for (const suite of ['E2E full live regression', 'E2E full render regression']) for (const task of ['plan concrete tests', 'shard 1/1', 'report shards']) required.push(job(`${variant} / ${suite} / ${task}`));
   }
   const current = run(1, { run_attempt: 1 });
   assert.equal(freshRegressionCoverage(current, required, older, now), true);

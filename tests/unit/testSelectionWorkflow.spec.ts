@@ -20,9 +20,9 @@ describe('staging workflow safety contracts', () => {
     expect(workflow('staging-deploy')).toContain("github.workflow == 'Staging Deploy' && 'conf-app-staging'");
     expect(workflow('staging-transaction')).not.toContain('concurrency:');
   });
-  it('runs dependency-free aggregation without requiring a pnpm executable', () => { const evidenceJob = workflow('e2e-test').split('  evidence:')[1].split('  merge-reports:')[0]; expect(evidenceJob).toContain('package-manager-cache: false'); for (const name of ['daily-regression', 'pr-test-decision']) expect(workflow(name)).toContain('package-manager-cache: false'); });
+  it('runs dependency-free aggregation without requiring a pnpm executable', () => { const evidenceJob = workflow('e2e-test').split('  report:')[1].split('# --- merge shard reports ---')[0]; expect(evidenceJob).toContain('package-manager-cache: false'); for (const name of ['daily-regression', 'pr-test-decision']) expect(workflow(name)).toContain('package-manager-cache: false'); });
   it('measures setup time on each test shard runner', () => {
-    const testJob = workflow('e2e-test').split('  test:')[1].split('  evidence:')[0];
+    const testJob = workflow('e2e-test').split('  test:')[1].split('  report:')[0];
     expect(testJob).toContain('name: Start shard timing');
     expect(testJob).toContain('RUNNER_STARTED_AT_MS=$(date +%s%3N)');
     expect(testJob).toContain('RUNNER_SETUP_DURATION_MS=$(( $(date +%s%3N) - RUNNER_STARTED_AT_MS ))');
@@ -199,9 +199,11 @@ describe('staging workflow safety contracts', () => {
     const auth = jobs.test.steps.find((step: any) => step.name === 'Download shared auth state');
     expect(auth.with['run-id']).toBe("${{ inputs.auth-artifact && inputs.source-run-id || '' }}");
     expect(auth.with['github-token']).toBe("${{ inputs.auth-artifact && inputs.source-run-id && github.token || '' }}");
-    for (const id of ['plan', 'test', 'evidence', 'merge-reports']) {
-      const checkout = jobs[id].steps.find((step: any) => step.uses?.startsWith('actions/checkout@'));
-      expect(checkout.with.ref).toBe('${{ inputs.ref || github.sha }}');
+    for (const id of ['plan', 'test', 'report']) {
+      for (const checkout of jobs[id].steps.filter((step: any) => step.uses?.startsWith('actions/checkout@') && !step.with?.path)) {
+        expect(checkout.with.ref).toBe('${{ inputs.ref || github.sha }}');
+      }
+      expect(jobs[id].steps.some((step: any) => step.uses?.startsWith('actions/checkout@'))).toBe(true);
     }
   });
   it('keeps classification and privileged publication on trusted code', () => {

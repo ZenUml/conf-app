@@ -4,7 +4,7 @@ const run = { id: 42, run_attempt: 2, html_url: 'https://example.com/run', concl
 const job = (name, conclusion = 'success') => ({ name, status: 'completed', conclusion, html_url: 'https://example.com/job' });
 const jobs = ['Lite', 'Full', 'Diagramly', 'AsyncAPI'].flatMap(variant => [
   job(`${variant} / deploy / Deploy`), job(`${variant} / verify version`),
-  ...['E2E full live regression', 'E2E full render regression'].flatMap(suite => ['plan concrete tests', 'shard 1/2', 'shard 2/2', 'aggregate concrete evidence', 'auth / auth bootstrap', 'merge shard reports'].map(stage => job(`${variant} / ${suite} / ${stage}`, stage.startsWith('auth') || stage.startsWith('merge') ? 'skipped' : 'success'))),
+  ...['E2E full live regression', 'E2E full render regression'].flatMap(suite => ['plan concrete tests', 'shard 1/2', 'shard 2/2', 'report shards', 'auth / auth bootstrap', 'merge shard reports'].map(stage => job(`${variant} / ${suite} / ${stage}`, stage.startsWith('auth') || stage.startsWith('merge') ? 'skipped' : 'success'))),
 ]);
 describe('daily regression aggregation', () => {
   it('requires concrete live/render evidence and ignores expected auth/report skips', () => {
@@ -14,7 +14,7 @@ describe('daily regression aggregation', () => {
     expect(result.variants.every(v => v.tests === 'success' && !v.failures.length)).toBe(true);
   });
   it('marks missing execution, planning or aggregate coverage as lost coverage', () => {
-    for (const stage of ['shard', 'aggregate concrete evidence', 'plan concrete tests']) {
+    for (const stage of ['shard', 'report shards', 'plan concrete tests']) {
       const result = aggregateRegression(run, jobs.filter(j => !(j.name.startsWith('Full / E2E full render') && j.name.includes(stage))), { sha: 'target' });
       expect(result.variants[1].tests).toBe('skipped');
       expect(result.variants[1].failures[0].name).toContain('Missing');

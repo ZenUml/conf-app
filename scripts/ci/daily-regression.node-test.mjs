@@ -12,10 +12,12 @@ test('daily fans out all four product transactions behind one shared migration g
   const daily = workflow('daily-regression');
   assert.deepEqual(dependencies(daily.jobs.migrations), ['target']);
   assert.equal(daily.jobs.migrations.environment, 'staging-lite');
-  const migrationSteps = daily.jobs.migrations.steps.filter(step => step.run?.includes('d1 migrations apply'));
+  // The apply command lives in one script shared by every migrations job.
+  const migrationSteps = daily.jobs.migrations.steps.filter(step => step.run?.includes('staging-d1-migrations.sh'));
   assert.equal(migrationSteps.length, 1);
-  assert.match(migrationSteps[0].run, /cp wrangler-stg\.toml wrangler\.toml/);
-  assert.match(migrationSteps[0].run, /d1 migrations apply DB --remote --env production/);
+  const migrationScript = readFileSync('scripts/ci/staging-d1-migrations.sh', 'utf8');
+  assert.match(migrationScript, /cp wrangler-stg\.toml wrangler\.toml/);
+  assert.match(migrationScript, /d1 migrations apply DB --remote --env production/);
   for (const variant of ['lite', 'full', 'diagramly', 'asyncapi']) {
     assert.deepEqual(dependencies(daily.jobs[variant]), ['target', 'migrations']);
     assert.equal(daily.jobs[variant].if, undefined);

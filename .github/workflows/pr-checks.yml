@@ -170,6 +170,15 @@ jobs:
           # package.json names pnpm, so setup-node would otherwise look for a
           # pnpm binary to cache with. This job installs nothing.
           package-manager-cache: false
+      - name: TEMP probe wrangler without install
+        run: |
+          START=$(date +%s%N)
+          npx --yes wrangler@4.60.0 --version
+          echo "npx wrangler cold: $(( ($(date +%s%N) - START) / 1000000 )) ms"
+          START=$(date +%s%N)
+          cp wrangler-stg.toml wrangler.toml
+          npx --yes wrangler@4.60.0 d1 migrations --help | head -5
+          echo "npx wrangler warm: $(( ($(date +%s%N) - START) / 1000000 )) ms"
       - name: Lint with oxlint within a 5 second budget
         run: |
           VERSION=$(node -p "require('./package.json').devDependencies.oxlint")

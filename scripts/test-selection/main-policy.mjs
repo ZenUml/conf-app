@@ -40,7 +40,7 @@ export async function evaluateGate(runs, { sourceSha, now = Date.now(), isAncest
 export function freshRegressionCoverage(run, jobs, sha, now) {
   const evidence = aggregateRegression(run, jobs, { sha });
   if (evidence.variants.length !== 4 || evidence.variants.some(v => v.deployment !== 'success' || v.version !== 'success' || v.tests !== 'success' || v.failures.length)) return false;
-  const executed = jobs.filter(job => /^(Lite|Full|Diagramly|AsyncAPI) \/.*\/ (?:plan concrete tests|shard \d+\/\d+|aggregate concrete evidence)$/.test(job.name));
+  const executed = jobs.filter(job => /^(Lite|Full|Diagramly|AsyncAPI) \/.*\/ (?:plan concrete tests|shard \d+\/\d+|report shards)$/.test(job.name));
   return executed.length > 0 && executed.every(job => {
     const completed = Date.parse(job.completed_at);
     return Number.isFinite(completed) && completed <= now && now - completed <= WINDOW_MS

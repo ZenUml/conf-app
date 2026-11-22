@@ -159,7 +159,7 @@ test('recovery CLI prints the E2E-only list for the observed draft cascade', asy
 test('a called lane failure still names its variant', async () => {
   const { failedValidationVariants } = await import('./phase-recovery.mjs');
   assert.deepEqual([...failedValidationVariants([
-    'Validate: Full / regression / shard 2/4', 'Validate: AsyncAPI / Verify staging backend', 'Validate: Lite',
+    'Validate: Full / regression / shard 2/4', 'Validate: AsyncAPI / regression / plan concrete tests', 'Validate: Lite',
     'Deploy: Diagramly / deploy', 'Validate: Fullish / x',
   ])].sort(), ['asyncapi', 'full', 'lite']);
 });

@@ -65,14 +65,17 @@ test('all four E2E lanes wait only for their own deploy and auth', () => {
     const child = workflow(`staging-${variant}-e2e`);
     assert.ok(child.on.workflow_call, `staging-${variant}-e2e is called`);
     assert.equal(child.on.workflow_dispatch, undefined, `staging-${variant}-e2e is no longer dispatched`);
-    const steps = child.jobs.parent.steps;
-    const check = steps.find(step => step.name === 'Verify pinned staging backend source');
-    assert.match(check.run, /--sha-only$/);
-    assert.match(check.run, new RegExp(`--variant ${variant} `));
-    assert.equal(check.env.TARGET_SHA, '${{ inputs.source-sha }}');
-    assert.equal(JSON.stringify(steps).includes('wait-for-e2e'), false, 'no parent-run ownership check inside one run');
+    assert.equal(child.jobs.parent, undefined, 'the backend check runs inside each plan job');
+    const planSteps = workflow('e2e-test').jobs.plan.steps;
+    const check = planSteps.find(step => step.name === 'Verify pinned staging backend source');
+    assert.match(check.run, /verify-backend\.mjs --sha "\$TARGET_SHA" --variant "\$VERIFY_VARIANT" --url "\$VERIFY_URL" --sha-only$/);
+    assert.equal(check.env.TARGET_SHA, '${{ inputs.ref || github.sha }}');
+    assert.equal(JSON.stringify(child.jobs).includes('wait-for-e2e'), false, 'no parent-run ownership check inside one run');
     for (const suite of ['regression', 'render']) {
-      assert.deepEqual(deps(child.jobs[suite]), ['parent'], `${variant} ${suite} waits for the backend check`);
+      assert.deepEqual(deps(child.jobs[suite]).filter(Boolean), [], `${variant} ${suite} starts at once; its plan job checks the backend`);
+      assert.equal(child.jobs[suite].with.planned, true);
+      assert.equal(child.jobs[suite].with['verify-backend-variant'], variant);
+      assert.match(child.jobs[suite].with['verify-backend-url'], /^https:\/\/conf-stg-(lite|full)\.zenuml\.com$/);
       // Artifacts (auth state, main selection) come from this same run.
       assert.equal(child.jobs[suite].with['source-run-id'], undefined);
       assert.equal(child.jobs[suite].with.grep, '${{ inputs.grep }}');

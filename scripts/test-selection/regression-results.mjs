@@ -35,7 +35,7 @@ export function aggregateRegression(run, jobs, target) {
         const prefix = `${variant} / ${suite} / `;
         const suiteJobs = grouped.filter(job => job.name.startsWith(prefix));
         const shards = suiteJobs.filter(job => /\/ shard \d+\/\d+$/.test(job.name));
-        const evidence = suiteJobs.filter(job => job.name.endsWith('/ aggregate concrete evidence'));
+        const evidence = suiteJobs.filter(job => job.name.endsWith('/ report shards'));
         const planning = suiteJobs.filter(job => job.name.endsWith('/ plan concrete tests'));
         const required = [...planning, ...shards, ...evidence];
         if (!shards.length || evidence.length !== 1 || planning.length !== 1) {

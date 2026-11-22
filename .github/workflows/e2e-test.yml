@@ -70,11 +70,24 @@ on:
         description: >-
           Name of an artifact that already holds this app's
           auth-state-<domain>.json, published by e2e-auth.yml earlier in the
-          calling run. When set, the `auth` job below is SKIPPED and every shard
-          downloads this artifact instead — the login happened at t=0 of the
-          caller's run, under its deploy jobs, instead of after them. Empty
-          (the default, and what release.yml / smoke-test.yml pass) keeps the
-          bootstrap inside this workflow.
+          calling run. Every shard downloads this artifact. Callers run
+          e2e-auth.yml themselves (build-test-deploy-style at t=0 under their
+          deploy jobs, or smoke-test.yml / release.yml right before this call).
+          If the artifact is missing, a shard falls through to its own login.
+      verify-backend-variant:
+        type: string
+        default: ''
+        required: false
+        description: >-
+          Variant name for scripts/test-selection/verify-backend.mjs. With
+          `verify-backend-url` set, the `plan` job first checks that the
+          pinned staging backend serves the `ref` commit (--sha-only). Needs
+          `planned: true`, because only `plan` runs the check.
+      verify-backend-url:
+        type: string
+        default: ''
+        required: false
+        description: 'Backend origin checked by verify-backend.mjs (see verify-backend-variant)'
       backend-url:
         type: string
         default: ''
@@ -137,7 +150,7 @@ on:
         required: true
         description: 'TOTP secret used by tests/e2e-tests/utils/otp.js'
 
-# Auth is DEDUPLICATED. A single `auth` job (e2e-auth.yml) logs in once and
+# Auth is DEDUPLICATED. The caller runs e2e-auth.yml once, which logs in and
 # uploads the Playwright storageState as an artifact; every shard downloads it,
 # so auth.setup.ts's `fs.existsSync(AUTH_STATE_PATH)` skip fires and the shards
 # never log in. This removes the per-shard Atlassian OTP login — the dominant
@@ -146,10 +159,10 @@ on:
 # multiplies the chance of a slow run. If the artifact is missing, the shard
 # falls through to its own login (the pre-existing behavior, kept as fallback).
 #
-# A caller that already ran e2e-auth.yml itself (build-test-deploy.yml does, at
-# t=0, per site) passes the artifact's name as `auth-artifact`; the `auth` job
-# is then skipped and `test` downloads that artifact instead. See the input's
-# description.
+# Every caller runs e2e-auth.yml itself (main staging at t=0 per site;
+# smoke-test.yml and release.yml in an auth job just before this call) and
+# passes the artifact's name as `auth-artifact`; `test` downloads it. This
+# workflow has no auth job of its own, so it draws no skipped auth node.
 #
 # Spec-level parallelism via Playwright's `--shard=N/M`. With auth deduped above,
 # shards do pure test work (no per-shard login), so scaling shards finally cuts
@@ -257,6 +270,13 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.sha }}
+      - name: Verify pinned staging backend source
+        if: inputs.verify-backend-variant != '' && inputs.verify-backend-url != ''
+        env:
+          TARGET_SHA: ${{ inputs.ref || github.sha }}
+          VERIFY_VARIANT: ${{ inputs.verify-backend-variant }}
+          VERIFY_URL: ${{ inputs.verify-backend-url }}
+        run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant "$VERIFY_VARIANT" --url "$VERIFY_URL" --sha-only
       - name: Check out trusted PR test controller
         if: inputs.require-pr-decision
         uses: actions/checkout@v5
@@ -326,31 +346,10 @@ jobs:
           path: tests/e2e-tests/selection-metrics.json
           retention-days: 30
 
-  # Log in ONCE per run and publish the storageState so every shard reuses it
-  # instead of doing its own (flaky) Atlassian OTP login.
-  auth:
-    # Shows as "auth / auth bootstrap" — the inner job carries the long name.
-    name: auth
-    # Skipped when the caller hands in a pre-built artifact (see the
-    # `auth-artifact` input); `test` below tolerates the skip.
-    if: inputs.auth-artifact == ''
-    uses: ./.github/workflows/e2e-auth.yml
-    with:
-      app: ${{ inputs.app }}
-      artifact-name: auth-state-${{ inputs.artifact-suffix }}
-      node-version: ${{ inputs.node-version }}
-    secrets:
-      username: ${{ secrets.username }}
-      password: ${{ secrets.password }}
-      otp: ${{ secrets.otp }}
-
   test:
     name: shard ${{ matrix.shard }}/${{ strategy.job-total }}
-    needs: [auth, plan]
-    # `auth` is skipped (not failed) when `auth-artifact` is set, and a plain
-    # `needs` would skip this job with it. A failed bootstrap still stops the
-    # shards: nothing they could do without a session is worth a runner.
-    if: ${{ !cancelled() && (needs.auth.result == 'success' || needs.auth.result == 'skipped') && (!inputs.planned || (needs.plan.result == 'success' && needs.plan.outputs.count != '0')) }}
+    needs: plan
+    if: ${{ !cancelled() && (!inputs.planned || (needs.plan.result == 'success' && needs.plan.outputs.count != '0')) }}
     runs-on: ubuntu-24.04
     # Reap a wedged shard before a human would (a test stuck at the 300s test
     # timeout x3 retries = ~15 min), while leaving room for the SLOWEST legit
@@ -429,8 +428,8 @@ jobs:
         if: steps.pw-cache.outputs.cache-hit != 'true'
         run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
       - name: Download shared auth state
-        # From the `auth` job — or from the caller's own e2e-auth.yml run when
-        # `auth-artifact` names it: drops auth-state-<domain>.json into
+        # From the caller's own e2e-auth.yml run, which
+        # `auth-artifact` names: drops auth-state-<domain>.json into
         # tests/e2e-tests/ so auth.setup.ts's fs.existsSync skip fires and this
         # shard does NOT log in. continue-on-error → if the artifact is absent
         # the shard falls through to its own login (the pre-existing behavior).
@@ -567,7 +566,7 @@ jobs:
       - name: Upload test results
         # `blob` (see playwright.config.ts's CI reporter list) writes here
         # instead of playwright-report/. Each shard's blob is merged into one
-        # browsable HTML report by the merge-reports job below.
+        # browsable HTML report by the `report` job below.
         if: always()
         uses: actions/upload-artifact@v6
         with:
@@ -597,34 +596,44 @@ jobs:
   # much on every main run (34602804979: last shard done 12m30s, draft cut
   # 13m12s). `!cancelled()` rather than `always()` so a human cancelling the
   # run also stops this.
-  evidence:
-    name: aggregate concrete evidence
+  report:
+    name: report shards
     needs: [plan, test]
-    if: ${{ !cancelled() && inputs.planned && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
+    # Two former jobs share this runner: "aggregate concrete evidence" (planned
+    # runs with shards) and "merge shard reports" (any red or reaped shard
+    # outcome). Each step block below keeps its old job's condition.
+    if: ${{ !cancelled() && ((inputs.planned && needs.plan.result == 'success' && needs.plan.outputs.count != '0') || (needs.test.result == 'failure' || needs.test.result == 'cancelled')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # --- aggregate concrete evidence (failures here fail the job) ---
       - uses: actions/checkout@v5
+        if: ${{ inputs.planned && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
         with:
           ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@v5
+        if: ${{ inputs.planned && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
         with:
           node-version: ${{ inputs.node-version }}
           package-manager-cache: false
       - uses: actions/download-artifact@v7
+        if: ${{ inputs.planned && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
         with:
           name: test-plan-${{ inputs.artifact-suffix }}
           path: evidence
       - uses: actions/download-artifact@v7
+        if: ${{ inputs.planned && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
         with:
           pattern: test-evidence-${{ inputs.artifact-suffix }}-shard-*
           path: evidence/shards
       - name: Verify and aggregate actual coverage
+        if: ${{ inputs.planned && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
         run: |
           REPORTS=$(find evidence/shards -name test-evidence.json -print | sort | paste -sd, -)
           node scripts/test-selection/evidence.mjs --plan evidence/test-plan.json --reports "$REPORTS" --output test-evidence.json
           node --input-type=module -e "import {readFileSync} from 'node:fs'; const e=JSON.parse(readFileSync('test-evidence.json')); if(!e.execution_succeeded) process.exit(1);"
       - name: Add scheduler timing to evidence
+        if: ${{ inputs.planned && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
         env:
           GH_TOKEN: ${{ github.token }}
           JOB_PREFIX: ${{ inputs.timing-job-prefix }}
@@ -632,6 +641,7 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" > jobs.json
           node scripts/test-selection/timing.mjs --evidence test-evidence.json --jobs jobs.json --prefix "$JOB_PREFIX"
       - name: Summarize concrete timing
+        if: ${{ inputs.planned && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync, appendFileSync } from 'node:fs';
@@ -642,38 +652,38 @@ jobs:
           }
           NODE
       - uses: actions/upload-artifact@v6
-        if: always()
+        if: ${{ always() && inputs.planned && needs.plan.result == 'success' && needs.plan.outputs.count != '0' }}
         with:
           name: test-evidence-${{ inputs.artifact-suffix }}
           path: test-evidence.json
           retention-days: 30
 
-  merge-reports:
-    name: merge shard reports
-    needs: test
-    if: ${{ !cancelled() && needs.test.result != 'success' }}
-    runs-on: ubuntu-latest
-    # This job REPORTS on the run; it must never decide it. A reusable
-    # workflow's conclusion is the worst of its jobs, and every E2E caller
-    # (build-test-deploy, smoke-test, release) gates downstream work on that
-    # conclusion — so without this, a pnpm-install hiccup or an artifact-service
-    # blip in report merging could redden an E2E run whose tests all passed, and
-    # block a staging deploy behind it. Per-shard HTML uploads never had that
-    # power. `continue-on-error` keeps the failure visible on the job while
-    timeout-minutes: 10
-    # leaving the workflow's verdict to the tests.
-    continue-on-error: true
-    steps:
+      # --- merge shard reports ---
+      # This part REPORTS on the run; it must never decide it. A reusable
+      # workflow's conclusion is the worst of its jobs, and every E2E caller
+      # gates downstream work on that conclusion, so a pnpm-install hiccup or an
+      # artifact-service blip in report merging must not redden a run whose
+      # tests passed. The old standalone job used job-level continue-on-error;
+      # here every merge step has its own, and `!cancelled()` keeps them
+      # running when an evidence step above failed.
       - uses: actions/checkout@v5
+        if: ${{ !cancelled() && (needs.test.result == 'failure' || needs.test.result == 'cancelled') }}
+        continue-on-error: true
         with:
           ref: ${{ inputs.ref || github.sha }}
       - name: Setup pnpm
+        if: ${{ !cancelled() && (needs.test.result == 'failure' || needs.test.result == 'cancelled') }}
+        continue-on-error: true
         uses: pnpm/action-setup@v5
       - uses: actions/setup-node@v5
+        if: ${{ !cancelled() && (needs.test.result == 'failure' || needs.test.result == 'cancelled') }}
+        continue-on-error: true
         with:
           node-version: ${{ inputs.node-version }}
           cache: pnpm
       - name: Install E2E test dependencies
+        if: ${{ !cancelled() && (needs.test.result == 'failure' || needs.test.result == 'cancelled') }}
+        continue-on-error: true
         run: cd tests/e2e-tests && pnpm install --ignore-workspace
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
@@ -681,9 +691,9 @@ jobs:
         # `merge-multiple: true` flattens all matching artifacts into one
         # directory (each shard's report-*.zip lands side by side), which is
         # what `playwright merge-reports` expects as its input directory.
-        # Zero matches is a REAL case, not a bug: if `auth` fails, `test` is
-        # skipped and no shard ever uploads a blob. Tolerate it here and let the
-        # merge step below decide there is nothing to do.
+        # Zero matches is a REAL case, not a bug (every shard reaped before
+        # uploading a blob). Tolerate it and let the merge step decide.
+        if: ${{ !cancelled() && (needs.test.result == 'failure' || needs.test.result == 'cancelled') }}
         continue-on-error: true
         uses: actions/download-artifact@v7
         with:
@@ -692,9 +702,11 @@ jobs:
           merge-multiple: true
       - name: Merge into one HTML report
         # `merge-reports` exits non-zero on an empty input directory. That is
-        # the auth-failed / every-shard-reaped case, where the run is already
-        # red for a reason a merge error would only obscure, so say so plainly
-        # and stop rather than adding a second, misleading failure.
+        # the every-shard-reaped case, where the run is already red for a
+        # reason a merge error would only obscure, so say so plainly and stop
+        # rather than adding a second, misleading failure.
+        if: ${{ !cancelled() && (needs.test.result == 'failure' || needs.test.result == 'cancelled') }}
+        continue-on-error: true
         run: |
           cd tests/e2e-tests
           if [ -z "$(ls -A ./all-blob-reports 2>/dev/null)" ]; then
@@ -703,6 +715,8 @@ jobs:
           fi
           pnpm exec playwright merge-reports --reporter=html ./all-blob-reports
       - name: Upload merged report
+        if: ${{ !cancelled() && (needs.test.result == 'failure' || needs.test.result == 'cancelled') }}
+        continue-on-error: true
         uses: actions/upload-artifact@v6
         with:
           name: playwright-report-${{ inputs.artifact-suffix }}

@@ -6,19 +6,49 @@ on:
   workflow_dispatch:
 
 jobs:
+  auth-lite:
+    # Login split out of e2e-test.yml (no more always-skipped internal `auth`
+    # node). Same app, artifact name and credentials as its old internal job.
+    name: Lite Smoke Auth (Prod)
+    uses: ./.github/workflows/e2e-auth.yml
+    with:
+      app: zenuml-lite@prod
+      artifact-name: auth-state-lite-prod-smoke
+    secrets:
+      username: ${{ vars.ZENUML_PROD_USERNAME }}
+      password: ${{ vars.ZENUML_PROD_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
   prod-lite:
+    needs: auth-lite
     name: Lite Smoke Test (Prod)
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-lite@prod
       suite: insert
       artifact-suffix: lite-prod-smoke
+      auth-artifact: auth-state-lite-prod-smoke
       # e2e-test.yml defaults to 8 minutes. Production adds a login round-trip and a
       # slower site than staging: on 2026-09-01 the Lite insert shard 3/4 ran 8m29s
       # and was reaped mid-test, so the wedged test never reported a name or a trace.
       # 12 matches the budget build-test-deploy.yml already passes for staging Lite.
       timeout-minutes: 12
     # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
+    secrets:
+      username: ${{ vars.ZENUML_PROD_USERNAME }}
+      password: ${{ vars.ZENUML_PROD_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  auth-full:
+    # Login split out of e2e-test.yml (no more always-skipped internal `auth`
+    # node). Same app, artifact name and credentials as its old internal job.
+    name: Full Smoke Auth (Prod)
+    needs: prod-lite
+    if: ${{ !cancelled() }}
+    uses: ./.github/workflows/e2e-auth.yml
+    with:
+      app: zenuml-full@prod
+      artifact-name: auth-state-full-prod-smoke
     secrets:
       username: ${{ vars.ZENUML_PROD_USERNAME }}
       password: ${{ vars.ZENUML_PROD_PASSWORD }}
@@ -33,29 +63,46 @@ jobs:
     # by timeout-minutes is a job outcome, so this still runs; a human cancelling the
     # workflow stops it, which `always()` would not. GitHub names `!cancelled()` the
     # recommended alternative to `always()`.
-    needs: prod-lite
-    if: ${{ !cancelled() }}
+    needs: [prod-lite, auth-full]
+    if: ${{ !cancelled() && needs.auth-full.result == 'success' }}
     name: Full Smoke Test (Prod)
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: zenuml-full@prod
       suite: insert
       artifact-suffix: full-prod-smoke
+      auth-artifact: auth-state-full-prod-smoke
       timeout-minutes: 12
     secrets:
       username: ${{ vars.ZENUML_PROD_USERNAME }}
       password: ${{ vars.ZENUML_PROD_PASSWORD }}
       otp: ${{ vars.ATLASSIAN_OTP }}
 
-  prod-diagramly:
+  auth-diagramly:
+    # Login split out of e2e-test.yml (no more always-skipped internal `auth`
+    # node). Same app, artifact name and credentials as its old internal job.
+    name: Diagramly Smoke Auth (Prod)
     needs: prod-full
     if: ${{ !cancelled() }}
+    uses: ./.github/workflows/e2e-auth.yml
+    with:
+      app: diagramly@prod
+      artifact-name: auth-state-diagramly-prod-smoke
+    secrets:
+      username: ${{ vars.ZENUML_PROD_USERNAME }}
+      password: ${{ vars.ZENUML_PROD_PASSWORD }}
+      otp: ${{ vars.ATLASSIAN_OTP }}
+
+  prod-diagramly:
+    needs: [prod-full, auth-diagramly]
+    if: ${{ !cancelled() && needs.auth-diagramly.result == 'success' }}
     name: Diagramly Smoke Test (Prod)
     uses: ./.github/workflows/e2e-test.yml
     with:
       app: diagramly@prod
       suite: insert
       artifact-suffix: diagramly-prod-smoke
+      auth-artifact: auth-state-diagramly-prod-smoke
       timeout-minutes: 12
     secrets:
       username: ${{ vars.ZENUML_PROD_USERNAME }}

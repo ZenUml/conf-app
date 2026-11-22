@@ -20,9 +20,9 @@ describe('staging workflow safety contracts', () => {
     expect(workflow('staging-deploy')).toContain("github.workflow == 'Staging Deploy' && 'conf-app-staging'");
     expect(workflow('staging-transaction')).not.toContain('concurrency:');
   });
-  it('runs dependency-free aggregation without requiring a pnpm executable', () => { const evidenceJob = workflow('e2e-test').split('  evidence:')[1].split('  merge-reports:')[0]; expect(evidenceJob).toContain('package-manager-cache: false'); for (const name of ['daily-regression', 'pr-test-decision']) expect(workflow(name)).toContain('package-manager-cache: false'); });
+  it('runs dependency-free aggregation without requiring a pnpm executable', () => { const evidenceJob = workflow('e2e-test').split('  report:')[1].split('# --- merge shard reports ---')[0]; expect(evidenceJob).toContain('package-manager-cache: false'); for (const name of ['daily-regression', 'pr-test-decision']) expect(workflow(name)).toContain('package-manager-cache: false'); });
   it('measures setup time on each test shard runner', () => {
-    const testJob = workflow('e2e-test').split('  test:')[1].split('  evidence:')[0];
+    const testJob = workflow('e2e-test').split('  test:')[1].split('  report:')[0];
     expect(testJob).toContain('name: Start shard timing');
     expect(testJob).toContain('RUNNER_STARTED_AT_MS=$(date +%s%3N)');
     expect(testJob).toContain('RUNNER_SETUP_DURATION_MS=$(( $(date +%s%3N) - RUNNER_STARTED_AT_MS ))');
@@ -68,15 +68,21 @@ describe('staging workflow safety contracts', () => {
       expect(child.on).not.toHaveProperty('workflow_dispatch');
       expect(child).not.toHaveProperty('concurrency');
       expect(child.permissions.actions).toBe('read');
-      const testJobs = Object.entries(child.jobs).filter(([id]) => id !== 'parent') as [string, any][];
+      const testJobs = Object.entries(child.jobs) as [string, any][];
       expect(testJobs.length).toBeGreaterThan(0);
+      expect(child.jobs).not.toHaveProperty('parent');
       for (const [, job] of testJobs) {
         expect(job.uses).toBe('./.github/workflows/e2e-test.yml');
-        expect([job.needs].flat()).toContain('parent');
+        expect(job.needs).toBeUndefined();
+        // One run deploys and tests, so the plan job checks the backend, not a parent run.
+        expect(job.with.planned).toBe(true);
+        expect(job.with['verify-backend-variant']).toMatch(/^(lite|full|diagramly|asyncapi)$/);
+        expect(job.with['verify-backend-url']).toMatch(/^https:\/\/conf-stg-(lite|full)\.zenuml\.com$/);
       }
-      // One run deploys and tests, so the child checks the backend, not a parent run.
-      expect(JSON.stringify(child.jobs.parent.steps)).not.toContain('--verify-parent');
-      expect(child.jobs.parent.steps.some((step: any) => step.name === 'Verify pinned staging backend source')).toBe(true);
+      const verify = structure('e2e-test').jobs.plan.steps.find((step: any) => step.name === 'Verify pinned staging backend source');
+      expect(verify.run).toContain('scripts/test-selection/verify-backend.mjs');
+      expect(verify.run).toMatch(/--sha-only$/);
+      expect(JSON.stringify(verify)).not.toContain('--verify-parent');
       expect(child.on.workflow_call.inputs['source-sha'].required).toBe(true);
     }
     for (const name of ['pr-validation']) {
@@ -199,9 +205,11 @@ describe('staging workflow safety contracts', () => {
     const auth = jobs.test.steps.find((step: any) => step.name === 'Download shared auth state');
     expect(auth.with['run-id']).toBe("${{ inputs.auth-artifact && inputs.source-run-id || '' }}");
     expect(auth.with['github-token']).toBe("${{ inputs.auth-artifact && inputs.source-run-id && github.token || '' }}");
-    for (const id of ['plan', 'test', 'evidence', 'merge-reports']) {
-      const checkout = jobs[id].steps.find((step: any) => step.uses?.startsWith('actions/checkout@'));
-      expect(checkout.with.ref).toBe('${{ inputs.ref || github.sha }}');
+    for (const id of ['plan', 'test', 'report']) {
+      for (const checkout of jobs[id].steps.filter((step: any) => step.uses?.startsWith('actions/checkout@') && !step.with?.path)) {
+        expect(checkout.with.ref).toBe('${{ inputs.ref || github.sha }}');
+      }
+      expect(jobs[id].steps.some((step: any) => step.uses?.startsWith('actions/checkout@'))).toBe(true);
     }
   });
   it('keeps classification and privileged publication on trusted code', () => {
@@ -228,7 +236,7 @@ describe('staging workflow safety contracts', () => {
     expect(canRecover(['E2E: Lite / shard 1/10', 'E2E auth: Lite / auth bootstrap'])).toBe(true);
     expect(canRecover(['Validate: Lite', 'Validate: Full', 'Validate: Diagramly', 'Validate: AsyncAPI'])).toBe(true);
     // A lane now calls its E2E workflow, so its failures carry the lane prefix.
-    expect(canRecover(['Validate: Full / regression / shard 2/4', 'Validate: Lite / Verify staging backend', 'Validate: AsyncAPI / render / plan concrete tests'])).toBe(true);
+    expect(canRecover(['Validate: Full / regression / shard 2/4', 'Validate: Lite / regression / plan concrete tests', 'Validate: AsyncAPI / render / plan concrete tests'])).toBe(true);
     expect(canRecover(['Validate: Full / regression / shard 2/4', 'Deploy: Full / deploy'])).toBe(false);
     expect(canRecover(['E2E validation', 'Pipeline outcome'])).toBe(true);
     for (const failure of ['Build and Unit Test', 'Deploy: Lite', 'Jev category selection', 'Select E2E for this PR', 'Draft: Lite']) {

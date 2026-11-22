@@ -11,20 +11,7 @@ permissions:
   contents: read
   actions: read
 jobs:
-  parent:
-    name: Verify staging backend
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.source-sha }}
-      - name: Verify pinned staging backend source
-        env:
-          TARGET_SHA: ${{ inputs.source-sha }}
-        run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant lite --url https://conf-stg-lite.zenuml.com --sha-only
   regression:
-    needs: parent
     uses: ./.github/workflows/e2e-test.yml
     with:
       planned: true
@@ -34,6 +21,10 @@ jobs:
       grep: ${{ inputs.grep }}
       auth-artifact: auth-state-pre-lite-stg
       ref: ${{ inputs.source-sha }}
+      # Replaces the former standalone "Verify staging backend" job: the
+      # plan job runs the same check as its first step.
+      verify-backend-variant: lite
+      verify-backend-url: https://conf-stg-lite.zenuml.com
       # 4 runners x 2 Playwright workers, like Full and Diagramly. At the free
       # plan's 20-job cap, 4 fewer Lite runners let AsyncAPI's shards start
       # without queueing (measured 43-53 s queue on the critical chain).
@@ -47,7 +38,6 @@ jobs:
       otp: ${{ vars.ATLASSIAN_OTP }}
 
   render:
-    needs: parent
     uses: ./.github/workflows/e2e-test.yml
     with:
       planned: true
@@ -57,6 +47,10 @@ jobs:
       grep: ${{ inputs.grep }}
       auth-artifact: auth-state-pre-lite-stg
       ref: ${{ inputs.source-sha }}
+      # Replaces the former standalone "Verify staging backend" job: the
+      # plan job runs the same check as its first step.
+      verify-backend-variant: lite
+      verify-backend-url: https://conf-stg-lite.zenuml.com
       shard-matrix: '[1]'
       timeout-minutes: 25
       artifact-suffix: lite-stg-render

@@ -75,3 +75,11 @@ test('root outcome reports the verified failed draft gate without adding a root 
   assert.equal(upload.with.path, 'daily-gate.json');
   assert.equal(upload.with['if-no-files-found'], 'error');
 });
+
+test('phase parents keep full commit history but skip old file bodies', () => {
+  for (const phase of ['main-staging-validation', 'main-draft-preparation']) {
+    const checkout = workflow(phase).jobs.parent.steps.find(step => step.uses === 'actions/checkout@v5');
+    assert.equal(checkout.with['fetch-depth'], 0);
+    assert.equal(checkout.with.filter, 'blob:none');
+  }
+});

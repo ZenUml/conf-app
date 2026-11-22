@@ -1,9 +1,16 @@
-# Give every PR its own Forge development environment of the Lite app,
-# installed on lite-dev.atlassian.net next to whatever is already there.
+# Give every PR its own Forge development environment of the Lite app.
 #
 #   PR #N  ->  Forge environment `pr-N`
 #          ->  Connect key `com.zenuml.confluence-addon-lite-prN`
-#          ->  installed on lite-dev.atlassian.net
+#          ->  installed on the site in repo variable PR_DEV_SITE (none when unset)
+#
+# NEVER lite-dev.atlassian.net. Two Lite environments on one site expose the
+# same macro module keys (`zenuml-sequence-macro-lite`, ...). A macro node with
+# the bare key (API-created E2E pages, pages migrated from Connect) names no
+# environment, so Confluence renders it with either install. pr-1284 on lite-dev
+# made PR #1297's E2E run against the pr-1284 build (2026-11-22). The PR slot
+# (`pr` environment, pr-validation.yml) must stay the only Lite install there.
+# This workflow therefore removes its environment from lite-dev on every run.
 #
 # Confluence allows one installation per Connect key on a site, so a second
 # environment of the same app only installs with its own key (measured
@@ -11,7 +18,7 @@
 # suffixed key). The suffix follows the dev-key convention that the build and
 # functions/magic-writeback.ts check: docs/reference/dev-connect-key.md.
 #
-# What a reviewer gets: in any lite-dev page, the slash menu lists
+# What a reviewer gets: on a PR_DEV_SITE page, the slash menu lists
 # "Diagram (Mermaid, PlantUML & ZenUML) Lite - pr-N (Dev)". Diagrams it creates
 # are stored under the PR's own content types, so they are separate from the
 # diagrams of the other installs on the site.
@@ -43,7 +50,9 @@ env:
   FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN }}"
   FORGE_ENV: pr-${{ github.event.pull_request.number }}
   CONNECT_KEY_OVERRIDE: com.zenuml.confluence-addon-lite-pr${{ github.event.pull_request.number }}
-  SITE: lite-dev.atlassian.net
+  # Repo variable; empty = deploy the environment but install it nowhere.
+  SITE: ${{ vars.PR_DEV_SITE }}
+  PR_SLOT_SITE: lite-dev.atlassian.net
 
 jobs:
   deploy:
@@ -72,6 +81,18 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # First, before anything slow: this environment must not be installed on
+      # the PR slot's site (see the header).
+      - name: Remove this environment from ${{ env.PR_SLOT_SITE }}
+        run: |
+          pnpm forge:deploy:disable-analytics
+          if pnpm exec forge install list -e "$FORGE_ENV" --json 2>/dev/null \
+              | jq -e --arg site "$PR_SLOT_SITE" 'any(.[]; .site == $site and .environment == env.FORGE_ENV)' >/dev/null; then
+            pnpm exec forge uninstall --site "$PR_SLOT_SITE" --product confluence -e "$FORGE_ENV" </dev/null
+          else
+            echo "No ${FORGE_ENV} install on ${PR_SLOT_SITE}"
+          fi
 
       # CONNECT_KEY_OVERRIDE (job env) makes every custom-content type
       # ac:<PR key>:..., and the build fails if the key breaks the convention.
@@ -112,6 +133,7 @@ jobs:
       # lite-dev (it already installs the `pr` slot there). An existing install
       # takes a minor version automatically; --upgrade covers a major one.
       - name: Install / upgrade on ${{ env.SITE }}
+        if: env.SITE != '' && env.SITE != env.PR_SLOT_SITE
         run: |
           export PATH="$PWD/node_modules/.bin:$PATH"
           ./scripts/forgex install --site "$SITE" --product confluence -e "$FORGE_ENV" --non-interactive \
@@ -129,7 +151,7 @@ jobs:
             echo "| Variant | lite |"
             echo "| Forge environment | \`$FORGE_ENV\` |"
             echo "| Connect key | \`$CONNECT_KEY_OVERRIDE\` |"
-            echo "| Site | https://$SITE/wiki |"
+            echo "| Site | ${SITE:+https://$SITE/wiki}${SITE:-none (PR_DEV_SITE unset: deployed, not installed)} |"
             echo "| In the editor | slash menu: \`Diagram (Mermaid, PlantUML & ZenUML) Lite - $FORGE_ENV (Dev)\` |"
             echo "| Result | ${{ job.status }} |"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -155,15 +177,13 @@ jobs:
 
       # Both steps tolerate "nothing to remove": a PR whose deploy never ran
       # (or was already cleaned up) has no install and no environment.
-      - name: Uninstall from ${{ env.SITE }}
+      - name: Uninstall from every site
         run: |
           pnpm forge:deploy:disable-analytics
-          if pnpm exec forge install list -e "$FORGE_ENV" --json 2>/dev/null \
-              | jq -e --arg site "$SITE" 'any(.[]; .site == $site and .environment == env.FORGE_ENV)' >/dev/null; then
-            pnpm exec forge uninstall --site "$SITE" --product confluence -e "$FORGE_ENV" </dev/null
-          else
-            echo "No ${FORGE_ENV} install on ${SITE}"
-          fi
+          for site in $(pnpm exec forge install list -e "$FORGE_ENV" --json 2>/dev/null \
+              | jq -r '.[] | select(.environment == env.FORGE_ENV) | .site' | sort -u); do
+            pnpm exec forge uninstall --site "$site" --product confluence -e "$FORGE_ENV" </dev/null
+          done
 
       - name: Delete the Forge environment
         run: |

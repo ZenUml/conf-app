@@ -62,12 +62,14 @@ The backend recognises a development key by this shape, so no registration is ne
 |---|---|
 | Forge environment | `pr-N` (Lite), created on the first run |
 | Connect key | `com.zenuml.confluence-addon-lite-prN` |
-| Site | `lite-dev.atlassian.net`, next to the `pr` slot install that PR validation uses |
+| Site | repo variable `PR_DEV_SITE`; when unset, the environment is deployed but installed nowhere. Never `lite-dev.atlassian.net` |
 | In the editor | slash menu entry `Diagram (Mermaid, PlantUML & ZenUML) Lite - pr-N (Dev)` |
-| On every push | rebuild, redeploy, install or upgrade |
-| On close (merged or not) | uninstall from the site and delete the environment |
+| On every push | remove `pr-N` from lite-dev if present, rebuild, redeploy, install or upgrade on `PR_DEV_SITE` |
+| On close (merged or not) | uninstall from every site and delete the environment |
 
 It is Forge-only: the app calls the existing `conf-stg-lite` backend. It runs alongside PR validation and takes no staging or PR-slot lock; E2E still runs on the `pr` slot.
+
+**A dev key avoids the install conflict, not macro ambiguity.** Two environments of one app on a site expose the same macro module keys. A macro node with the bare key (`extensionKey: zenuml-sequence-macro-lite`, as API-created pages and pages migrated from Connect have) names no environment, so Confluence may render it with either install. On 2026-11-22 `pr-1284` on lite-dev made PR #1297's E2E run against the `pr-1284` build. Keep one environment per app on any site that E2E or customers-like checks use; give a second environment its own test site.
 
 ## What reads the key
 

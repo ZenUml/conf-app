@@ -1151,9 +1151,9 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
         isEmbedMacro: isAsyncApiEmbed,
         isViewModeEditModal,
       });
-      await import(entry === 'embed-picker'
-        ? "@/forge-asyncapi-embed-editor"
-        : "@/forge-asyncapi-editor");
+      await (entry === 'embed-picker'
+        ? import("@/forge-asyncapi-embed-editor")
+        : import("@/forge-asyncapi-editor"));
     } else {
       await import("@/forge-asyncapi-viewer");
     }

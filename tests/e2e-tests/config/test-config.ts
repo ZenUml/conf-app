@@ -1,4 +1,4 @@
-import { getAppProfile, APP_PROFILES, type AppProfile, type MacroType, type ProductType } from './apps.js';
+import { getAppProfile, APP_PROFILES, FORGE_APP_IDS, type AppProfile, type MacroType, type ProductType } from './apps.js';
 
 export { TIMEOUTS } from './timeouts.js';
 export type { MacroType, ProductType } from './apps.js';
@@ -25,6 +25,10 @@ interface TestConfig {
   appLabel: string;
   renderMacros: MacroType[];
   macroNameOverrides: Record<string, string>;
+  /** Forge app of this variant; API-created macros name it in their extension key. */
+  forgeAppId: string;
+  /** Forge environment key under test, or undefined = the only one installed. */
+  forgeEnvironment: string | undefined;
   credentials: {
     username: string;
     password: string;
@@ -76,6 +80,14 @@ function resolveProfile(): AppProfile {
   };
 }
 
+// @stg profiles test the `staging` environment, @prod ones `production`. Other
+// profiles (legacy env vars) name none: the only installed environment is used.
+function defaultForgeEnvironment(id: string): string | undefined {
+  if (id.endsWith('@stg')) return 'staging';
+  if (id.endsWith('@prod')) return 'production';
+  return undefined;
+}
+
 const profile = resolveProfile();
 
 export const testConfig: TestConfig = {
@@ -97,6 +109,8 @@ export const testConfig: TestConfig = {
   appLabel: profile.appLabel,
   renderMacros: profile.renderMacros,
   macroNameOverrides: profile.macroNameOverrides ?? {},
+  forgeAppId: FORGE_APP_IDS[profile.productType],
+  forgeEnvironment: process.env.E2E_FORGE_ENVIRONMENT || profile.forgeEnvironment || defaultForgeEnvironment(profile.id),
 
   credentials: {
     // ATLASSIAN_* are the names the agent container injects; ZENUML_STAGE_* are

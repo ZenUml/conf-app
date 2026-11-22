@@ -72,7 +72,23 @@ export interface AppProfile {
    * "Diagram as Code" on the production ZenUML full Forge app).
    */
   macroNameOverrides?: Record<string, string>;
+  /**
+   * Forge environment key whose install API-created pages must render with.
+   * Defaults by profile suffix (@stg -> staging, @prod -> production). A site
+   * can hold two environments of one app (e.g. a PR dev environment next to
+   * the PR slot), and a bare macro key then lets Confluence pick either; see
+   * utils/forge-extension.ts.
+   */
+  forgeEnvironment?: string;
 }
+
+/** Forge app id of each variant; one app per variant, environments inside it (package.json forge:* scripts). */
+export const FORGE_APP_IDS: Record<ProductType, string> = {
+  lite: '8ad26115-211f-4216-971b-0540f606303d',
+  full: 'd9e4002b-120b-426b-834b-402a4a5adce7',
+  diagramly: '01ede8b1-4e88-451a-b9ef-89eeef93afaf',
+  asyncapi: '49017727-af19-4ab6-8d5a-7d28108936b6',
+};
 
 const ALL_MACROS: MacroType[] = ['sequence', 'graph', 'openapi', 'embed', 'mermaid'];
 const NO_EMBED: MacroType[] = ['sequence', 'graph', 'openapi', 'mermaid'];
@@ -122,6 +138,9 @@ export const APP_PROFILES: Record<string, AppProfile> = {
     // Space homepage (id 196866) — stable parent for test pages.
     parentPageId: '196866',
     parentPageName: 'Software Development',
+    // lite-dev hosts the PR validation slot (pr-validation.yml), Forge
+    // environment `pr`. PR dev environments may be installed next to it.
+    forgeEnvironment: 'pr',
     isLite: true,
     productType: 'lite',
     isForge: true,

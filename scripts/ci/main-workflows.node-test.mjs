@@ -76,6 +76,14 @@ test('root outcome reports the verified failed draft gate without adding a root 
   assert.equal(upload.with['if-no-files-found'], 'error');
 });
 
+test('phase parents keep full commit history but skip old file bodies', () => {
+  for (const phase of ['main-staging-validation', 'main-draft-preparation']) {
+    const checkout = workflow(phase).jobs.parent.steps.find(step => step.uses === 'actions/checkout@v5');
+    assert.equal(checkout.with['fetch-depth'], 0);
+    assert.equal(checkout.with.filter, 'blob:none');
+  }
+});
+
 test('main regression runner budget: Full and Diagramly use 4 runners x 2 workers, Lite keeps its layout', () => {
   const e2e = workflow('e2e-test');
   assert.equal(e2e.on.workflow_call.inputs.workers.default, '1');

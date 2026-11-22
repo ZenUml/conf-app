@@ -54,6 +54,21 @@ The backend recognises a development key by this shape, so no registration is ne
 
 6. Deploy and install through `scripts/forgex` (`pnpm forge:deploy:dev`, `pnpm forge:install:dev`, or the forge wizard). `forgex` sets `CONNECT_KEY` from `CONNECT_KEY_OVERRIDE` and refuses `deploy` or `tunnel` when `dist/` was built for a different key.
 
+## Per-PR environment (CI)
+
+`.github/workflows/pr-dev-environment.yml` does the steps above for every same-repository PR:
+
+| PR #N | Value |
+|---|---|
+| Forge environment | `pr-N` (Lite), created on the first run |
+| Connect key | `com.zenuml.confluence-addon-lite-prN` |
+| Site | `lite-dev.atlassian.net`, next to the `pr` slot install that PR validation uses |
+| In the editor | slash menu entry `Diagram (Mermaid, PlantUML & ZenUML) Lite - pr-N (Dev)` |
+| On every push | rebuild, redeploy, install or upgrade |
+| On close (merged or not) | uninstall from the site and delete the environment |
+
+It is Forge-only: the app calls the existing `conf-stg-lite` backend. It runs alongside PR validation and takes no staging or PR-slot lock; E2E still runs on the `pr` slot.
+
 ## What reads the key
 
 | Where | How |

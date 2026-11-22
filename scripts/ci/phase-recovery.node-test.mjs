@@ -153,3 +153,13 @@ test('recovery CLI prints the E2E-only list for the observed draft cascade', asy
     assert.deepEqual(JSON.parse(result.stdout), ['Validate: Full', 'Validate: Diagramly', 'Pipeline outcome']);
   });
 });
+
+// A lane calls its E2E workflow, so a failed shard is reported as
+// "Validate: <Variant> / <suite> / shard n/m", not as one "Validate: <Variant>" job.
+test('a called lane failure still names its variant', async () => {
+  const { failedValidationVariants } = await import('./phase-recovery.mjs');
+  assert.deepEqual([...failedValidationVariants([
+    'Validate: Full / regression / shard 2/4', 'Validate: AsyncAPI / Verify staging backend', 'Validate: Lite',
+    'Deploy: Diagramly / deploy', 'Validate: Fullish / x',
+  ])].sort(), ['asyncapi', 'full', 'lite']);
+});

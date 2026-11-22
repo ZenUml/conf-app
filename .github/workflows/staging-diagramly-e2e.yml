@@ -1,41 +1,28 @@
 name: Staging E2E — staging-diagramly-e2e
-run-name: "staging-diagramly-e2e · parent ${{ inputs.parent-run-id }} · attempt ${{ inputs.parent-attempt }} · source ${{ inputs.source-sha }}"
+# Called by the "Validate: <Variant>" lane of main-staging-validation.yml. It
+# runs in that run, so it needs no run dispatch, no polling and no check that
+# a parent run still owns staging: the run that deployed is the run that tests.
 on:
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      parent-run-id: {type: string, required: true}
-      parent-attempt: {type: string, required: true}
       source-sha: {type: string, required: true}
-      root-run-id: {type: string, required: false, default: ''}
-      root-attempt: {type: string, required: false, default: ''}
-      suite: {type: string, default: insert}
-      timeout: {type: string, default: '11'}
       grep: {type: string, default: ''}
 permissions:
   contents: read
   actions: read
 jobs:
   parent:
-    name: Verify staging ownership
+    name: Verify staging backend
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      actions: read
-      contents: read
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.source-sha }}
-      - name: Check the active parent
+      - name: Verify pinned staging backend source
         env:
-          GH_TOKEN: ${{ github.token }}
-          PARENT_RUN_ID: ${{ inputs.parent-run-id }}
-          PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
-          SOURCE_SHA: ${{ inputs.source-sha }}
-          ROOT_RUN_ID: ${{ inputs.root-run-id }}
-          ROOT_ATTEMPT: ${{ inputs.root-attempt }}
-          EXPECTED_PARENT_JOBS: '["Validate: Diagramly"]'
-        run: node scripts/ci/wait-for-e2e.mjs --verify-parent
+          TARGET_SHA: ${{ inputs.source-sha }}
+        run: node scripts/test-selection/verify-backend.mjs --sha "$TARGET_SHA" --variant diagramly --url https://conf-stg-lite.zenuml.com --sha-only
   regression:
     needs: parent
     uses: ./.github/workflows/e2e-test.yml
@@ -46,8 +33,6 @@ jobs:
       suite: regression
       grep: ${{ inputs.grep }}
       auth-artifact: auth-state-pre-diagramly-stg
-      source-run-id: ${{ inputs.parent-run-id }}
-      source-attempt: ${{ inputs.parent-attempt }}
       ref: ${{ inputs.source-sha }}
       # 4 runners x 2 Playwright workers instead of up to 8 x 1: same test
       # concurrency, half the runners, so Lite's shards (the critical path)
@@ -71,8 +56,6 @@ jobs:
       suite: regression-render
       grep: ${{ inputs.grep }}
       auth-artifact: auth-state-pre-diagramly-stg
-      source-run-id: ${{ inputs.parent-run-id }}
-      source-attempt: ${{ inputs.parent-attempt }}
       ref: ${{ inputs.source-sha }}
       shard-matrix: '[1]'
       timeout-minutes: 25

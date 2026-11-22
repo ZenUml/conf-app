@@ -56,12 +56,28 @@ test('all four E2E lanes wait only for their own deploy and auth', () => {
       for (const result of ['failure', 'skipped', 'cancelled']) assert.equal(eligible(id, { [prerequisite]: result }), false);
     }
     assert.equal(eligible(id, {}, true), false);
-    const steps = stage.jobs[id].steps;
+    // The lane calls its E2E workflow in this run instead of dispatching a
+    // separate run and polling it (about 30 s of dispatch and ownership checks).
+    const lane = stage.jobs[id];
+    assert.equal(lane.uses, `./.github/workflows/staging-${variant}-e2e.yml`);
+    assert.equal(lane.steps, undefined);
+    assert.deepEqual(lane.with, { 'source-sha': '${{ inputs.source-sha }}', grep: '${{ needs.parent.outputs.grep }}' });
+    const child = workflow(`staging-${variant}-e2e`);
+    assert.ok(child.on.workflow_call, `staging-${variant}-e2e is called`);
+    assert.equal(child.on.workflow_dispatch, undefined, `staging-${variant}-e2e is no longer dispatched`);
+    const steps = child.jobs.parent.steps;
     const check = steps.find(step => step.name === 'Verify pinned staging backend source');
     assert.match(check.run, /--sha-only$/);
     assert.match(check.run, new RegExp(`--variant ${variant} `));
     assert.equal(check.env.TARGET_SHA, '${{ inputs.source-sha }}');
-    assert.ok(steps.indexOf(check) < steps.findIndex(step => step.run === 'node scripts/ci/wait-for-e2e.mjs'));
+    assert.equal(JSON.stringify(steps).includes('wait-for-e2e'), false, 'no parent-run ownership check inside one run');
+    for (const suite of ['regression', 'render']) {
+      assert.deepEqual(deps(child.jobs[suite]), ['parent'], `${variant} ${suite} waits for the backend check`);
+      // Artifacts (auth state, main selection) come from this same run.
+      assert.equal(child.jobs[suite].with['source-run-id'], undefined);
+      assert.equal(child.jobs[suite].with.grep, '${{ inputs.grep }}');
+      assert.equal(child.jobs[suite].with.ref, '${{ inputs.source-sha }}');
+    }
   }
   for (const result of ['failure', 'skipped', 'cancelled']) {
     assert.equal(eligible('staging-full-e2e', { 'staging-lite': result, 'staging-lite-e2e': result, 'e2e-auth-lite': result }), true);
@@ -69,25 +85,14 @@ test('all four E2E lanes wait only for their own deploy and auth', () => {
   assert.equal(Object.keys(stage.jobs).filter(id => id.startsWith('staging-full-e2e')).length, 1);
   assert.equal(stage.jobs.parent.outputs['full-now'], undefined);
   assert.equal(stage.jobs.parent.steps.some(step => step.id === 'lane'), false);
-  assert.equal(workflow('staging-full-e2e').jobs.parent.steps.find(step => step.env?.EXPECTED_PARENT_JOBS).env.EXPECTED_PARENT_JOBS, '["Validate: Full"]');
   assert.deepEqual(deps(stage.jobs.provenance).filter(id => id.startsWith('staging-full-e2e')), ['staging-full-e2e']);
   assert.equal('reuse-check' in stage.jobs, false);
 });
 
-test('a failed backend probe blocks every child dispatch while cleanup still runs', () => {
-  for (const id of ['staging-lite-e2e', 'staging-full-e2e', 'staging-diagramly-e2e', 'staging-asyncapi-e2e']) {
-    const steps = stage.jobs[id].steps;
-    const dispatch = steps.find(step => step.run === 'node scripts/ci/wait-for-e2e.mjs');
-    const cleanup = steps.find(step => step.run === 'node scripts/ci/wait-for-e2e.mjs --cleanup');
-    const evaluate = (step, priorSucceeded, cancelled) => Function('success', 'cancelled', 'always', `return (${step.if.slice(3, -2)})`)(
-      () => priorSucceeded, () => cancelled, () => true);
-    assert.equal(evaluate(dispatch, true, false), true);
-    assert.equal(evaluate(dispatch, false, false), false, `${id}: failed backend probe must block child dispatch`);
-    assert.equal(evaluate(dispatch, true, true), false);
-    assert.equal(evaluate(cleanup, false, false), true);
-    assert.equal(evaluate(cleanup, false, true), true);
-    assert.ok(steps.indexOf(cleanup) > steps.indexOf(dispatch));
-  }
+test('no staging lane dispatches or polls a child run any more', () => {
+  const text = readFileSync(new URL('../../.github/workflows/main-staging-validation.yml', import.meta.url), 'utf8');
+  for (const variant of variants) assert.equal(text.includes(`CHILD_WORKFLOW: staging-${variant}-e2e.yml`), false);
+  for (const id of variants.map(v => `staging-${v}-e2e`)) assert.equal(stage.jobs[id]['runs-on'], undefined);
 });
 
 test('draft eligibility requires successful migrations and combined deploy with fresh coverage', () => {

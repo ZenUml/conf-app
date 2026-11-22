@@ -22,29 +22,23 @@ export function dispatchBody(env) {
     'parent-attempt': env.GITHUB_RUN_ATTEMPT,
     'source-sha': env.SOURCE_SHA,
   };
+  // Only the root's phase runs and the PR E2E child are dispatched. Staging E2E
+  // lanes are called workflows inside the staging run (#1294).
   if (env.CHILD_KIND === 'phase') {
     inputs.version = env.VERSION;
     if (env.ARTIFACT_RUN_ID) inputs['artifact-run-id'] = env.ARTIFACT_RUN_ID;
     if (env.STAGING_RUN_ID) inputs['staging-run-id'] = env.STAGING_RUN_ID;
-  } else {
+  } else if (env.CHILD_KIND === 'pr') {
     inputs.grep = env.GREP || '';
-    if (env.CHILD_KIND === 'pr') {
-      inputs.mode = env.MODE;
-      if (env.PR_NUMBER) inputs['pr-number'] = env.PR_NUMBER;
-      if (env.DECISION_ID) inputs['decision-id'] = env.DECISION_ID;
-      // Dedicated-slot overrides; unset keeps the shared staging defaults of the child.
-      if (env.CHILD_APP) inputs.app = env.CHILD_APP;
-      if (env.CHILD_AUTH_ARTIFACT) inputs['auth-artifact'] = env.CHILD_AUTH_ARTIFACT;
-      if (env.CHILD_BACKEND_URL) inputs['backend-url'] = env.CHILD_BACKEND_URL;
-    }
-    else {
-      inputs.suite = env.SUITE || 'insert';
-      inputs.timeout = env.TEST_TIMEOUT || '11';
-      if (env.ROOT_RUN_ID) {
-        inputs['root-run-id'] = env.ROOT_RUN_ID;
-        inputs['root-attempt'] = env.ROOT_ATTEMPT;
-      }
-    }
+    inputs.mode = env.MODE;
+    if (env.PR_NUMBER) inputs['pr-number'] = env.PR_NUMBER;
+    if (env.DECISION_ID) inputs['decision-id'] = env.DECISION_ID;
+    // Dedicated-slot overrides; unset keeps the shared staging defaults of the child.
+    if (env.CHILD_APP) inputs.app = env.CHILD_APP;
+    if (env.CHILD_AUTH_ARTIFACT) inputs['auth-artifact'] = env.CHILD_AUTH_ARTIFACT;
+    if (env.CHILD_BACKEND_URL) inputs['backend-url'] = env.CHILD_BACKEND_URL;
+  } else {
+    throw new Error(`Unknown child kind: ${env.CHILD_KIND || 'unset'}`);
   }
   return { ref: env.DISPATCH_REF || env.GITHUB_REF_NAME, inputs };
 }
@@ -64,18 +58,10 @@ export function verifyChildRun(actor, attempt) {
 export function verifyParent(parent, attempt, jobs, expectedJobs, provenance = {}) {
   const dispatcherRunning = jobs.some(job => expectedJobs.includes(job.name) && job.status === 'in_progress');
   if (!['in_progress', 'pending', 'queued'].includes(parent.status) || !dispatcherRunning || String(parent.run_attempt) !== attempt ||
-      !['.github/workflows/build-test-deploy.yml', '.github/workflows/pr-validation.yml', '.github/workflows/main-staging-validation.yml'].includes(parent.path)) {
+      !['.github/workflows/build-test-deploy.yml', '.github/workflows/pr-validation.yml'].includes(parent.path)) {
     throw new Error('Child E2E requires an active staging parent for this attempt');
   }
-  if (parent.path === '.github/workflows/main-staging-validation.yml') {
-    if (!provenance.root) throw new Error('Staging phase requires root provenance');
-    verifyParent(provenance.root, provenance.rootAttempt, provenance.rootJobs, ['Staging validation']);
-    const title = `Staging validation · parent ${provenance.rootId} · attempt ${provenance.rootAttempt} · source ${provenance.sourceSha}`;
-    if (provenance.root.path !== '.github/workflows/build-test-deploy.yml' ||
-        provenance.root.head_sha !== provenance.sourceSha || parent.display_title !== title) {
-      throw new Error('Staging phase source does not match its root');
-    }
-  } else if (parent.path === '.github/workflows/build-test-deploy.yml' && provenance.sourceSha && parent.head_sha !== provenance.sourceSha) {
+  if (parent.path === '.github/workflows/build-test-deploy.yml' && provenance.sourceSha && parent.head_sha !== provenance.sourceSha) {
     throw new Error('Phase source does not match its root');
   }
 }
@@ -251,23 +237,13 @@ async function main() {
   const dispatchMarker = `${env.RUNNER_TEMP || '/tmp'}/e2e-dispatched-${workflow}-${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}`;
   if (process.argv.includes('--verify-parent')) {
     verifyChildRun(env.GITHUB_ACTOR, env.GITHUB_RUN_ATTEMPT);
-    const fetchState = () => {
-      const provenance = { sourceSha: env.SOURCE_SHA };
-      if (env.ROOT_RUN_ID) {
-        Object.assign(provenance, {
-          rootId: env.ROOT_RUN_ID, rootAttempt: env.ROOT_ATTEMPT,
-          root: api(`actions/runs/${env.ROOT_RUN_ID}`),
-          rootJobs: api(`actions/runs/${env.ROOT_RUN_ID}/attempts/${env.ROOT_ATTEMPT}/jobs?per_page=100`).jobs,
-        });
-      }
-      return {
-        parent: api(`actions/runs/${env.PARENT_RUN_ID}`),
-        attempt: env.PARENT_ATTEMPT,
-        jobs: api(`actions/runs/${env.PARENT_RUN_ID}/attempts/${env.PARENT_ATTEMPT}/jobs?per_page=100`).jobs,
-        expectedJobs: JSON.parse(env.EXPECTED_PARENT_JOBS),
-        provenance,
-      };
-    };
+    const fetchState = () => ({
+      parent: api(`actions/runs/${env.PARENT_RUN_ID}`),
+      attempt: env.PARENT_ATTEMPT,
+      jobs: api(`actions/runs/${env.PARENT_RUN_ID}/attempts/${env.PARENT_ATTEMPT}/jobs?per_page=100`).jobs,
+      expectedJobs: JSON.parse(env.EXPECTED_PARENT_JOBS),
+      provenance: { sourceSha: env.SOURCE_SHA },
+    });
     let verified;
     await verifyParentWithRetry(() => (verified = fetchState()), 6, pause, line => console.error(line));
     const { parent } = verified;

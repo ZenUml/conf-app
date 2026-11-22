@@ -146,12 +146,6 @@ describe('staging workflow safety contracts', () => {
         if (job.uses === './.github/workflows/staging-deploy.yml') expect(job.with.ref).toBe('${{ inputs.source-sha }}');
       }
     }
-    for (const job of Object.values(structure('main-staging-validation').jobs) as any[]) {
-      const dispatch = job.steps?.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs');
-      if (!dispatch) continue;
-      expect(dispatch.env.ROOT_RUN_ID).toBe('${{ inputs.parent-run-id }}');
-      expect(dispatch.env.ROOT_ATTEMPT).toBe('${{ inputs.parent-attempt }}');
-    }
   });
   it('keeps parent staging ownership through cancellation cleanup', () => {
     // main-staging-validation dispatches no child any more: its lanes are called.

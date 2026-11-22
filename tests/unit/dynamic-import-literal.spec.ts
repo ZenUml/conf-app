@@ -36,12 +36,47 @@ function listSourceFiles(dir: string): string[] {
   return out;
 }
 
+/**
+ * Blanks comments and string contents (same length, newlines kept) so a prose
+ * "import (" in a comment or string is not taken for a call. Approximate: it
+ * does not track regex literals or `${}` inside templates.
+ */
+function maskCommentsAndStrings(source: string): string {
+  let out = '';
+  let i = 0;
+  const blank = (t: string) => t.replace(/[^\n]/g, ' ');
+  while (i < source.length) {
+    const two = source.slice(i, i + 2);
+    if (two === '//') {
+      const end = source.indexOf('\n', i);
+      const stop = end === -1 ? source.length : end;
+      out += blank(source.slice(i, stop));
+      i = stop;
+    } else if (two === '/*') {
+      const end = source.indexOf('*/', i + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      out += blank(source.slice(i, stop));
+      i = stop;
+    } else if (source[i] === '"' || source[i] === "'" || source[i] === '`') {
+      const q = source[i];
+      let j = i + 1;
+      while (j < source.length && source[j] !== q) j += source[j] === '\\' ? 2 : 1;
+      out += q + blank(source.slice(i + 1, j)) + (j < source.length ? q : '');
+      i = j + 1;
+    } else {
+      out += source[i++];
+    }
+  }
+  return out;
+}
+
 /** Returns `line: text` for each `import(` whose first argument is not a literal. */
 function findNonLiteralDynamicImports(source: string): string[] {
   const hits: string[] = [];
+  const masked = maskCommentsAndStrings(source);
   const re = /(^|[^\w$.])import\s*\(/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(source))) {
+  while ((m = re.exec(masked))) {
     let i = m.index + m[0].length;
     let ignored = false;
     // Skip whitespace and comments before the first argument.
@@ -78,6 +113,9 @@ describe('dynamic import specifiers', () => {
     expect(findNonLiteralDynamicImports('import(/* @vite-ignore */ url)')).toEqual([]);
     expect(findNonLiteralDynamicImports('vi.importActual(x); import.meta.url;')).toEqual([]);
     expect(findNonLiteralDynamicImports('import(`./a/${name}.ts`)')).toHaveLength(1);
+    // Prose and strings that merely contain "import (" are not calls.
+    expect(findNonLiteralDynamicImports('// starts the import (e.g. a file)\nconst s = "import (x)";')).toEqual([]);
+    expect(findNonLiteralDynamicImports('/* import (x) */ const y = 1;')).toEqual([]);
   });
 
   it('src/ uses only literal specifiers in bundled dynamic imports', () => {

@@ -1,0 +1,3 @@
+lite rule=on rc=0 Workspace=663942B 
+full rule=on rc=0 Workspace=664520B 
+lite rule=off rc=1 Workspace=n/aB renderer must load on demand (dynamic import): assets/Workspace-CQAEXQ62.js statically imports the renderer

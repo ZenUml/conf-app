@@ -31,3 +31,10 @@ Forge Tunnel and staging UI checks not done (see PR description).
   then with it replaced by `moduleSideEffects: true`. With the rule: rc=0. Without: rc=1, guard names the Workspace chunk.
 - `stg-before.png`: lite-stg throwaway page on the main build before this PR deployed (Mermaid zenuml lacks VPC/RDS icons).
 - `bundle-after.json`: re-measured on the final code (unchanged within ~100 bytes).
+
+## Head 77ef1699 (main moved to Vite 8 / Rolldown)
+
+`guard-proof-rolldown.log`: with the zenuml-linter rule, lite and full build (Workspace 663,942 B / 664,520 B);
+with the rule replaced by `moduleSideEffects: true`, the lite build fails on `Workspace`. Rolldown emits core's
+lazy `dist/cloud-icons-*.js` as its own chunk importing core's main chunk; the guard now allows non-entry
+chunks whose facade is inside `@zenuml/core/dist`.

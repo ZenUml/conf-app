@@ -84,18 +84,18 @@ test('phase parents keep full commit history but skip old file bodies', () => {
   }
 });
 
-test('main regression runner budget: Full and Diagramly use 4 runners x 2 workers, Lite keeps its layout', () => {
+test('main regression runner budget: Lite, Full and Diagramly use 4 runners x 2 workers, AsyncAPI keeps its layout', () => {
   const e2e = workflow('e2e-test');
   assert.equal(e2e.on.workflow_call.inputs.workers.default, '1');
   const runSteps = e2e.jobs.test.steps.filter(step => ['Execute planned tests', 'Run tests'].includes(step.name));
   assert.equal(runSteps.length, 2);
   for (const step of runSteps) assert.equal(step.env.E2E_WORKERS, '${{ inputs.workers }}');
-  for (const variant of ['full', 'diagramly']) {
+  for (const variant of ['lite', 'full', 'diagramly']) {
     const inputs = workflow(`staging-${variant}-e2e`).jobs.regression.with;
     assert.equal(inputs['shard-matrix'], '[1, 2, 3, 4]');
     assert.equal(inputs.workers, '2');
   }
-  for (const variant of ['lite', 'asyncapi']) {
+  for (const variant of ['asyncapi']) {
     const inputs = workflow(`staging-${variant}-e2e`).jobs.regression.with;
     assert.equal('workers' in inputs, false);
   }

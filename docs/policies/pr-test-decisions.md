@@ -60,7 +60,7 @@ When the user explicitly asks to try labeling an existing PR before the trusted 
 
 1. Create the PR with `--draft` and publish its decision using `pr-labeling`.
 2. For a subset, run `node scripts/test-selection/request-pr-e2e.mjs --pr NUMBER`. For triage, stop E2E processing and leave the queue for an explicit triage request.
-3. The request helper verifies current authorization and requests a fresh PR-associated validation run. `PR validation` deploys to the PR slot only after `Select E2E for this PR` passes; a blocked decision does not spend the slot. This preserves PR check provenance. A diagnostic `workflow_dispatch` on main cannot substitute for the PR's own checks.
+3. The request helper verifies current authorization and requests a fresh PR-associated validation run. `PR validation` deploys to the PR slot only after `Select E2E for this PR` passes; a blocked decision does not spend the slot. A request for a head that an earlier run already validated under the same newest decision is skipped and links to that run; to force another validation, re-run the workflow run or dispatch it manually. This preserves PR check provenance. A diagnostic `workflow_dispatch` on main cannot substitute for the PR's own checks.
 4. The trusted default-branch controller reads the decision and produces immutable raw/resolved artifacts for the candidate merge. The child, plan and shard entrypoints recheck the decision. The planner retains the mandatory floor and produces concrete test identities.
 5. `Pipeline outcome` requires selection and all configured PR E2E stages to succeed. Report executed test evidence separately from the selected plan.
 

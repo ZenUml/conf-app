@@ -183,7 +183,7 @@ describe('PR validation that owns the PR slot', () => {
     expect(current.run).toBe('node scripts/ci/pr-head-current.mjs');
     expect(current.env).toMatchObject({ PR_NUMBER: prNumber, EXPECTED_SHA: expectedSha });
     expect(gate.permissions['pull-requests']).toBe('read');
-    expect(gate.outputs.run).toBe("${{ steps.gate.outputs.run == 'true' && steps.current.outputs.current != 'false' }}");
+    expect(gate.outputs.run).toContain("steps.gate.outputs.run == 'true' && steps.current.outputs.current != 'false'");
     expect(validation.jobs['staging-lite'].if).toContain("needs.gate.outputs.run == 'true'");
   });
 
@@ -193,6 +193,32 @@ describe('PR validation that owns the PR slot', () => {
     expect(deploy.needs).toEqual(['gate', 'select']);
     expect(deploy.if).toContain("needs.select.result == 'success'");
     expect(deploy.if).toContain("needs.gate.outputs.run == 'true'");
+  });
+
+  it('skips a run that an earlier run of the same head already covers', () => {
+    const { gate } = validation.jobs;
+    const covered = gate.steps.find((step: any) => step.id === 'covered');
+    expect(covered.run).toBe('node scripts/ci/pr-run-covered.mjs');
+    expect(covered.env).toMatchObject({ PR_NUMBER: prNumber, EXPECTED_SHA: expectedSha });
+    // Listing earlier runs and their jobs needs the Actions read scope.
+    expect(gate.permissions.actions).toBe('read');
+    expect(gate.outputs.run).toBe("${{ steps.gate.outputs.run == 'true' && steps.current.outputs.current != 'false' && steps.covered.outputs.covered-by == '' }}");
+    expect(gate.outputs['covered-by']).toBe('${{ steps.covered.outputs.covered-by }}');
+    // The lookup comes after the cheaper head check and only when that passed.
+    const ids = gate.steps.map((step: any) => step.id);
+    expect(ids.indexOf('covered')).toBeGreaterThan(ids.indexOf('current'));
+    expect(covered.if).toContain("steps.current.outputs.current != 'false'");
+  });
+
+  it('a skipped E2E job cannot replace the earlier run\'s passed check of the same name', () => {
+    // GitHub shows a skipped job with an expression name as the raw expression,
+    // so only a job that really ran is called "E2E validation" or "Pipeline outcome".
+    for (const id of ['pr-e2e-validation', 'pr-pipeline-outcome']) {
+      const name = validation.jobs[id].name;
+      expect(name).toMatch(/^\$\{\{.*\}\}$/);
+    }
+    expect(validation.jobs['pr-e2e-validation'].name).toContain("'E2E validation'");
+    expect(validation.jobs['pr-pipeline-outcome'].name).toContain("'Pipeline outcome'");
   });
 
   it('skips the E2E run when a newer push lands during the deploy, and still closes the child', () => {

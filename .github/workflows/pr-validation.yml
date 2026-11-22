@@ -30,10 +30,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     outputs:
-      run: ${{ steps.gate.outputs.run == 'true' && steps.current.outputs.current != 'false' }}
+      run: ${{ steps.gate.outputs.run == 'true' && steps.current.outputs.current != 'false' && steps.covered.outputs.covered-by == '' }}
+      covered-by: ${{ steps.covered.outputs.covered-by }}
       candidate: ${{ steps.gate.outputs.candidate }}
       head-sha: ${{ steps.gate.outputs.head-sha }}
       pr-number: ${{ steps.gate.outputs.pr-number }}
@@ -79,6 +81,24 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr-number }}
           EXPECTED_SHA: ${{ steps.gate.outputs.head-sha }}
         run: node scripts/ci/pr-head-current.mjs
+      # One commit often gets several runs (push, `test:run`, Ready for Review).
+      # They queue on the one PR slot; without this each would deploy and run E2E
+      # again for the same commit and the same test decision. A manual dispatch
+      # or a re-run always validates again.
+      - id: covered
+        name: Skip if an earlier run already validated this commit
+        if: ${{ steps.gate.outputs.run == 'true' && steps.current.outputs.current != 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr-number }}
+          EXPECTED_SHA: ${{ steps.gate.outputs.head-sha }}
+        run: node scripts/ci/pr-run-covered.mjs
+      - name: Report the covering run
+        if: ${{ steps.covered.outputs.covered-by != '' }}
+        env:
+          COVERED_BY: ${{ steps.covered.outputs.covered-by }}
+        run: |
+          echo "Skipped. Run [$COVERED_BY]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$COVERED_BY) already passed E2E for this commit under the current test decision." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Record parent candidate provenance
         env:
@@ -188,7 +208,10 @@ jobs:
     secrets: inherit
 
   pr-e2e-validation:
-    name: "E2E validation"
+    # An expression, not a plain string: GitHub shows a skipped job's expression
+    # name unevaluated, so a skipped duplicate run cannot replace the passed
+    # "E2E validation" check of the run that covers it.
+    name: ${{ needs.gate.outputs.run == 'true' && 'E2E validation' || 'E2E validation (not run)' }}
     if: ${{ !cancelled() && (github.event_name == 'pull_request' || inputs.pr-number != '') && needs.gate.outputs.run == 'true' && needs.staging-lite.result == 'success' && needs.select.result == 'success' && needs.e2e-auth-lite.result == 'success' }}
     needs: [gate, staging-lite, select, e2e-auth-lite]
     runs-on: ubuntu-latest

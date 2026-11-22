@@ -53,7 +53,9 @@ describe('staging workflow safety contracts', () => {
       expect(verifier.env.PARENT_RUN_ID).toBe('${{ inputs.parent-run-id }}');
       expect(verifier.env.PARENT_ATTEMPT).toBe('${{ inputs.parent-attempt }}');
       const dispatcherNames = ['main-staging-validation', 'pr-validation'].flatMap(parent => Object.values(structure(parent).jobs).map((job: any) => job.name));
-      for (const expected of JSON.parse(verifier.env.EXPECTED_PARENT_JOBS)) expect(dispatcherNames).toContain(expected);
+      // A dispatcher's name may be an expression that yields the expected name while the job runs.
+      const names = (name: string) => name.startsWith('${{') ? [...name.matchAll(/'([^']+)'/g)].map(match => match[1]) : [name];
+      for (const expected of JSON.parse(verifier.env.EXPECTED_PARENT_JOBS)) expect(dispatcherNames.flatMap(names)).toContain(expected);
       expect(child.jobs.parent.if).toBeUndefined();
       expect(child.on.workflow_dispatch.inputs['source-sha'].required).toBe(true);
     }

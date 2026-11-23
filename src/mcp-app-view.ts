@@ -757,16 +757,33 @@ function hostTakesTextMessages(): boolean {
 }
 
 /**
- * What Save to Confluence puts in the chat, as if the user typed it. The agent
- * already has the source, from its own render_diagram call, so the message
- * names the diagram rather than repeating it.
+ * The ZenUML Confluence connector (the headless MCP server) that pairs with
+ * this view: production for a production view, staging for everything else.
+ * The production address is the one docs/features/ai-plugin-distribution.md
+ * gives users.
  */
-export function saveRequestText(payload: DiagramPayload): string {
+export function confluenceConnectorUrl(viewUrl: string): string {
+  const host = new URL(viewUrl).hostname;
+  return host === 'zenuml.com' || host === 'www.zenuml.com' || host === 'conf-lite.zenuml.com'
+    ? 'https://conf-lite.zenuml.com/agent-link/mcp'
+    : 'https://conf-stg-lite.zenuml.com/agent-link/mcp';
+}
+
+/**
+ * What Save to Confluence sends to the agent. claude.ai shows a `ui/message`
+ * as the app's words, not the user's, and the agent would not act on text
+ * posing as the user (#1305 test, 2026-11-23). So it says what the user did,
+ * asks the agent to confirm the page with them, and gives the connector's
+ * address for when it is not connected. It names the diagram rather than
+ * repeating its source, which the agent has from its own render_diagram call.
+ */
+export function saveRequestText(payload: DiagramPayload, connectorUrl: string): string {
   const title = payload.title?.trim();
   return (
-    `Save the ${payload.diagramType} diagram${title ? ` "${title}"` : ''} you just rendered to Confluence. ` +
-    'Use the ZenUML Confluence connector (its create_diagram tool) if it is connected, and ask me which page it should go on. ' +
-    "If it isn't connected, tell me how to connect it."
+    `The user pressed "Save to Confluence" in the ZenUML diagram view for the ${payload.diagramType} diagram` +
+    `${title ? ` "${title}"` : ''} that render_diagram drew above. ` +
+    'Ask the user which Confluence page it should go on, then save it there with the ZenUML Confluence connector\'s create_diagram tool. ' +
+    `If that connector is not connected, tell the user to add it as a custom connector with this URL: ${connectorUrl}`
   );
 }
 
@@ -1003,7 +1020,7 @@ async function saveToConfluence(): Promise<void> {
   try {
     const { result, error } = await ask(
       'ui/message',
-      { role: 'user', content: [{ type: 'text', text: saveRequestText(payload) }] },
+      { role: 'user', content: [{ type: 'text', text: saveRequestText(payload, confluenceConnectorUrl(viewOrigin())) }] },
       HOST_DIALOG_TIMEOUT_MS,
     );
     ok = !error && (result as { isError?: unknown } | undefined)?.isError !== true;

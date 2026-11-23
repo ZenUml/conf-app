@@ -5,6 +5,7 @@ import {
   downloadName,
   extractDiagram,
   fitScale,
+  confluenceConnectorUrl,
   isUnsavedRender,
   saveRequestText,
   mcpModeOf,
@@ -1120,7 +1121,7 @@ describe('Copy and Download', () => {
       const request = posted.find((m) => m.method === 'ui/message')!;
       expect(request.params).toEqual({
         role: 'user',
-        content: [{ type: 'text', text: saveRequestText({ diagramType: 'mermaid', dsl: render.source, title: 'Login flow' }) }],
+        content: [{ type: 'text', text: expect.stringContaining('for the mermaid diagram "Login flow"') }],
       });
       onHostMessage({ data: { jsonrpc: '2.0', id: request.id, result: { isError: false } } } as MessageEvent);
       await vi.waitFor(() => expect(actions()).toHaveLength(1));
@@ -1183,10 +1184,28 @@ describe('isUnsavedRender', () => {
 });
 
 describe('saveRequestText', () => {
-  it('names the diagram and the connector, without the source', () => {
-    const text = saveRequestText({ diagramType: 'mermaid', dsl: 'graph TD;SECRET-->B;', title: 'Login flow' });
+  const url = 'https://conf-lite.zenuml.com/agent-link/mcp';
+
+  it('reports what the user did, in the app\'s voice, without the source', () => {
+    const text = saveRequestText({ diagramType: 'mermaid', dsl: 'graph TD;SECRET-->B;', title: 'Login flow' }, url);
+    expect(text).toMatch(/^The user pressed "Save to Confluence"/);
     expect(text).toContain('mermaid diagram "Login flow"');
+    expect(text).toContain('Ask the user which Confluence page');
     expect(text).toContain('create_diagram');
     expect(text).not.toContain('SECRET');
+    // Not phrased as if the user typed it: claude.ai labels it as the app's.
+    expect(text).not.toMatch(/\b(me|my|I)\b/);
+  });
+
+  it('gives the connector address for when it is not connected', () => {
+    expect(saveRequestText({ diagramType: 'sequence', dsl: 'A.b()' }, url)).toContain(`custom connector with this URL: ${url}`);
+  });
+});
+
+describe('confluenceConnectorUrl', () => {
+  it('pairs a production view with the production connector and the rest with staging', () => {
+    expect(confluenceConnectorUrl('https://zenuml.com/mcp-app/assets/view.js')).toBe('https://conf-lite.zenuml.com/agent-link/mcp');
+    expect(confluenceConnectorUrl('https://conf-lite.zenuml.com/mcp-app/assets/view.js')).toBe('https://conf-lite.zenuml.com/agent-link/mcp');
+    expect(confluenceConnectorUrl('https://conf-stg-lite.zenuml.com/mcp-app/assets/view.js')).toBe('https://conf-stg-lite.zenuml.com/agent-link/mcp');
   });
 });

@@ -109,6 +109,12 @@ describe('withUiMeta', () => {
   });
 });
 
+describe('uiResourceMeta', () => {
+  it('asks for clipboard-write, for the Copy button', () => {
+    expect((uiResourceMeta(ORIGIN).ui as { permissions?: unknown }).permissions).toEqual({ clipboardWrite: {} });
+  });
+});
+
 describe('isRenderableType', () => {
   it('accepts the types this view draws, in the stored casing too', () => {
     expect([...RENDERABLE_TYPES].sort()).toEqual(['graph', 'mermaid', 'openapi', 'plantuml', 'sequence']);

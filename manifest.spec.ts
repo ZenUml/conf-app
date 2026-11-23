@@ -142,7 +142,16 @@ describe("workflows that install Playwright browsers", () => {
     const workflow: any = yaml.load(readFileSync(`${dir}/${file}`, "utf-8"));
     return Object.entries<any>(workflow.jobs ?? {})
       .filter(([, job]) => (job.steps ?? []).some((step: any) => /playwright install/.test(step.run ?? "")))
-      .map(([id, job]) => ({ job: `${file}#${id}`, runner: job["runs-on"] }));
+      .map(([id, job]) => {
+        // A reusable workflow may take the runner as an input. Its hosted default is
+        // what installs browsers; the gcp-conf pool skips the install and runs the
+        // shards in the Playwright noble (24.04) container instead.
+        const fromInput = /^\$\{\{\s*inputs\.([\w-]+)\s*\}\}$/.exec(String(job["runs-on"]));
+        const runner = fromInput
+          ? workflow.on?.workflow_call?.inputs?.[fromInput[1]]?.default
+          : job["runs-on"];
+        return { job: `${file}#${id}`, runner };
+      });
   });
 
   it("finds the jobs that install browsers", () => {

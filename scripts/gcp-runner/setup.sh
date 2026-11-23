@@ -27,6 +27,17 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 
 sudo apt-get update -y
 sudo apt-get install -y docker.io jq curl
+# Every container job creates its own bridge network. Docker's default pools hold about 31
+# networks, so with 48 runners busy the rest failed with "all predefined address pools have
+# been fully subnetted" (run 45107657015: 24 of 56 shards). 10.200.0.0/16 cut into /24s
+# gives 256 networks.
+POOLS='{"default-address-pools":[{"base":"10.200.0.0/16","size":24}]}'
+if [ "$(sudo jq -c '."default-address-pools"' /etc/docker/daemon.json 2>/dev/null)" != "$(jq -c '."default-address-pools"' <<<"$POOLS")" ]; then
+	sudo mkdir -p /etc/docker
+	echo "$POOLS" | sudo tee /etc/docker/daemon.json >/dev/null
+	# Restarting Docker kills running job containers; this branch runs only when the file changes.
+	sudo systemctl restart docker
+fi
 sudo systemctl enable --now docker
 
 id gha >/dev/null 2>&1 || sudo useradd --create-home --shell /bin/bash gha

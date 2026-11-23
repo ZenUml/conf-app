@@ -24,6 +24,9 @@ const PLANTUML_FAILURE_REASONS = ['load_failed', 'include', 'engine_error'];
 const FULLSCREEN_OUTCOMES = ['entered', 'exited', 'declined', 'failed'];
 const ZOOM_ACTIONS = ['zoom_in', 'zoom_out', 'fit'];
 const ZOOM_INPUTS = ['toolbar', 'wheel', 'keyboard'];
+const VIEW_ACTIONS = ['copy_source', 'download'];
+const DOWNLOAD_FORMATS = ['svg', 'source'];
+const ACTION_OUTCOMES = ['done', 'failed'];
 /** Only the local stdio server stamps its results (`mcpMode`); a remote result carries no mode. */
 const MCP_MODES = ['local'];
 
@@ -56,7 +59,17 @@ interface ZoomViewEvent {
   fullscreen_active: boolean;
 }
 
-type ViewEvent = RenderViewEvent | FullscreenViewEvent | ZoomViewEvent;
+/** A press of Copy or Download (agent_link_app_view_action_used), sent with `kind: 'action'`. */
+interface ActionViewEvent {
+  event: 'agent_link_app_view_action_used';
+  macro_type: string;
+  mcp_mode?: string;
+  view_action: string;
+  download_format?: string;
+  action_outcome: string;
+}
+
+type ViewEvent = RenderViewEvent | FullscreenViewEvent | ZoomViewEvent | ActionViewEvent;
 
 function isOneOf(value: unknown, allowed: readonly string[]): value is string {
   return typeof value === 'string' && allowed.includes(value);
@@ -90,6 +103,19 @@ export function parseViewEvent(text: string): ViewEvent | null {
       viewport_action: body.viewport_action,
       viewport_input: body.viewport_input,
       fullscreen_active: body.fullscreen_active,
+    };
+  }
+  if (body.kind === 'action') {
+    if (!isOneOf(body.view_action, VIEW_ACTIONS) || !isOneOf(body.action_outcome, ACTION_OUTCOMES)) return null;
+    // A download says what it produced; a copy has no format.
+    if (body.view_action === 'download' ? !isOneOf(body.download_format, DOWNLOAD_FORMATS) : body.download_format !== undefined) return null;
+    return {
+      event: 'agent_link_app_view_action_used',
+      macro_type: body.macro_type,
+      ...mode,
+      view_action: body.view_action,
+      ...(body.view_action === 'download' ? { download_format: body.download_format as string } : {}),
+      action_outcome: body.action_outcome,
     };
   }
   if (body.kind !== undefined || !isOneOf(body.render_outcome, RENDER_OUTCOMES)) return null;

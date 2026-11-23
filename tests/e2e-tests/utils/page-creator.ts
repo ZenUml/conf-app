@@ -2,6 +2,14 @@ import { Page } from '@playwright/test';
 import { testConfig } from '../config/test-config.js';
 import type { RenderMacroType } from '../config/apps.js';
 import { withLock } from './api-lock.js';
+import {
+  FORGE_MACROS_QUERY,
+  forgeMacroNode,
+  legacyMacroNode,
+  selectForgeIdentity,
+  type ForgeExtensionRow,
+  type ForgeIdentity,
+} from './forge-extension.js';
 
 /** One emoji per diagram/macro kind (stable set for E2E page titles).
  *  Keyed on RenderMacroType, not MacroType: this class builds pages through the
@@ -22,6 +30,24 @@ interface MacroOptions {
   openapi?: boolean;
   embed?: boolean;
   mermaid?: boolean;
+  /**
+   * Write the bare macro key that pages migrated from the Connect app carry,
+   * instead of the full Forge key of the environment under test. Refused when
+   * the site has more than one environment of the app installed, because
+   * Confluence then picks one of them itself (see utils/forge-extension.ts).
+   * Check legacyMacroKeyUsable() first.
+   */
+  legacyMacroKey?: boolean;
+}
+
+/** One macro on the test page, before it is written as a Forge or a legacy node. */
+interface MacroSpec {
+  moduleKey: string;
+  title: string;
+  uuid: string;
+  customContentId?: string;
+  bodyContent?: string;
+  updatedAt: string;
 }
 
 interface CustomContent {
@@ -32,8 +58,52 @@ interface CustomContent {
 export class PageCreator {
   private page: Page;
 
+  private forgeMacros?: Promise<ForgeExtensionRow[]>;
+
   constructor(page: Page) {
     this.page = page;
+  }
+
+  /** The Forge install of the app under test that exposes the sequence macro. */
+  async forgeIdentity(): Promise<ForgeIdentity> {
+    return selectForgeIdentity(await this.listForgeMacros(), {
+      appId: testConfig.forgeAppId,
+      moduleKey: testConfig.sequenceMacroKey,
+      environmentKey: testConfig.forgeEnvironment,
+    });
+  }
+
+  /** True when a bare macro key can only resolve to the environment under test. */
+  async legacyMacroKeyUsable(): Promise<boolean> {
+    // Unpinned profiles write bare keys anyway; nothing to compare against.
+    if (!testConfig.pinForgeKey) return true;
+    return (await this.forgeIdentity()).environmentCount === 1;
+  }
+
+  // The query the editor's macro browser runs. The gateway answers a cookie
+  // request without an Origin header with 403 (observed 2026-11-23), so send it.
+  private listForgeMacros(): Promise<ForgeExtensionRow[]> {
+    this.forgeMacros ??= (async () => {
+      const origin = `https://${testConfig.domain}`;
+      const tenant = await this.page.request.get(`${origin}/_edge/tenant_info`);
+      if (!tenant.ok()) throw new Error(`tenant_info failed (${tenant.status()})`);
+      const { cloudId } = await tenant.json();
+      const response = await this.page.request.post(`${origin}/gateway/api/graphql`, {
+        headers: { 'Content-Type': 'application/json', Origin: origin, Referer: `${origin}/wiki/` },
+        data: {
+          operationName: 'E2EForgeMacros',
+          query: FORGE_MACROS_QUERY,
+          variables: { cloudId, context: { spaceKey: testConfig.spaceKey }, types: ['xen:macro'], includeHidden: false },
+        },
+      });
+      const body = await response.json().catch(() => ({}));
+      const rows = body?.data?.confluence_forgeExtensionsByType;
+      if (!response.ok() || !Array.isArray(rows)) {
+        throw new Error(`Forge macro lookup failed (${response.status()}): ${JSON.stringify(body?.errors ?? body).slice(0, 500)}`);
+      }
+      return rows as ForgeExtensionRow[];
+    })();
+    return this.forgeMacros;
   }
 
   private get addonKey(): string {
@@ -73,7 +143,7 @@ export class PageCreator {
       ]);
 
       // Create page content with proper macro structure
-      const pageContent = this.buildPageContent(options);
+      const pageContent = await this.buildPageContent(options);
       const body = JSON.stringify(pageContent)
         .replaceAll('$$_SEQUENCE_CONTENT_ID', sequence?.id || '')
         .replaceAll('$$_GRAPH_CONTENT_ID', graph?.id || '')
@@ -156,35 +226,54 @@ export class PageCreator {
     return response.json();
   }
 
-  private buildPageContent(options: MacroOptions): any {
-    const content = { type: 'doc', content: [], version: 1 };
+  private async buildPageContent(options: MacroOptions): Promise<any> {
+    const content = { type: 'doc', content: [] as any[], version: 1 };
+    const specs: MacroSpec[] = [];
 
     if (options.sequence) {
-      let extension = this.getSequenceExtension();
-      if (typeof options.sequence === 'object' && options.sequence.bodyOnly) {
-        extension = JSON.parse(JSON.stringify(extension));
-        delete extension.attrs.parameters.macroParams.customContentId;
-      }
-      content.content.push(extension);
+      const spec = this.getSequenceSpec();
+      if (typeof options.sequence === 'object' && options.sequence.bodyOnly) delete spec.customContentId;
+      specs.push(spec);
     }
+    if (options.graph) specs.push(this.getGraphSpec());
+    if (options.openapi) specs.push(this.getOpenAPISpec());
+    if (options.embed) specs.push(this.getEmbedSpec());
+    if (options.mermaid) specs.push(this.getMermaidSpec());
 
-    if (options.graph) {
-      content.content.push(this.getGraphExtension());
+    if (!testConfig.pinForgeKey) {
+      for (const spec of specs) content.content.push(this.legacyNode(spec));
+      return content;
     }
-
-    if (options.openapi) {
-      content.content.push(this.getOpenAPIExtension());
+    const identity = await this.forgeIdentity();
+    // A body-only macro has no Forge form: its body lives in Connect macro params.
+    const bodyOnly = typeof options.sequence === 'object' && !!options.sequence.bodyOnly;
+    if ((options.legacyMacroKey || bodyOnly) && identity.environmentCount !== 1) {
+      throw new Error(
+        `A bare macro key is ambiguous on ${testConfig.domain}: ${identity.environmentCount} environments of app ${identity.appId} are installed. Check legacyMacroKeyUsable() first.`,
+      );
     }
-
-    if (options.embed) {
-      content.content.push(this.getEmbedExtension());
+    for (const spec of specs) {
+      content.content.push(options.legacyMacroKey || bodyOnly ? this.legacyNode(spec) : this.forgeNode(identity, spec));
     }
-
-    if (options.mermaid) {
-      content.content.push(this.getMermaidExtension());
-    }
-
     return content;
+  }
+
+  private forgeNode(identity: ForgeIdentity, spec: MacroSpec) {
+    const guestParams: Record<string, string> = { uuid: spec.uuid, updatedAt: spec.updatedAt };
+    if (spec.customContentId) guestParams.customContentId = spec.customContentId;
+    return forgeMacroNode(identity, spec.moduleKey, guestParams, this.generateLocalId());
+  }
+
+  private legacyNode(spec: MacroSpec) {
+    const macroParams: Record<string, { value: string }> = { uuid: { value: spec.uuid } };
+    if (spec.customContentId) macroParams.customContentId = { value: spec.customContentId };
+    if (spec.bodyContent !== undefined) macroParams.__bodyContent = { value: spec.bodyContent };
+    macroParams.updatedAt = { value: spec.updatedAt };
+    return legacyMacroNode(spec.moduleKey, spec.title, macroParams);
+  }
+
+  private generateLocalId(): string {
+    return globalThis.crypto?.randomUUID?.() ?? `e2e-${this.generateUUID()}`;
   }
 
   private getModuleKeySuffix(): string {
@@ -318,130 +407,55 @@ paths:
     };
   }
 
-  private getSequenceExtension() {
+  private getSequenceSpec(): MacroSpec {
     return {
-      type: 'extension',
-      attrs: {
-        layout: 'default',
-        extensionType: 'com.atlassian.confluence.macro.core',
-        extensionKey: testConfig.sequenceMacroKey,
-        parameters: {
-          macroParams: {
-            uuid: { value: this.generateUUID() },
-            customContentId: { value: '$$_SEQUENCE_CONTENT_ID' },
-            __bodyContent: { value: this.getDemoSequenceContent().code },
-            updatedAt: { value: '2022-08-14T12:00:03Z' }
-          },
-          macroMetadata: {
-            macroId: { value: '' },
-            schemaVersion: { value: '1' },
-            placeholder: [{ type: 'icon', data: { url: '/image/zenuml_logo.png' } }],
-            title: 'ZenUML Diagram'
-          }
-        },
-        localId: ''
-      }
+      moduleKey: testConfig.sequenceMacroKey,
+      title: 'ZenUML Diagram',
+      uuid: this.generateUUID(),
+      customContentId: '$$_SEQUENCE_CONTENT_ID',
+      bodyContent: this.getDemoSequenceContent().code,
+      updatedAt: '2022-08-14T12:00:03Z',
     };
   }
 
-  private getGraphExtension() {
+  private getGraphSpec(): MacroSpec {
     return {
-      type: 'extension',
-      attrs: {
-        layout: 'default',
-        extensionType: 'com.atlassian.confluence.macro.core',
-        extensionKey: `zenuml-graph-macro${this.getModuleKeySuffix()}`,
-        parameters: {
-          macroParams: {
-            uuid: { value: this.generateUUID() },
-            customContentId: { value: '$$_GRAPH_CONTENT_ID' },
-            updatedAt: { value: '2022-08-21T06:12:37Z' }
-          },
-          macroMetadata: {
-            macroId: { value: '' },
-            schemaVersion: { value: '1' },
-            placeholder: [{ type: 'icon', data: { url: '/image/zenuml_logo.png' } }],
-            title: 'ZenUML Graph'
-          }
-        },
-        localId: ''
-      }
+      moduleKey: `zenuml-graph-macro${this.getModuleKeySuffix()}`,
+      title: 'ZenUML Graph',
+      uuid: this.generateUUID(),
+      customContentId: '$$_GRAPH_CONTENT_ID',
+      updatedAt: '2022-08-21T06:12:37Z',
     };
   }
 
-  private getOpenAPIExtension() {
+  private getOpenAPISpec(): MacroSpec {
     return {
-      type: 'extension',
-      attrs: {
-        layout: 'default',
-        extensionType: 'com.atlassian.confluence.macro.core',
-        extensionKey: `zenuml-openapi-macro${this.getModuleKeySuffix()}`,
-        parameters: {
-          macroParams: {
-            uuid: { value: this.generateUUID() },
-            customContentId: { value: '$$_OPENAPI_CONTENT_ID' },
-            updatedAt: { value: '2022-08-14T12:34:06Z' }
-          },
-          macroMetadata: {
-            macroId: { value: '' },
-            schemaVersion: { value: '1' },
-            placeholder: [{ type: 'icon', data: { url: '/image/zenuml_logo.png' } }],
-            title: 'ZenUML OpenAPI'
-          }
-        },
-        localId: ''
-      }
+      moduleKey: `zenuml-openapi-macro${this.getModuleKeySuffix()}`,
+      title: 'ZenUML OpenAPI',
+      uuid: this.generateUUID(),
+      customContentId: '$$_OPENAPI_CONTENT_ID',
+      updatedAt: '2022-08-14T12:34:06Z',
     };
   }
 
-  private getEmbedExtension() {
+  private getEmbedSpec(): MacroSpec {
     return {
-      type: 'extension',
-      attrs: {
-        layout: 'default',
-        extensionType: 'com.atlassian.confluence.macro.core',
-        extensionKey: `zenuml-embed-macro${this.getModuleKeySuffix()}`,
-        parameters: {
-          macroParams: {
-            uuid: { value: this.generateUUID() },
-            customContentId: { value: '$$_EMBED_CONTENT_ID' },
-            updatedAt: { value: '2022-08-14T12:17:08Z' }
-          },
-          macroMetadata: {
-            macroId: { value: '' },
-            schemaVersion: { value: '1' },
-            placeholder: [{ type: 'icon', data: { url: '/image/zenuml_logo.png' } }],
-            title: 'Embed ZenUML Diagram'
-          }
-        },
-        localId: ''
-      }
+      moduleKey: `zenuml-embed-macro${this.getModuleKeySuffix()}`,
+      title: 'Embed ZenUML Diagram',
+      uuid: this.generateUUID(),
+      customContentId: '$$_EMBED_CONTENT_ID',
+      updatedAt: '2022-08-14T12:17:08Z',
     };
   }
 
-  private getMermaidExtension() {
+  private getMermaidSpec(): MacroSpec {
     return {
-      type: 'extension',
-      attrs: {
-        layout: 'default',
-        extensionType: 'com.atlassian.confluence.macro.core',
-        extensionKey: testConfig.sequenceMacroKey,
-        parameters: {
-          macroParams: {
-            uuid: { value: this.generateUUID() },
-            customContentId: { value: '$$_MERMAID_CONTENT_ID' },
-            __bodyContent: { value: this.getDemoMermaidContent().mermaidCode },
-            updatedAt: { value: '2022-08-14T12:11:13Z' }
-          },
-          macroMetadata: {
-            macroId: { value: '' },
-            schemaVersion: { value: '1' },
-            placeholder: [{ type: 'icon', data: { url: '/image/zenuml_logo.png' } }],
-            title: 'ZenUML Diagram'
-          }
-        },
-        localId: ''
-      }
+      moduleKey: testConfig.sequenceMacroKey,
+      title: 'ZenUML Diagram',
+      uuid: this.generateUUID(),
+      customContentId: '$$_MERMAID_CONTENT_ID',
+      bodyContent: this.getDemoMermaidContent().mermaidCode,
+      updatedAt: '2022-08-14T12:11:13Z',
     };
   }
 }

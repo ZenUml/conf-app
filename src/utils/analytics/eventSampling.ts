@@ -134,6 +134,11 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   // and stamps sample_rate itself, so a kept view sends every row. About 500 a
   // month. Must not sit in OCTOBER_REDUCED_EVENTS (a second, per-row cut).
   "fullscreen_zoom_summary",
+  // MCP Apps view Copy / Download / Save / Open buttons (#1271): one per
+  // deliberate press, sent by functions/agent-link/viewEvent.ts, so bounded by
+  // presses on views already counted, unsampled, by agent_link_app_view_rendered.
+  // Rate 1: the per-action, per-outcome splits are the point.
+  "agent_link_app_view_action_used",
   // Mermaid sequence inline edit: user actions in the editor preview only, and
   // `unavailable` at most once per editor session (a few hundred a month at
   // most). Rate 1 on purpose, so it must not sit in OCTOBER_REDUCED_EVENTS: a

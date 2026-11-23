@@ -133,7 +133,12 @@ jobs:
       planned: true
       suite: regression
       auth-artifact: auth-regression-${{ inputs.variant }}
-      shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8]'
+      # Lite, Full and Diagramly run 16 shards each on the GCP pool (48 runners on two
+      # VMs, docs/ops/gcp-runner-pool.md); AsyncAPI, the shortest suite, keeps 8 hosted
+      # shards. Repo variable E2E_POOL_RUNNER=hosted sends every variant back to 8
+      # hosted shards (the free plan's 20-job cap).
+      runner: ${{ (vars.E2E_POOL_RUNNER == 'hosted' || inputs.variant == 'asyncapi') && 'ubuntu-24.04' || 'gcp-conf' }}
+      shard-matrix: ${{ (vars.E2E_POOL_RUNNER == 'hosted' || inputs.variant == 'asyncapi') && '[1, 2, 3, 4, 5, 6, 7, 8]' || '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]' }}
       timeout-minutes: 30
       artifact-suffix: regression-${{ inputs.variant }}
     secrets:

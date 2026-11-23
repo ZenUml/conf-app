@@ -24,11 +24,23 @@ test('Lite planning keeps all selected tests and file groups intact', async () =
   const spec = (id, file) => ({ id, file, title: id, line: 1,
     tags: ['@smoke', '@test:sequence-render', '@variant:lite'], tests: [{ projectName: 'fullscreen' }] });
   const discovery = { config: { projects: [{ name: 'fullscreen' }] }, suites: [{ title: 'suite', specs: [
-    spec('a', 'fullscreen/viewer-actions.spec.ts'), spec('b', 'fullscreen/viewer-actions.spec.ts'),
+    spec('a', 'fullscreen/serial-fixture.spec.ts'), spec('b', 'fullscreen/serial-fixture.spec.ts'),
     spec('c', 'unmeasured-one.spec.ts'), spec('d', 'unmeasured-two.spec.ts'),
   ] }] };
   const plan = createPlan({ selection: null, discovery, variant: 'lite', tree: 'tree', policy: 'v1', shards: 2, scope: 'insert' });
   assert.deepEqual(plan.shards.flatMap(s => s.test_ids).sort(), ['a', 'b', 'c', 'd']);
   assert.ok(plan.shards.some(s => s.test_ids.includes('a') && s.test_ids.includes('b')));
   assert.deepEqual(plan, createPlan({ selection: null, discovery, variant: 'lite', tree: 'tree', policy: 'v1', shards: 2, scope: 'insert' }));
+});
+
+test('a spec file that declares parallel mode is split per test', async () => {
+  const { createPlan } = await import('../plan.mjs');
+  const spec = (id, file) => ({ id, file, title: id, line: 1,
+    tags: ['@smoke', '@test:sequence-render', '@variant:lite'], tests: [{ projectName: 'fullscreen' }] });
+  // viewer-actions.spec.ts declares test.describe.configure({ mode: 'parallel' }).
+  const discovery = { config: { projects: [{ name: 'fullscreen' }] }, suites: [{ title: 'suite', specs: [
+    spec('a', 'fullscreen/viewer-actions.spec.ts'), spec('b', 'fullscreen/viewer-actions.spec.ts'),
+  ] }] };
+  const plan = createPlan({ selection: null, discovery, variant: 'lite', tree: 'tree', policy: 'v1', shards: 2, scope: 'insert' });
+  assert.deepEqual(plan.shards.map(s => s.test_ids.length).sort(), [1, 1]);
 });

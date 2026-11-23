@@ -3,7 +3,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const loadMermaidMock = vi.hoisted(() => vi.fn());
 vi.mock('./loadMermaid', () => ({ loadMermaid: loadMermaidMock }));
 
+// The real prepare step imports @zenuml/core for `zenuml` sources; here core's
+// font load never settles, as a stalled FontFace.load() would.
+const stalledFonts = vi.hoisted(() => vi.fn(() => new Promise<void>(() => {})));
+vi.mock('@zenuml/core', () => ({
+  default: { setDiagramFontUrl: vi.fn() },
+  ensureDiagramFontsLoaded: stalledFonts,
+  ensureDiagramIconsLoaded: vi.fn(async () => {}),
+}));
+
 import { __resetMermaidRenderQueueForTests, renderMermaid } from './renderMermaid';
+import { LOAD_ASSETS_TIMEOUT_MS } from './prepareZenuml';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -93,6 +103,25 @@ describe('renderMermaid', () => {
       await expect(renderMermaid(id, 'source', { captureFlowchartModel: true })).resolves.toEqual({ svg: '<svg>real diagram</svg>', flowchartModel: undefined });
     }
     expect(render).toHaveBeenCalledTimes(2);
+  });
+
+  it('a stalled zenuml font load does not block renders queued behind it', async () => {
+    vi.useFakeTimers();
+    try {
+      const render = vi.fn(async (id: string) => ({ svg: `<svg>${id}</svg>` }));
+      loadMermaidMock.mockResolvedValue({ render });
+      const zenuml = renderMermaid('zenuml', 'zenuml\n@VPC A\nA->B: hi');
+      const flowchart = renderMermaid('flowchart', 'flowchart LR\nA-->B');
+      await vi.advanceTimersByTimeAsync(LOAD_ASSETS_TIMEOUT_MS - 1);
+      expect(stalledFonts).toHaveBeenCalled();
+      expect(render).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(zenuml).resolves.toEqual({ svg: '<svg>zenuml</svg>' });
+      await expect(flowchart).resolves.toEqual({ svg: '<svg>flowchart</svg>' });
+      expect(render.mock.calls.map(([id]) => id)).toEqual(['zenuml', 'flowchart']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
 });

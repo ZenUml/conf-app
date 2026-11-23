@@ -133,7 +133,11 @@ jobs:
       planned: true
       suite: regression
       auth-artifact: auth-regression-${{ inputs.variant }}
-      shard-matrix: '[1, 2, 3, 4, 5, 6, 7, 8]'
+      # Repo variable E2E_POOL_RUNNER=hosted sends the shards back to GitHub-hosted
+      # runners (8 per variant, the free plan's 20-job cap). Otherwise 16 shards per
+      # variant run on the GCP pool (docs/ops/gcp-runner-pool.md).
+      runner: ${{ vars.E2E_POOL_RUNNER == 'hosted' && 'ubuntu-24.04' || 'gcp-conf' }}
+      shard-matrix: ${{ vars.E2E_POOL_RUNNER == 'hosted' && '[1, 2, 3, 4, 5, 6, 7, 8]' || '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]' }}
       timeout-minutes: 30
       artifact-suffix: regression-${{ inputs.variant }}
     secrets:

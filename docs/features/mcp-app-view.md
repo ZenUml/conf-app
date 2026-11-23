@@ -29,7 +29,7 @@ Two ways forward were considered; the second is the one built:
 
 `update_diagram` returns no diagram type or source, so after an update the view says "No diagram in this result." for every type.
 
-## Copy, Download and Save to Confluence
+## Copy, Download, Save to Confluence, Open in Diagramly.ai
 
 When a diagram is on screen, the toolbar starts with two buttons (#1271):
 
@@ -45,7 +45,12 @@ When a diagram is on screen, the toolbar starts with two buttons (#1271):
   - It names the diagram's type and title and does not repeat the source, which the agent already has.
   - The view tells a render from a Confluence result by `hostContext.toolInfo.tool.name` where the host sends it. Otherwise it goes by the result's shape: a render carries `valid` and no `contentId`.
 
-All three report `agent_link_app_view_action_used`. For `save_confluence`, `done` means the host accepted the message. Whether a diagram was then saved shows up as the agent's `create_diagram` call. A `done` for the `<a download>` path means the browser started the download, not that it saved the file.
+- **Open in Diagramly.ai** appears for a drawing Diagramly.ai has an engine for (Sequence → `zenuml`, Mermaid, PlantUML, Graph → `drawio`), where the host declares `openLinks`. It sends `ui/open-link` with `https://diagramly.ai/import#v1.<payload>`, or `staging.diagramly.ai` for any view not served from a production origin.
+  - `<payload>` is base64url (no padding) of raw DEFLATE of the UTF-8 JSON `{v: 1, type, source, title?, ref: 'render_mcp'}`. The source travels in the fragment, so no server sees it before the user lands. Diagramly.ai's `/import` page reads the fragment, removes it, keeps it across sign-in, and makes a private diagram.
+  - A link longer than 100,000 characters is not opened. The button says to download the diagram instead.
+  - The view encodes legacy LZUTF8-compressed Graph XML back to XML first.
+
+All four report `agent_link_app_view_action_used`. For `save_confluence`, `done` means the host accepted the message. Whether a diagram was then saved shows up as the agent's `create_diagram` call. A `done` for the `<a download>` path means the browser started the download, not that it saved the file.
 
 ## Host capabilities claude.ai declares
 

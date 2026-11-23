@@ -716,7 +716,7 @@ function updateToolbar(): void {
   }
 }
 
-const TOOLBAR_ORDER = ['zen-mcp-copy', 'zen-mcp-download', 'zen-mcp-save', 'zen-mcp-zoom-out', 'zen-mcp-zoom-fit', 'zen-mcp-zoom-in', 'zen-mcp-fullscreen'];
+const TOOLBAR_ORDER = ['zen-mcp-copy', 'zen-mcp-download', 'zen-mcp-save', 'zen-mcp-diagramly', 'zen-mcp-zoom-out', 'zen-mcp-zoom-fit', 'zen-mcp-zoom-in', 'zen-mcp-fullscreen'];
 
 const COPY_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 3.5v-1h-8v8h1" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
 const DOWNLOAD_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
@@ -787,8 +787,72 @@ export function saveRequestText(payload: DiagramPayload, connectorUrl: string): 
   );
 }
 
+const DIAGRAMLY_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M11.5 9.5v3.5a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V5a.5.5 0 0 1 .5-.5h3.5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
+
+/** This view's diagram types under Diagramly.ai's engine names. Documents have none. */
+const DIAGRAMLY_TYPES: Record<string, 'zenuml' | 'mermaid' | 'plantuml' | 'drawio'> = {
+  sequence: 'zenuml',
+  mermaid: 'mermaid',
+  plantuml: 'plantuml',
+  graph: 'drawio',
+};
+
+/**
+ * The longest import link we hand the host. The diagram travels in the URL
+ * fragment, which the host shows in its confirmation dialog and browsers cap;
+ * a larger diagram is better downloaded.
+ */
+export const MAX_DIAGRAMLY_FRAGMENT = 100_000;
+
+/** Production Diagramly.ai for a production view, staging for everything else. */
+export function diagramlyOrigin(viewUrl: string): string {
+  const host = new URL(viewUrl).hostname;
+  return host === 'zenuml.com' || host === 'www.zenuml.com' || host === 'conf-lite.zenuml.com'
+    ? 'https://diagramly.ai'
+    : 'https://staging.diagramly.ai';
+}
+
+function base64Url(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/**
+ * The Diagramly.ai import link for a diagram, or null when Diagramly.ai has no
+ * engine for its type or the link would be too long. The contract, shared with
+ * Diagramly.ai's /import page: `<origin>/import#v1.<base64url(deflateRaw(JSON))>`
+ * with `{v: 1, type, source, title?, ref: 'render_mcp'}`. The fragment never
+ * reaches a server; the page reads it, removes it, and makes a private diagram.
+ */
+export async function diagramlyImportUrl(payload: DiagramPayload, origin: string): Promise<string | null> {
+  const type = DIAGRAMLY_TYPES[payload.diagramType.toLowerCase()];
+  if (!type) return null;
+  let source = payload.dsl;
+  // Legacy Graph records keep the XML LZUTF8-compressed (renderGraph).
+  if (type === 'drawio' && !source.trimStart().startsWith('<')) {
+    const { decompress } = await import('@/utils/compress');
+    source = String(decompress(source) ?? '');
+  }
+  const title = payload.title?.trim();
+  const json = JSON.stringify({ v: 1, type, source, ...(title ? { title } : {}), ref: 'render_mcp' });
+  const { deflateRaw } = await import('pako');
+  const fragment = `v1.${base64Url(deflateRaw(new TextEncoder().encode(json)))}`;
+  if (fragment.length > MAX_DIAGRAMLY_FRAGMENT) return null;
+  return `${origin}/import#${fragment}`;
+}
+
 /** Copy and Download: present while a diagram is on screen. Save to Confluence where it can work. */
 function updateKeepButtons(bar: HTMLElement, wanted: boolean): void {
+  const wantsDiagramly =
+    wanted && drawnType !== null && drawnType in DIAGRAMLY_TYPES && 'openLinks' in hostCapabilities;
+  let diagramly = document.getElementById('zen-mcp-diagramly');
+  if (!wantsDiagramly) diagramly?.remove();
+  else if (!diagramly) {
+    diagramly = toolButton('zen-mcp-diagramly', 'Open in Diagramly.ai', () => void openInDiagramly());
+    diagramly.innerHTML = DIAGRAMLY_ICON;
+    bar.appendChild(diagramly);
+  }
   const wantsSave = wanted && resultSaveable && hostTakesTextMessages();
   let save = document.getElementById('zen-mcp-save');
   if (!wantsSave) save?.remove();
@@ -822,14 +886,15 @@ const DONE_TITLES: Record<string, string> = {
   'zen-mcp-copy': 'Copied',
   'zen-mcp-download': 'Downloaded',
   'zen-mcp-save': 'Sent to the chat',
+  'zen-mcp-diagramly': 'Opened in Diagramly.ai',
 };
 
 /** Show the outcome on the button for a moment, then put it back. */
-function flash(id: string, ok: boolean, label: string, icon: string): void {
+function flash(id: string, ok: boolean, label: string, icon: string, failedTitle?: string): void {
   const button = document.getElementById(id);
   if (!button) return;
   button.innerHTML = ok ? DONE_ICON : FAILED_ICON;
-  button.title = ok ? DONE_TITLES[id] ?? label : `${label} failed`;
+  button.title = ok ? DONE_TITLES[id] ?? label : failedTitle ?? `${label} failed`;
   setTimeout(() => {
     const again = document.getElementById(id);
     if (!again) return;
@@ -1029,6 +1094,32 @@ async function saveToConfluence(): Promise<void> {
   }
   flash('zen-mcp-save', ok, 'Save to Confluence', SAVE_ICON);
   reportAction(type, { view_action: 'save_confluence', action_outcome: ok ? 'done' : 'failed' });
+}
+
+/**
+ * Open the diagram in Diagramly.ai. Through the host (`ui/open-link`): claude.ai
+ * opens nothing the frame navigates to itself, and asks the user to confirm.
+ */
+async function openInDiagramly(): Promise<void> {
+  const payload = drawnPayload;
+  const type = drawnType;
+  if (!payload || !type) return;
+  const label = 'Open in Diagramly.ai';
+  let ok = false;
+  let failedTitle: string | undefined;
+  try {
+    const url = await diagramlyImportUrl(payload, diagramlyOrigin(viewOrigin()));
+    if (!url) {
+      failedTitle = 'Too large to open in Diagramly.ai. Download it instead.';
+    } else {
+      const { result, error } = await ask('ui/open-link', { url }, HOST_DIALOG_TIMEOUT_MS);
+      ok = !error && (result as { isError?: unknown } | undefined)?.isError !== true;
+    }
+  } catch (e) {
+    console.error('[zenuml] open in Diagramly.ai failed', e);
+  }
+  flash('zen-mcp-diagramly', ok, label, DIAGRAMLY_ICON, failedTitle);
+  reportAction(type, { view_action: 'open_diagramly', action_outcome: ok ? 'done' : 'failed' });
 }
 
 function reportAction(type: string, fields: Record<string, string>): void {

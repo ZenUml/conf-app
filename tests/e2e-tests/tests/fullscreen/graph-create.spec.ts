@@ -28,6 +28,11 @@ import {
   GRAPH_DIRTY_MARKER,
 } from '../../helpers/CloseGuardHelper.js';
 
+// Each test builds its own page, so the planner may place tests of this
+// file on different shards (scripts/test-selection/plan.mjs splits a
+// file per test only when it declares parallel mode).
+test.describe.configure({ mode: 'parallel' });
+
 test.describe('Graph (DrawIO) — Create flow', { tag: ['@test:graph-create', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@graph', '@feature:create-diagram', '@interface:graph-editor', '@scenario:create-diagram:graph-editor', '@feature:publishing', '@scenario:publishing:graph-editor'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('graph'), 'graph not in profile');

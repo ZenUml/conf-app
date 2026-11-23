@@ -27,6 +27,11 @@ import {
   readPersistedDraft,
 } from '../../helpers/CloseGuardHelper.js';
 
+// Each test builds its own page, so the planner may place tests of this
+// file on different shards (scripts/test-selection/plan.mjs splits a
+// file per test only when it declares parallel mode).
+test.describe.configure({ mode: 'parallel' });
+
 test.describe('OpenAPI / Swagger — Create flow', { tag: ['@test:openapi-create', '@variant:lite', '@variant:full', '@variant:diagramly', '@variant:asyncapi', '@fullscreen', '@openapi', '@feature:create-diagram', '@interface:openapi-editor', '@scenario:create-diagram:openapi-editor', '@feature:publishing', '@scenario:publishing:openapi-editor'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('openapi'), 'openapi not in profile');

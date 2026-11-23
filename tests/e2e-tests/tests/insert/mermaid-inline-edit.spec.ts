@@ -98,6 +98,11 @@ async function openLayerOn(_page: Page, frame: FrameLocator, label: Locator, ari
   return layer;
 }
 
+// Each test builds its own page, so the planner may place tests of this
+// file on different shards (scripts/test-selection/plan.mjs splits a
+// file per test only when it declares parallel mode).
+test.describe.configure({ mode: 'parallel' });
+
 test.describe('Mermaid sequence inline edit', { tag: ['@test:mermaid', '@variant:lite', '@variant:full', '@variant:diagramly', '@editor', '@viewer', '@mermaid', '@feature:editing', '@interface:editor', '@scenario:editing:editor'] }, () => {
   test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
 

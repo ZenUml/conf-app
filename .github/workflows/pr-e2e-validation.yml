@@ -1,4 +1,4 @@
-name: "PR · E2E shards (legacy, not called)"
+name: "PR · E2E on PR slot › shards (legacy, not called)"
 
 on:
   workflow_dispatch:

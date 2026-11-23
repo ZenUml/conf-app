@@ -24,7 +24,7 @@ const PLANTUML_FAILURE_REASONS = ['load_failed', 'include', 'engine_error'];
 const FULLSCREEN_OUTCOMES = ['entered', 'exited', 'declined', 'failed'];
 const ZOOM_ACTIONS = ['zoom_in', 'zoom_out', 'fit'];
 const ZOOM_INPUTS = ['toolbar', 'wheel', 'keyboard'];
-const VIEW_ACTIONS = ['copy_source', 'download', 'save_confluence'];
+const VIEW_ACTIONS = ['copy_source', 'download', 'save_confluence', 'open_diagramly'];
 const DOWNLOAD_FORMATS = ['svg', 'source'];
 const ACTION_OUTCOMES = ['done', 'failed'];
 /** Only the local stdio server stamps its results (`mcpMode`); a remote result carries no mode. */

@@ -2,7 +2,7 @@
 #
 #   PR #N  ->  Forge environment `pr-N`
 #          ->  Connect key `com.zenuml.confluence-addon-lite-prN`
-#          ->  installed on the site in repo variable PR_DEV_SITE (none when unset)
+#          ->  installed on whimet6.atlassian.net (repo variable PR_DEV_SITE overrides)
 #
 # NEVER lite-dev.atlassian.net. Two Lite environments on one site expose the
 # same macro module keys (`zenuml-sequence-macro-lite`, ...). A macro node with
@@ -18,7 +18,7 @@
 # suffixed key). The suffix follows the dev-key convention that the build and
 # functions/magic-writeback.ts check: docs/reference/dev-connect-key.md.
 #
-# What a reviewer gets: on a PR_DEV_SITE page, the slash menu lists
+# What a reviewer gets: on a whimet6 page, the slash menu lists
 # "Diagram (Mermaid, PlantUML & ZenUML) Lite - pr-N (Dev)". Diagrams it creates
 # are stored under the PR's own content types, so they are separate from the
 # diagrams of the other installs on the site.
@@ -50,8 +50,8 @@ env:
   FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN }}"
   FORGE_ENV: pr-${{ github.event.pull_request.number }}
   CONNECT_KEY_OVERRIDE: com.zenuml.confluence-addon-lite-pr${{ github.event.pull_request.number }}
-  # Repo variable; empty = deploy the environment but install it nowhere.
-  SITE: ${{ vars.PR_DEV_SITE }}
+  # Install target: whimet6 (owner's choice, 2026-11-23); repo variable PR_DEV_SITE overrides.
+  SITE: ${{ vars.PR_DEV_SITE || 'whimet6.atlassian.net' }}
   PR_SLOT_SITE: lite-dev.atlassian.net
 
 jobs:
@@ -132,6 +132,9 @@ jobs:
       # A fresh install needs the CI Forge account to be a site admin of
       # lite-dev (it already installs the `pr` slot there). An existing install
       # takes a minor version automatically; --upgrade covers a major one.
+      # Needs the shared CI account (support@zenuml.com) to be a site admin of
+      # the site. Only the shared CI credentials are used: this runs the PR's
+      # own copy of the workflow, so no personal credentials belong here.
       - name: Install / upgrade on ${{ env.SITE }}
         if: env.SITE != '' && env.SITE != env.PR_SLOT_SITE
         run: |
@@ -151,7 +154,7 @@ jobs:
             echo "| Variant | lite |"
             echo "| Forge environment | \`$FORGE_ENV\` |"
             echo "| Connect key | \`$CONNECT_KEY_OVERRIDE\` |"
-            echo "| Site | ${SITE:+https://$SITE/wiki}${SITE:-none (PR_DEV_SITE unset: deployed, not installed)} |"
+            echo "| Site | https://$SITE/wiki |"
             echo "| In the editor | slash menu: \`Diagram (Mermaid, PlantUML & ZenUML) Lite - $FORGE_ENV (Dev)\` |"
             echo "| Result | ${{ job.status }} |"
           } >> "$GITHUB_STEP_SUMMARY"

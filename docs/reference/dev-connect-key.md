@@ -62,9 +62,9 @@ The backend recognises a development key by this shape, so no registration is ne
 |---|---|
 | Forge environment | `pr-N` (Lite), created on the first run |
 | Connect key | `com.zenuml.confluence-addon-lite-prN` |
-| Site | repo variable `PR_DEV_SITE`; when unset, the environment is deployed but installed nowhere. Never `lite-dev.atlassian.net` |
+| Site | `whimet6.atlassian.net` (repo variable `PR_DEV_SITE` overrides). Never `lite-dev.atlassian.net`. The shared CI Forge account must be a site admin there; no personal credentials are used, because the workflow runs the PR's own copy |
 | In the editor | slash menu entry `Diagram (Mermaid, PlantUML & ZenUML) Lite - pr-N (Dev)` |
-| On every push | remove `pr-N` from lite-dev if present, rebuild, redeploy, install or upgrade on `PR_DEV_SITE` |
+| On every push | remove `pr-N` from lite-dev if present, rebuild, redeploy, install or upgrade on the site |
 | On close (merged or not) | uninstall from every site and delete the environment |
 
 It is Forge-only: the app calls the existing `conf-stg-lite` backend. It runs alongside PR validation and takes no staging or PR-slot lock; E2E still runs on the `pr` slot.

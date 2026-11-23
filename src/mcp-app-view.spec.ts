@@ -945,10 +945,23 @@ describe('Copy and Download', () => {
   let saved: Array<{ name: string; blob: Blob }> = [];
   const blobs = new Map<string, Blob>();
   const button = (id: string) => document.getElementById(id) as HTMLButtonElement | null;
+  // Every tooltip a button showed. A result flashes for 1.5 s and then reverts,
+  // and a slow CI runner can read the title after that (#1306), so record them.
+  let titles: Array<{ id: string; title: string }> = [];
+  let titleWatch: MutationObserver | null = null;
+  const titlesShown = (id: string) => titles.filter((t) => t.id === id).map((t) => t.title);
 
   beforeEach(() => {
     resetViewState();
     document.body.innerHTML = '<div id="app"></div>';
+    titles = [];
+    titleWatch = new MutationObserver((records) => {
+      for (const r of records) {
+        const el = r.target as HTMLElement;
+        if (el.id) titles.push({ id: el.id, title: el.getAttribute('title') ?? '' });
+      }
+    });
+    titleWatch.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['title'] });
     beacon.mockClear();
     writeText.mockReset();
     writeText.mockResolvedValue(undefined);
@@ -966,6 +979,7 @@ describe('Copy and Download', () => {
   });
 
   afterEach(() => {
+    titleWatch?.disconnect();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -986,7 +1000,7 @@ describe('Copy and Download', () => {
     await vi.waitFor(() => expect(actions()).toHaveLength(1));
     expect(writeText).toHaveBeenCalledWith(dsl);
     expect(actions()[0]).toEqual({ kind: 'action', macro_type: 'mermaid', view_action: 'copy_source', action_outcome: 'done' });
-    expect(button('zen-mcp-copy')?.title).toBe('Copied');
+    await vi.waitFor(() => expect(titlesShown('zen-mcp-copy')).toContain('Copied'));
   });
 
   it('reports a refused copy as failed when the copy command fails too', async () => {
@@ -998,7 +1012,7 @@ describe('Copy and Download', () => {
     await vi.waitFor(() => expect(actions()).toHaveLength(1));
     expect(document.execCommand).toHaveBeenCalledWith('copy');
     expect(actions()[0].action_outcome).toBe('failed');
-    expect(button('zen-mcp-copy')?.title).toBe('Copy source failed');
+    await vi.waitFor(() => expect(titlesShown('zen-mcp-copy')).toContain('Copy source failed'));
   });
 
   it('downloads a Mermaid drawing as the SVG it drew, named after the title', async () => {
@@ -1091,7 +1105,7 @@ describe('Copy and Download', () => {
       onHostMessage({ data: { jsonrpc: '2.0', id: request.id, result: { isError: true } } } as MessageEvent);
       await vi.waitFor(() => expect(actions()).toHaveLength(1));
       expect(actions()[0].action_outcome).toBe('failed');
-      expect(button('zen-mcp-download')?.title).toBe('Download SVG failed');
+      await vi.waitFor(() => expect(titlesShown('zen-mcp-download')).toContain('Download SVG failed'));
     });
   });
 
@@ -1129,7 +1143,7 @@ describe('Copy and Download', () => {
       onHostMessage({ data: { jsonrpc: '2.0', id: request.id, result: { isError: false } } } as MessageEvent);
       await vi.waitFor(() => expect(actions()).toHaveLength(1));
       expect(actions()[0]).toEqual({ kind: 'action', macro_type: 'mermaid', view_action: 'save_confluence', action_outcome: 'done' });
-      expect(button('zen-mcp-save')?.title).toBe('Sent to the chat');
+      await vi.waitFor(() => expect(titlesShown('zen-mcp-save')).toContain('Sent to the chat'));
     });
 
     it('reports a message the host refused as failed', async () => {

@@ -9,8 +9,12 @@
 //   imports.
 // Allowed static importers: @mermaid-js/mermaid-zenuml's diagram definition
 // chunk, which Mermaid itself loads lazily for a `zenuml` diagram, and core's
-// own lazily loaded parts (e.g. `dist/cloud-icons-*.js`), which only core
-// imports and so only load after it.
+// own lazily loaded parts (e.g. `dist/cloud-icons-*.js`). A core-package chunk
+// is exempt only when every module that imports it, statically or
+// dynamically, is itself inside `@zenuml/core/dist`, so it can only load after
+// the renderer. `dist/parser/index.mjs` is imported by our own code (editor
+// linter, syntax validator), so it is checked like any app chunk: if it ever
+// reached the renderer, every editor's first lint would download 3.5 MB.
 //
 // What it protects: vite.config.mjs drops @zenuml/codemirror-extensions'
 // linter module (which imports all of core) by its package-private path. If a
@@ -26,8 +30,23 @@ const CORE_PACKAGE = /[/\\]@zenuml[/\\]core[/\\]dist[/\\]/;
 const containsCore = (chunk) => Object.keys(chunk.modules || {}).some((id) => CORE_MODULE.test(id));
 const isLoadRoot = (chunk) => chunk.isEntry || chunk.isDynamicEntry;
 
-/** Returns one message per problem; an empty array means the bundle is fine. */
-export function findZenumlCoreClosureViolations(bundle) {
+/**
+ * True when the chunk's facade module lives in core and is imported only from
+ * core. Without module info (no `getModuleInfo`) nothing is exempt.
+ */
+function onlyCoreLoadsIt(chunk, getModuleInfo) {
+  const facade = chunk.facadeModuleId || '';
+  if (chunk.isEntry || !CORE_PACKAGE.test(facade) || typeof getModuleInfo !== 'function') return false;
+  const info = getModuleInfo(facade);
+  const importers = [...(info?.importers || []), ...(info?.dynamicImporters || [])];
+  return importers.length > 0 && importers.every((id) => CORE_PACKAGE.test(id));
+}
+
+/**
+ * Returns one message per problem; an empty array means the bundle is fine.
+ * `getModuleInfo` is the plugin context's lookup (`this.getModuleInfo`).
+ */
+export function findZenumlCoreClosureViolations(bundle, getModuleInfo) {
   const chunks = Object.values(bundle).filter((c) => c.type === 'chunk');
   const coreChunks = chunks.filter(containsCore);
   if (coreChunks.length === 0) {
@@ -62,7 +81,7 @@ export function findZenumlCoreClosureViolations(bundle) {
   for (const c of chunks) {
     if (!isLoadRoot(c) || coreNames.has(c.fileName)) continue;
     if (ALLOWED_IMPORTER.test(c.facadeModuleId || '')) continue;
-    if (!c.isEntry && CORE_PACKAGE.test(c.facadeModuleId || '')) continue;
+    if (onlyCoreLoadsIt(c, getModuleInfo)) continue;
     if (reachesCore(c)) problems.push(`${c.fileName} statically imports the renderer`);
   }
   return problems;
@@ -73,7 +92,7 @@ export function zenumlCoreClosureGuard() {
     name: 'zenuml-core-closure-guard',
     apply: 'build',
     generateBundle(_options, bundle) {
-      const problems = findZenumlCoreClosureViolations(bundle);
+      const problems = findZenumlCoreClosureViolations(bundle, (id) => this.getModuleInfo(id));
       if (problems.length > 0) {
         this.error(
           `@zenuml/core's renderer must load on demand (dynamic import): ${problems.join('; ')}. ` +

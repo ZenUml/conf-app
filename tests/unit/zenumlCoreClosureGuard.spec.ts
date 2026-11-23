@@ -81,13 +81,38 @@ describe('findZenumlCoreClosureViolations', () => {
       'assets/mermaid-zenuml-core.js statically imports the renderer',
     ]);
   });
-  it("allows core's own lazily loaded parts to import the renderer chunk", () => {
-    const icons = chunk('assets/cloud-icons-abc.js', {
-      imports: [core.fileName],
-      isDynamicEntry: true,
-      facade: '/repo/node_modules/.pnpm/@zenuml+core@4.13.1/node_modules/@zenuml/core/dist/cloud-icons-w-sGmXgI.js',
-    });
-    expect(findZenumlCoreClosureViolations(bundleOf(core, icons))).toEqual([]);
+  const ICONS = '/repo/node_modules/.pnpm/@zenuml+core@4.13.1/node_modules/@zenuml/core/dist/cloud-icons-w-sGmXgI.js';
+  const PARSER = '/repo/node_modules/.pnpm/@zenuml+core@4.13.1/node_modules/@zenuml/core/dist/parser/index.mjs';
+  const moduleInfo = (importers: Record<string, { importers?: string[]; dynamicImporters?: string[] }>) => (id: string) =>
+    importers[id] ?? null;
+
+  it("allows core's own lazily loaded parts when only core imports them", () => {
+    const icons = chunk('assets/cloud-icons-abc.js', { imports: [core.fileName], isDynamicEntry: true, facade: ICONS });
+    const info = moduleInfo({ [ICONS]: { importers: [], dynamicImporters: [CORE] } });
+    expect(findZenumlCoreClosureViolations(bundleOf(core, icons), info)).toEqual([]);
+  });
+
+  it('flags a core-package chunk that app code imports when it reaches the renderer (parser entry)', () => {
+    const parser = chunk('assets/index-parser.js', { imports: [core.fileName], isDynamicEntry: true, facade: PARSER });
+    const info = moduleInfo({ [PARSER]: { importers: [], dynamicImporters: ['/repo/src/utils/sequence/parser.ts'] } });
+    expect(findZenumlCoreClosureViolations(bundleOf(core, parser), info)).toEqual([
+      'assets/index-parser.js statically imports the renderer',
+    ]);
+  });
+
+  it('exempts nothing when module info is unavailable', () => {
+    const icons = chunk('assets/cloud-icons-abc.js', { imports: [core.fileName], isDynamicEntry: true, facade: ICONS });
+    expect(findZenumlCoreClosureViolations(bundleOf(core, icons))).toEqual([
+      'assets/cloud-icons-abc.js statically imports the renderer',
+    ]);
+  });
+
+  it('does not exempt a core-package chunk with no recorded importers', () => {
+    const icons = chunk('assets/cloud-icons-abc.js', { imports: [core.fileName], isDynamicEntry: true, facade: ICONS });
+    const info = moduleInfo({ [ICONS]: { importers: [], dynamicImporters: [] } });
+    expect(findZenumlCoreClosureViolations(bundleOf(core, icons), info)).toEqual([
+      'assets/cloud-icons-abc.js statically imports the renderer',
+    ]);
   });
 
   it('still flags an entry chunk even if its facade is a core file', () => {

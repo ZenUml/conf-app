@@ -1,5 +1,6 @@
 import { loadMermaid } from './loadMermaid';
 import { enqueueMermaid as enqueueRender } from './mermaidQueue';
+import { prepareZenumlForMermaid } from './prepareZenuml';
 import { readMermaidFlowchartModel } from '../../../tools/mermaid-highlights/src/mermaid-highlights.mjs';
 
 export interface MermaidRenderResult {
@@ -34,6 +35,7 @@ export function renderMermaid(id: string, source: string, options: { captureFlow
         try { flowchartModel = readMermaidFlowchartModel(await mermaid.mermaidAPI.getDiagramFromText(source)); }
         catch { /* Optional enhancement unavailable; preserve the renderer. */ }
       }
+      await prepareZenumlForMermaid(source);
       const result = await mermaid.render(id, source);
       return options.captureFlowchartModel ? { ...result, flowchartModel } : result;
     } finally {

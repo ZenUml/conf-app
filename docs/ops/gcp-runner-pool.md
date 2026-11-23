@@ -31,6 +31,9 @@ Run 45110223186 put 48 shards on one 48-vCPU VM. The CPU stayed at 91-99 % and t
 |---|---|---|
 | 45107657015 | 48 | 24 of 56 shards failed: Docker ran out of address pools (fixed in `setup.sh`) |
 | 45110223186 | 48 | CPU 91-99 %, test steps 700-1,340 s, 18 shards failed on timeouts |
+| 45114116484 | 24 (two VMs) | all green; whole run 15.7 min against 23.2 min for hosted run 45072127650; slowest live-regression variant 586 s (Lite), longest queue 52 s |
+
+That run used `main`'s test code (the daily `target` job checks out the default branch), so it did not yet include the per-test split of the 13 heavy spec files on this branch.
 
 ## Which jobs use it
 

@@ -1001,9 +1001,25 @@ describe('Copy and Download', () => {
     await vi.waitFor(() => expect(saved).toHaveLength(1));
     expect(saved[0].name).toBe('Login-flow.svg');
     expect(saved[0].blob.type).toBe('image/svg+xml');
-    expect(await readBlob(saved[0].blob)).toBe('<svg data-test="mermaid-block"></svg>');
+    expect(await readBlob(saved[0].blob)).toContain('data-test="mermaid-block"');
     await vi.waitFor(() => expect(actions()).toHaveLength(1));
     expect(actions()[0]).toEqual({ kind: 'action', macro_type: 'mermaid', view_action: 'download', download_format: 'svg', action_outcome: 'done' });
+  });
+
+  it('downloads a Mermaid drawing at its natural size, not mermaid\'s width="100%"', async () => {
+    mermaidMock.render.mockResolvedValueOnce({
+      svg: '<svg width="100%" style="max-width: 150px;" viewBox="0 0 150 400" data-test="sized"></svg>',
+    });
+    deliver({ diagramType: 'mermaid', dsl: 'graph TD;A-->B;' });
+    await vi.waitFor(() => expect(button('zen-mcp-download')).not.toBeNull());
+    button('zen-mcp-download')!.click();
+    await vi.waitFor(() => expect(saved).toHaveLength(1));
+    const text = await readBlob(saved[0].blob);
+    expect(text).toContain('width="150"');
+    expect(text).toContain('height="400"');
+    expect(text).toContain('xmlns="http://www.w3.org/2000/svg"');
+    expect(text).not.toContain('100%');
+    expect(text).not.toContain('max-width');
   });
 
   it('downloads a sequence diagram through core\'s getSvg', async () => {
@@ -1055,7 +1071,7 @@ describe('Copy and Download', () => {
     it('asks the host to save the file instead of clicking a link', async () => {
       const request = await pressDownload();
       expect(request.params).toEqual({
-        contents: [{ type: 'resource', resource: { uri: 'file:///Login-flow.svg', mimeType: 'image/svg+xml', text: '<svg data-test="mermaid-block"></svg>' } }],
+        contents: [{ type: 'resource', resource: { uri: 'file:///Login-flow.svg', mimeType: 'image/svg+xml', text: expect.stringContaining('data-test="mermaid-block"') } }],
       });
       onHostMessage({ data: { jsonrpc: '2.0', id: request.id, result: { isError: false } } } as MessageEvent);
       await vi.waitFor(() => expect(actions()).toHaveLength(1));

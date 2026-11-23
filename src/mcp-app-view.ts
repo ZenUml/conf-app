@@ -822,6 +822,33 @@ function readText(blob: Blob): Promise<string> {
   });
 }
 
+/**
+ * Mermaid's SVG as a file that sizes itself. Mermaid writes width="100%", a
+ * max-width style and no height, for a page to size; opened on its own the
+ * drawing then fills the window. Give it its viewBox size instead.
+ */
+export function svgFile(markup: string): string {
+  const doc = new DOMParser().parseFromString(markup, 'image/svg+xml');
+  const svg = doc.documentElement;
+  // Not well-formed XML: leave mermaid's string as it is rather than lose the drawing.
+  if (svg.nodeName !== 'svg' || doc.getElementsByTagName('parsererror').length) return markup;
+  const box = (svg.getAttribute('viewBox') ?? '').trim().split(/[\s,]+/).map(Number);
+  if (box.length === 4 && box[2] > 0 && box[3] > 0) {
+    svg.setAttribute('width', String(box[2]));
+    svg.setAttribute('height', String(box[3]));
+    // By hand: an element parsed as XML has no `style` object in every engine.
+    const style = (svg.getAttribute('style') ?? '')
+      .split(';')
+      .filter((rule) => rule.trim() && !/^\s*max-width\s*:/i.test(rule))
+      .join(';');
+    if (style) svg.setAttribute('style', style);
+    else svg.removeAttribute('style');
+  }
+  // A standalone file needs the namespace, or a viewer will not read it as SVG.
+  if (!svg.getAttribute('xmlns')) svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  return new XMLSerializer().serializeToString(svg);
+}
+
 function svgBlob(svg: string): Blob {
   return new Blob([svg], { type: 'image/svg+xml' });
 }
@@ -1013,7 +1040,7 @@ async function render(payload: DiagramPayload): Promise<void> {
       const { svg } = await mermaid.render(`zen-mcp-${Date.now()}`, payload.dsl);
       target.innerHTML = svg;
       giveSvgItsNaturalSize(target);
-      image = async () => svgBlob(svg);
+      image = async () => svgBlob(svgFile(svg));
     } else if (type === 'plantuml') {
       const svg = await renderPlantUml(target, payload);
       image = async () => svgBlob(svg);

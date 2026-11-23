@@ -1,4 +1,4 @@
-name: Render MCP Worker
+name: "PR + Push · Render MCP Worker deploy"
 
 on:
   pull_request:

@@ -214,7 +214,7 @@ describe('staging workflow safety contracts', () => {
   });
   it('routes label publication from staging-owning parents, and bounded recovery also from PR checks', () => {
     // The Viewer preview moved to PR checks and must keep its one automatic retry.
-    expect(structure('e2e-rerun').on.workflow_run.workflows).toEqual(['Build, Test and Draft Release', 'PR validation', 'PR checks']);
+    expect(structure('e2e-rerun').on.workflow_run.workflows).toEqual(['Build, Test and Draft Release', 'PR · E2E on PR slot', 'PR · Unit tests and build']);
     const recovery = structure('e2e-rerun').jobs.rerun;
     expect(recovery.if).toContain("github.event.workflow_run.run_attempt == 1");
     expect(recovery.if).toContain("github.event.workflow_run.conclusion == 'failure'");

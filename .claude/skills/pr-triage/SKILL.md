@@ -56,14 +56,14 @@ Publication creates a new comment; edited comments cannot authorize tests. The h
 
 ## When only the base moved
 
-`PR validation` checks the decision after it gets the staging lock, often 30+ minutes after the push. A merge to `main` in that window that touches a file the PR changes (or changes a catalog) fails "Select E2E for this PR" with `missing-or-stale-decision`, although the PR diff did not change. Other merges to `main` leave a `selected` decision valid. When that is the only problem and the user asks to refresh it, run the script instead of repeating the steps by hand. It reuses a previous collaborator `selected` decision only if the diff fingerprint and the catalogs are unchanged; `all`, `triage`, a changed diff or changed catalogs exit 2 and need the manual flow above.
+`PR · E2E on PR slot` checks the decision after it gets the staging lock, often 30+ minutes after the push. A merge to `main` in that window that touches a file the PR changes (or changes a catalog) fails "Select E2E for this PR" with `missing-or-stale-decision`, although the PR diff did not change. Other merges to `main` leave a `selected` decision valid. When that is the only problem and the user asks to refresh it, run the script instead of repeating the steps by hand. It reuses a previous collaborator `selected` decision only if the diff fingerprint and the catalogs are unchanged; `all`, `triage`, a changed diff or changed catalogs exit 2 and need the manual flow above.
 
 ```bash
 node .claude/skills/pr-triage/scripts/refresh-decision.mjs --pr <PR_NUMBER>            # dry run, changes nothing
 node .claude/skills/pr-triage/scripts/refresh-decision.mjs --pr <PR_NUMBER> --confirm  # merges main into the PR branch, publishes, requests E2E
 ```
 
-`--confirm` pushes a merge of `main` into the PR branch (a new head), publishes under your `gh` login (collaborator required) and requests the run; add `--no-request` to stop before the request. It loads the controller from a temporary clean checkout of the current `main` tip and retries up to four rounds if `main` moves again (exit 3 if it never settles). The run still queues for the staging lock, so a later merge to `main` can stale the decision again; check `PR validation` after it starts.
+`--confirm` pushes a merge of `main` into the PR branch (a new head), publishes under your `gh` login (collaborator required) and requests the run; add `--no-request` to stop before the request. It loads the controller from a temporary clean checkout of the current `main` tip and retries up to four rounds if `main` moves again (exit 3 if it never settles). The run still queues for the staging lock, so a later merge to `main` can stale the decision again; check `PR · E2E on PR slot` after it starts.
 
 ## Retain the lesson
 

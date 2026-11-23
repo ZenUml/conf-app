@@ -2,12 +2,12 @@
 
 PR validation and main preparation have separate entry workflows.
 
-A PR push starts two workflows. Only `PR validation` takes a lock, `conf-app-pr-slot`, because a workflow-level concurrency group holds back every job of its run. That lock belongs to the PR slot (Forge environment `pr`, site `lite-dev`, backend `conf-stg-lite-pr.zenuml.com`); `main` and the daily regression use `conf-app-staging` and the staging slot, so PR runs and `main` runs do not wait for each other.
+A PR push starts two workflows. Only `PR · E2E on PR slot` takes a lock, `conf-app-pr-slot`, because a workflow-level concurrency group holds back every job of its run. That lock belongs to the PR slot (Forge environment `pr`, site `lite-dev`, backend `conf-stg-lite-pr.zenuml.com`); `main` and the daily regression use `conf-app-staging` and the staging slot, so PR runs and `main` runs do not wait for each other.
 
 ```mermaid
 flowchart LR
-  Push[PR push] --> C[PR checks: no lock, newer push cancels older]
-  Push --> Q[PR validation: waits for the staging lock]
+  Push[PR push] --> C[PR · Unit tests and build: no lock, newer push cancels older]
+  Push --> Q[PR · E2E on PR slot: waits for the staging lock]
   C --> U1[Unit tests, 4 shards]
   C --> A[AsyncAPI build]
   C --> M[MCP app build and CI script tests]

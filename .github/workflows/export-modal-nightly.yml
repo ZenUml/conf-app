@@ -1,4 +1,4 @@
-name: Export modal validation
+name: "PR + Daily 04:17 UTC · Export modal"
 
 # Runs the Export PNG Playwright suite (tests/export-modal, `pnpm test:export-modal`)
 # against the standalone Vite dev server. It needs no Confluence site, no Forge app,

@@ -1,4 +1,4 @@
-name: PR test decision
+name: "PR · Test decision"
 
 on:
   # Every PR gets an early state, including docs-only and external PRs.

@@ -1,4 +1,4 @@
-name: PR checks
+name: "PR · Unit tests and build"
 
 # PR jobs that never touch staging. They live apart from PR validation because a
 # workflow-level concurrency group holds every job of a run back: under the

@@ -1,4 +1,4 @@
-name: PR E2E validation
+name: "PR · E2E on PR slot (shards)"
 
 on:
   workflow_dispatch:

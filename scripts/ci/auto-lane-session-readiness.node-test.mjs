@@ -14,7 +14,7 @@ const base = {
   classification: { level: "low", lane: "auto-merge" },
   meta: { state: "OPEN", isDraft: false, baseRefName: "main", mergeable: "MERGEABLE", reviewDecision: "", headRefOid: head },
   checks: green,
-  runs: [{ workflowName: "PR validation", status: "completed" }, { workflowName: "PR checks", status: "completed" }],
+  runs: [{ workflowName: "PR · E2E on PR slot", status: "completed" }, { workflowName: "PR · Unit tests and build", status: "completed" }],
   head,
   files: ["src/a.spec.ts"],
 };
@@ -32,9 +32,9 @@ test("a workflow run still waiting on the head blocks, although no listed check 
   const checks = green.filter((c) => c.name === "Build and Unit Test");
   for (const status of ["pending", "queued", "waiting", "requested", "in_progress"]) {
     assert.deepEqual(
-      blockers({ checks, runs: [{ workflowName: "PR validation", status }, { workflowName: "PR checks", status: "completed" }] })
+      blockers({ checks, runs: [{ workflowName: "PR · E2E on PR slot", status }, { workflowName: "PR · Unit tests and build", status: "completed" }] })
         .filter((b) => b.startsWith("runs-pending")),
-      ["runs-pending:PR validation"],
+      ["runs-pending:PR · E2E on PR slot"],
       status,
     );
   }

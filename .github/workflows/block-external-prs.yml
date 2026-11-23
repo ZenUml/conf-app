@@ -1,4 +1,4 @@
-name: Block External PRs
+name: "PR · Block external PRs"
 
 # This repo does not accept pull requests from forks (external contributors).
 # `pull_request_target` runs with the base repo's token so we can comment + close.

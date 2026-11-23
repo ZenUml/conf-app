@@ -24,7 +24,7 @@ pnpm exec wrangler deploy --config workers/render-mcp/wrangler.toml --env previe
 
 The build invokes the existing MCP Vite configuration with a separate output directory. It copies the static DrawIO viewer and its fonts, images, stencils and MathJax files; it does not copy the Confluence SPA or run a variant build. `workers/render-mcp/dist/` is disposable output. The build records the checked-out commit, dirty status, build time and view HTML digest.
 
-The independent `Render MCP Worker` workflow builds and tests changes, then deploys trusted branch/PR candidates to `zenuml-render-mcp-preview.zenuml.workers.dev`. Fork PRs receive checks without deployment credentials. The preview has no production routes and no Mixpanel tracking token. A shared preview can be replaced by another branch, so always check its health commit before testing.
+The independent `PR + Push · Render MCP Worker deploy` workflow builds and tests changes, then deploys trusted branch/PR candidates to `zenuml-render-mcp-preview.zenuml.workers.dev`. Fork PRs receive checks without deployment credentials. The preview has no production routes and no Mixpanel tracking token. A shared preview can be replaced by another branch, so always check its health commit before testing.
 
 ## Production
 

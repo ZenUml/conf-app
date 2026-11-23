@@ -16,7 +16,7 @@ set -euo pipefail
 : "${RUNNER_TOKEN:?RUNNER_TOKEN (repo registration token) is required}"
 REPO_URL=${REPO_URL:-https://github.com/ZenUml/conf-app}
 RUNNER_VERSION=${RUNNER_VERSION:-2.338.2}
-RUNNERS=${RUNNERS:-48}
+RUNNERS=${RUNNERS:-24}
 LABELS=${RUNNER_LABELS:-gcp-conf}
 PREFIX=${RUNNER_PREFIX:-conf-ci}
 IDLE_MINUTES=${IDLE_MINUTES:-10}

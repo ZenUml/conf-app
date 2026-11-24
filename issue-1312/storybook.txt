@@ -1,0 +1,8 @@
+PASS Sequence first after unsupported: centered, pointer/wheel/shortcut blocked, focus wraps, Escape restores source, playback completes
+PASS Sequence → Flowchart: both shown independently, example source and diagram agree, Got it works after playback
+PASS Flowchart → Sequence for second account: reduced motion opens on both final views immediately
+PASS New document sessions for both accounts: both seen types skip with only the mocked site properties retained
+PASS Navigate away mid-animation: seen type skips and unseen type displays
+PASS Close, Got it and Escape each work during and after playback, restoring source focus
+PASS The previously focused toolbar control is restored when the property lookup completes after it received focus
+PASS Existing paywall has priority and consumes no intro. Continue editing starts the introduction.

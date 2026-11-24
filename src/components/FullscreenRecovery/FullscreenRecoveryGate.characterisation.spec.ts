@@ -33,6 +33,7 @@ describe('FullscreenRecoveryGate copy, feature omitted', () => {
         <details class="recovery__details">
           <summary>Additional context (optional)</summary> <label class="recovery__label" for="recovery-note">Anything that would help us understand your use</label> <textarea id="recovery-note" rows="3" maxlength="2000"></textarea>
         </details>
+        <!--v-if-->
         <div class="recovery__actions"><button type="button" class="recovery__primary" disabled="">Contact support</button> <button type="button" class="recovery__secondary">Plan and usage</button></div> <button type="button" class="recovery__link">Back to diagram</button>
       </section>"
     `)
@@ -108,6 +109,7 @@ describe('FullscreenRecoveryGate copy, feature omitted', () => {
         <h1 id="recovery-title">Your temporary Fullscreen access has ended</h1>
         <p class="recovery__lead">It ended . You can still read the diagram on this page.</p>
         <p>Still need Fullscreen? Continue your existing request. You don't need to repeat your use case.</p>
+        <!--v-if-->
         <div class="recovery__actions"><button type="button" class="recovery__primary">Continue the conversation</button> <button type="button" class="recovery__secondary">Plan and usage</button></div> <button type="button" class="recovery__link">Back to diagram</button>
       </section>"
     `)

@@ -27,6 +27,9 @@ import type {
   PlantUmlRenderer,
   McpViewPlantUmlRenderer,
   McpViewFullscreenOutcome,
+  McpViewAction,
+  McpViewDownloadFormat,
+  McpViewActionOutcome,
   PlantUmlLocalFailureReason,
   PlantUmlUnresolvedInclude,
   PlantUmlPngPurpose,
@@ -406,6 +409,10 @@ export type AnalyticsProperties = {
   fullscreen_outcome?: McpViewFullscreenOutcome;
   // agent_link_app_view_zoomed: whether the view was in fullscreen.
   fullscreen_active?: boolean;
+  // agent_link_app_view_action_used only.
+  view_action?: McpViewAction;
+  download_format?: McpViewDownloadFormat;
+  action_outcome?: McpViewActionOutcome;
   plantuml_failure_reason?: PlantUmlLocalFailureReason;
   plantuml_unresolved_include?: PlantUmlUnresolvedInclude;
   // ADR-0010: a GitHub C4-PlantUML URL include was rewritten to the hosted C4
@@ -632,6 +639,8 @@ export type AnalyticsProperties = {
   // Advertised annual price on the bundle CTA at click time (USD, per space).
   // Recorded on the event so a later price change stays comparable.
   bundle_price_usd?: number;
+  /** Seasonal offer advertised on the CTA or forwarded to Stripe. */
+  bundle_offer?: 'black_friday_2026';
   /** Confirmed unpaid rows offering a one-space checkout on Plan and usage. */
   purchasable_space_count?: number;
   /** Per-space Lite limit at the time of a checkout action. */

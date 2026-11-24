@@ -120,6 +120,30 @@ describe('parseViewEvent — zoom', () => {
   });
 });
 
+describe('parseViewEvent — action', () => {
+  it('reads a copy as its own event, with no format, dropping anything else', () => {
+    expect(parseViewEvent('{"kind":"action","macro_type":"sequence","view_action":"copy_source","action_outcome":"done","title":"x"}')).toEqual({
+      event: 'agent_link_app_view_action_used', macro_type: 'sequence', view_action: 'copy_source', action_outcome: 'done',
+    });
+  });
+
+  it('reads a download with its format and mode', () => {
+    expect(parseViewEvent('{"kind":"action","macro_type":"openapi","mcp_mode":"local","view_action":"download","download_format":"source","action_outcome":"failed"}')).toEqual({
+      event: 'agent_link_app_view_action_used', macro_type: 'openapi', mcp_mode: 'local', view_action: 'download', download_format: 'source', action_outcome: 'failed',
+    });
+  });
+
+  it.each([
+    ['an unknown action', '{"kind":"action","macro_type":"mermaid","view_action":"share","action_outcome":"done"}'],
+    ['an unknown outcome', '{"kind":"action","macro_type":"mermaid","view_action":"copy_source","action_outcome":"maybe"}'],
+    ['a download with no format', '{"kind":"action","macro_type":"mermaid","view_action":"download","action_outcome":"done"}'],
+    ['a download in an unknown format', '{"kind":"action","macro_type":"mermaid","view_action":"download","download_format":"pdf","action_outcome":"done"}'],
+    ['a copy with a format', '{"kind":"action","macro_type":"mermaid","view_action":"copy_source","download_format":"svg","action_outcome":"done"}'],
+  ])('refuses %s', (_label, text) => {
+    expect(parseViewEvent(text)).toBeNull();
+  });
+});
+
 describe('handleViewEvent', () => {
   it('records one event and answers 204 without waiting for Mixpanel', async () => {
     const waitUntil = vi.fn();

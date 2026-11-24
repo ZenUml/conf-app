@@ -11,6 +11,11 @@ import { testConfig } from '../../config/test-config.js';
 import { insertAndPublishMacro } from '../../helpers/MacroFlowHelper.js';
 import { dispatchSyntheticBeforeunloadOnPage } from '../../helpers/CloseGuardHelper.js';
 
+// Each test builds its own page, so the planner may place tests of this
+// file on different shards (scripts/test-selection/plan.mjs splits a
+// file per test only when it declares parallel mode).
+test.describe.configure({ mode: 'parallel' });
+
 test.describe('Page-level actions', { tag: ['@test:page-actions', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@editor', '@sequence', '@check:host-contract'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('sequence'), 'need at least one macro to seed the page');

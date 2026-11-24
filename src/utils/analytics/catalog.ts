@@ -342,6 +342,16 @@ export type McpViewPlantUmlRenderer = "local" | "failed";
 // What the host did when the MCP Apps view asked for fullscreen or to leave it
 // (agent_link_app_view_fullscreen_requested).
 export type McpViewFullscreenOutcome = "entered" | "exited" | "declined" | "failed";
+// What the MCP Apps view's keep-it buttons did (agent_link_app_view_action_used, #1271).
+export type McpViewAction = "copy_source" | "download";
+// `svg` for a drawing (sequence, mermaid, plantuml, graph); `source` for a
+// document (openapi, asyncapi, markdown), whose source is the useful file.
+export type McpViewDownloadFormat = "svg" | "source";
+// `done`: the clipboard accepted the text, or the browser was handed the file.
+// The sandbox may still refuse to save it without telling the frame, so a
+// download `done` is "started", not "saved". `failed`: copy refused, or the
+// image could not be produced.
+export type McpViewActionOutcome = "done" | "failed";
 
 // Why the local PlantUML engine produced no diagram (ADR-0010). A syntax error
 // is NOT a failure: the engine draws it like the server did, and the existing
@@ -919,7 +929,9 @@ export type AnalyticsEventName =
   // time) and `advocacy_message_copied` (asks SOMEONE ELSE to act).
   // Also fires on a Plan and usage row click: surface=dashboard, space_key,
   // macro_count, macro_limit, bundle_price_usd and client_reference_id identify
-  // the selected space and its checkout attribution.
+  // the selected space and its checkout attribution. bundle_offer identifies a
+  // seasonal price on the existing CTA and handoff events. The campaign adds
+  // no event sends, sampling changes, or replay sources.
   | "paywall_bundle_cta_clicked"
   // Bundle checkout path (spec 2026-11-20-bundle-checkout-path-design.md).
   // The Bundle CTA opens our own handoff page on the backend host, because
@@ -1808,6 +1820,14 @@ export type AnalyticsEventName =
   // gesture counts once, as in the Confluence viewer) and `fullscreen_active` (whether the view was in fullscreen).
   // Enums only, like _rendered.
   | "agent_link_app_view_zoomed"
+  // A press of the view's Copy or Download button (POST /mcp/view-event, like
+  // _rendered; #1271). Carries `macro_type`, `mcp_mode`, `view_action`
+  // (copy_source | download), `download_format` (download only: svg for a
+  // drawing, source for a document) and `action_outcome` (done | failed; a
+  // download `done` means the browser was handed the file, which a host's
+  // sandbox can still block silently). Denominator: _rendered with
+  // `render_outcome: rendered`. Enums only, like _rendered.
+  | "agent_link_app_view_action_used"
   // One per MCP initialize. Carries what the CLIENT advertised, which is the
   // only way to tell "the host never offered MCP Apps" apart from "it offered
   // them and did not render" — the view-fetch events cover the second case

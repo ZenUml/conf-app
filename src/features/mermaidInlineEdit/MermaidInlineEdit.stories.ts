@@ -1,5 +1,6 @@
 import { setup, type Meta, type StoryObj } from '@storybook/vue3-vite'
 import type { App } from 'vue'
+import { EditorView } from '@codemirror/view'
 import { expect, userEvent, waitFor } from 'storybook/test'
 import Workspace from '@/components/Workspace.vue'
 import store from '@/model/store2'
@@ -29,6 +30,10 @@ const SMALL = `sequenceDiagram
   Bob->>C: Hello<br/>two lines
   C-->>A: Fine
   Bo->>A: Ping`
+
+const REPEATED_MESSAGES = `sequenceDiagram
+  Alice->>Bob: Repeat
+  Alice->>Bob: Repeat`
 
 function large(): string {
   const names = ['Alice', 'Bob', 'Carol', 'Dave', 'Erin', 'Frank', 'Grace', 'Heidi', 'Ivan', 'Judy']
@@ -194,6 +199,65 @@ type Story = StoryObj<typeof Workspace>
 
 /** No play function: try it by hand. */
 export const TryByHand: Story = { decorators: decorate(SMALL) }
+
+export const SourceSelectionHint: Story = {
+  decorators: decorate(REPEATED_MESSAGES),
+  play: async ({ canvasElement }) => {
+    await editable()
+    const editor = canvasElement.querySelector<HTMLElement>('.cm-editor')
+    const view = editor && EditorView.findFromDOM(editor)
+    if (!view) throw new Error('CodeMirror source editor not found')
+
+    const ring = () => preview().querySelector<HTMLElement>('[data-testid="mermaid-source-selection-ring"]')
+    const sourceHint = () => preview().querySelector<HTMLElement>('[data-testid="mermaid-source-selection-hint"]')
+    const assertSecondMessageHighlighted = () => {
+      const bounds = ring()?.getBoundingClientRect()
+      if (!bounds) throw new Error('Source selection ring not found')
+      const centerY = (bounds.top + bounds.bottom) / 2
+      const second = messageText(1).getBoundingClientRect()
+      const first = messageText(0).getBoundingClientRect()
+      expect(centerY).toBeGreaterThan(second.top)
+      expect(centerY).toBeLessThan(second.bottom)
+      expect(centerY).toBeGreaterThan(first.bottom)
+    }
+
+    const first = REPEATED_MESSAGES.indexOf('Repeat')
+    const second = REPEATED_MESSAGES.lastIndexOf('Repeat')
+    const select = (anchor: number, head: number) => view.dispatch({ selection: { anchor, head } })
+    view.focus()
+    select(second, second + 'Repeat'.length)
+    await waitFor(() => {
+      expect(sourceHint()).toBeVisible()
+      expect(sourceHint()?.textContent).toBe('You can also double-click here to edit.')
+      assertSecondMessageHighlighted()
+    })
+    expect(view.hasFocus).toBe(true)
+    expect(view.state.selection.main).toMatchObject({ from: second, to: second + 'Repeat'.length })
+
+    document.execCommand('insertText', false, 'Updated')
+    await waitFor(() => {
+      expect(code()).toBe(REPEATED_MESSAGES.slice(0, second) + 'Updated')
+      expect(messageText(0).textContent).toBe('Repeat')
+      expect(messageText(1).textContent).toBe('Updated')
+      assertSecondMessageHighlighted()
+    })
+    expect(view.hasFocus).toBe(true)
+
+    select(first, second + 'Updated'.length)
+    await waitFor(() => {
+      expect(ring()).toBeNull()
+      expect(sourceHint()).toBeNull()
+    })
+    select(second, second + 'Updated'.length)
+    await waitFor(() => expect(sourceHint()).toBeVisible())
+    await userEvent.dblClick(messageText(1))
+    await waitFor(() => {
+      expect(layer()?.textContent).toBe('Updated')
+      expect(ring()).toBeNull()
+      expect(sourceHint()).toBeNull()
+    })
+  },
+}
 
 /** 10 participants, 50 messages: live re-layout on a larger diagram. */
 export const LargeDiagram: Story = { decorators: decorate(large()) }

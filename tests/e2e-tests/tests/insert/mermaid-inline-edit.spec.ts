@@ -64,12 +64,12 @@ async function waitEditable(frame: FrameLocator): Promise<void> {
   await expect(frame.locator('.mie-enabled').first()).toBeAttached({ timeout: TIMEOUTS.FRAME_LOAD });
 }
 
-async function setupSequence(page: Page, testName: string) {
+async function setupSequence(page: Page, testName: string, source = SOURCE) {
   const editorPage = new ConfluenceEditorPage(page);
   const helper = new DiagramTestHelper(page, editorPage);
   await helper.createPageWithDiagramMacro(testName);
   await editorPage.switchToMacroTab('Mermaid');
-  await helper.enterCodeInEditor(SOURCE);
+  await helper.enterCodeInEditor(source);
   const frame = editorPage.getMacroEditorFrame();
   await waitEditable(frame);
   await expect(actorLabel(frame, 'Bob').first()).toBeAttached({ timeout: TIMEOUTS.FRAME_LOAD });
@@ -152,6 +152,61 @@ test.describe('Mermaid sequence inline edit', { tag: ['@test:mermaid', '@variant
       expect(changed).toHaveLength(1);
       expect(changed[0]).toMatch(/^\s*Alice->>Bob: Hello there$/);
       await expect(editLayer(frame)).toHaveCount(0, { timeout: TIMEOUTS.FRAME_LOAD });
+    });
+  });
+
+  test('select the second of two equal source labels, then type and edit it in the diagram', async ({ page }) => {
+    const { frame, before } = await setupSequence(page, 'Mermaid Source Selection', SOURCE + '\n  Alice->>Bob: Hi');
+    const editor = frame.locator('.cm-content[contenteditable="true"]').first();
+    const ring = frame.getByTestId('mermaid-source-selection-ring');
+    const hint = frame.getByTestId('mermaid-source-selection-hint');
+    const duplicate = messageLabel(frame, 'Hi');
+    await expect(duplicate).toHaveCount(2, { timeout: TIMEOUTS.FRAME_LOAD });
+
+    await test.step('Select the second source label with the keyboard and verify its exact preview target', async () => {
+      await editor.locator('.cm-line').last().click();
+      await page.keyboard.press('End');
+      await page.keyboard.press('Shift+ArrowLeft');
+      await page.keyboard.press('Shift+ArrowLeft');
+      await expect(hint).toHaveText('You can also double-click here to edit.');
+      await expect(hint).toBeVisible();
+      await expect(editor).toBeFocused();
+      await expect.poll(async () => {
+        const [outline, first, second] = await Promise.all([
+          ring.boundingBox(), duplicate.first().boundingBox(), duplicate.last().boundingBox(),
+        ]);
+        if (!outline || !first || !second) return false;
+        const center = outline.y + outline.height / 2;
+        return center > first.y + first.height && center > second.y && center < second.y + second.height;
+      }).toBe(true);
+    });
+
+    const updated = before.slice(0, before.lastIndexOf('Hi')) + 'Updated';
+    await test.step('Type in the focused source editor and clear the hint with a multiline selection', async () => {
+      await page.keyboard.insertText('Updated');
+      await expect.poll(() => readCode(frame)).toBe(updated);
+      await expect(editor).toBeFocused();
+      await expect(messageLabel(frame, 'Hi')).toHaveCount(1, { timeout: TIMEOUTS.FRAME_LOAD });
+      await expect(messageLabel(frame, 'Updated')).toHaveCount(1);
+      await expect(ring).toBeVisible();
+      await expect(hint).toHaveCount(0);
+      await page.keyboard.press('Shift+ArrowUp');
+      await expect(ring).toHaveCount(0);
+    });
+
+    await test.step('Reselect the label and double-click the highlighted text to enter inline edit', async () => {
+      await editor.locator('.cm-line').last().click();
+      await page.keyboard.press('End');
+      for (const _ of 'Updated') await page.keyboard.press('Shift+ArrowLeft');
+      await expect(hint).toBeVisible();
+      const layer = await openLayerOn(page, frame, messageLabel(frame, 'Updated'), 'Edit message text');
+      await expect(layer).toHaveText('Updated');
+      await expect(ring).toHaveCount(0);
+      await expect(hint).toHaveCount(0);
+      await page.keyboard.press('End');
+      await page.keyboard.type(' again');
+      await page.keyboard.press('Enter');
+      await expect.poll(() => readCode(frame), { timeout: TIMEOUTS.FRAME_LOAD }).toBe(updated + ' again');
     });
   });
 

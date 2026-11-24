@@ -144,6 +144,7 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   // `unavailable` at most once per editor session (a few hundred a month at
   // most). Rate 1 on purpose, so it must not sit in OCTOBER_REDUCED_EVENTS: a
   // 10% cut would leave too few rejections per reason to read.
+  "editor_source_selection_hint_shown", // First visible hint per Mermaid editor mount.
   "editor_inline_edit_started",
   "editor_inline_edit_succeeded",
   "editor_inline_edit_rejected",

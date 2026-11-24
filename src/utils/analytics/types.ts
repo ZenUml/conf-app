@@ -462,7 +462,7 @@ export type AnalyticsProperties = {
   preview_source_changed_in_window?: boolean;
   preview_window_completed?: boolean;
   preview_ms_since_editor_open?: number;
-  // editor_inline_edit_* only (Mermaid inline edit). Bounded values:
+  // editor_inline_edit_* and editor_source_selection_hint_shown identify the Mermaid label kind. Bounded values:
   // never the edited text, the actor or node id, or the message index.
   inline_edit_kind?: InlineEditKind;
   /**

@@ -13,3 +13,14 @@ export const MERMAID_INLINE_EDIT_SURFACE = 'mermaidInlineEditSurface';
 
 export const reportInlineIntroRender: InjectionKey<(code: string, svg: Element | null) => void> =
   Symbol('reportMermaidInlineIntroRender');
+
+/** CodeMirror publishes a UTF-16 range without changing focus or selection. */
+export const MERMAID_SOURCE_SELECTION = 'mermaid-source-selection';
+
+export interface MermaidSourceSelection {
+  owner: HTMLElement;
+  code: string;
+  from: number;
+  to: number;
+  typing: boolean;
+}

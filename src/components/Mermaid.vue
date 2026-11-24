@@ -244,7 +244,9 @@ export default {
       }
       // Latest request wins. This also prevents a queued result from writing
       // into a component that changed diagram type or was unmounted.
-      if (!svg || generation !== this.renderGeneration || this.mermaidCode !== code) {
+      if (generation !== this.renderGeneration || this.mermaidCode !== code) return false;
+      if (!svg) {
+        this.inlineEdit?.onRenderFailed(code);
         return false;
       }
       this.currentFlowchartModel = typeof svg === 'string' ? null : svg.flowchartModel;

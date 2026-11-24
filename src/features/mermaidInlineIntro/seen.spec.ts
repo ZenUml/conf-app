@@ -7,6 +7,11 @@ const otherAuthor = { ...author, accountId: 'author:2' }
 describe('Mermaid introduction seen state', () => {
   beforeEach(() => localStorage.clear())
 
+  it('uses property keys accepted by Confluence', () => {
+    expect(introPropertyKey('sequence')).toMatch(/^[-_a-zA-Z0-9]+$/)
+    expect(introPropertyKey('flowchart')).toMatch(/^[-_a-zA-Z0-9]+$/)
+  })
+
   it('writes only after a display and stores each type and account independently', async () => {
     const properties = new Set<string>()
     const request = vi.fn(async (url: string, method: string) => {

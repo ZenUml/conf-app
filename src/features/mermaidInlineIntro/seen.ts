@@ -6,7 +6,8 @@ export interface IntroAccount {
   cloudId: string
 }
 
-export const introPropertyKey = (type: InlineEditDiagram) => `zenuml.mermaidInlineIntro.v1.${type}`
+// Confluence user-property keys accept only ASCII letters, digits, hyphens and underscores.
+export const introPropertyKey = (type: InlineEditDiagram) => `zenuml-mermaid-inline-intro-v1-${type}`
 
 function cacheKey(account: IntroAccount, type: InlineEditDiagram) {
   return `${introPropertyKey(type)}:${account.cloudId}:${account.accountId}`

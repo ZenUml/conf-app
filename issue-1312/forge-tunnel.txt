@@ -1,0 +1,16 @@
+Forge Tunnel evidence, Lite pr development environment, 2026-11-25 Australia/Melbourne
+
+The unsupported ER fixture rendered in the actual macro editor without an introduction. The editor resource came from localhost:8000 and displayed the Forge Tunnel debug marker. The initial Sequence check identified a live HTTP 400: Confluence rejected the dots in the user-property key. A hyphenated probe key returned 404 for missing data. After applying the corrected key, the live Sequence dialog showed "Rename a sequence message", "C->>S: Confirm order", and "Got it". This first display used the corrected Vite source after hot reload with the previous git label.
+
+Restarted Vite for 3290dafec. The final Flowchart editor displayed:
+  build codex/mermaid-inline-intro-1312:3290dafec
+  author source A[Draft] --> B[Review]
+  author source B --> C[Publish]
+  dialog Edit text on a flowchart
+  Double-click a node’s text or a label on a connecting arrow to edit it.
+  example source A[Start] --> B[Approve]
+  example source B --> C[Send]
+  example diagram Approve
+  Got it
+
+Clicking Got it closed the introduction, restored focus to the source textbox, and left the author’s original Review label and connections intact. Reopening the same macro rendered the Flowchart and retained the author source with zero open introductions.

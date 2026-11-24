@@ -929,7 +929,9 @@ export type AnalyticsEventName =
   // time) and `advocacy_message_copied` (asks SOMEONE ELSE to act).
   // Also fires on a Plan and usage row click: surface=dashboard, space_key,
   // macro_count, macro_limit, bundle_price_usd and client_reference_id identify
-  // the selected space and its checkout attribution.
+  // the selected space and its checkout attribution. bundle_offer identifies a
+  // seasonal price on the existing CTA and handoff events. The campaign adds
+  // no event sends, sampling changes, or replay sources.
   | "paywall_bundle_cta_clicked"
   // Bundle checkout path (spec 2026-11-20-bundle-checkout-path-design.md).
   // The Bundle CTA opens our own handoff page on the backend host, because

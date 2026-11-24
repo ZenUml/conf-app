@@ -14,8 +14,13 @@
 // the CTA linked to Stripe directly. The redirect target is a constant, so
 // this is not an open redirect. Nothing here needs or reads a user identity.
 
+import {
+  BLACK_FRIDAY_OFFER, BLACK_FRIDAY_PRICE, BLACK_FRIDAY_STRIPE_CODE, BLACK_FRIDAY_TERMS,
+  BUNDLE_ANNUAL_PRICE_USD, blackFridayActive,
+} from '../../src/utils/paywall/bundleBlackFriday';
+
 export const BUNDLE_PAYMENT_LINK = 'https://buy.stripe.com/cNifZifkN7hzavK12H7IY05';
-export const BUNDLE_ANNUAL_PRICE_USD = 299;
+export { BUNDLE_ANNUAL_PRICE_USD };
 const COUNTDOWN_SECONDS = 3;
 
 const REF_RE = /^[A-Za-z0-9_-]{1,200}$/;
@@ -34,6 +39,7 @@ export interface BundleCheckoutEvent {
   handoff_outcome?: 'served' | 'invalid_ref';
   checkout_trigger?: 'auto' | 'button';
   countdown_stopped?: boolean;
+  bundle_offer?: typeof BLACK_FRIDAY_OFFER;
 }
 
 export interface BundleCheckoutDeps {
@@ -42,6 +48,8 @@ export interface BundleCheckoutDeps {
   waitUntil?: (work: Promise<unknown>) => void;
   /** CSP nonce for the page's one inline script. */
   nonce?: string;
+  stripePromotionCode?: string | null;
+  now?: () => number;
 }
 
 interface CheckoutParams {
@@ -51,6 +59,7 @@ interface CheckoutParams {
   displaySpace?: string;
   surface?: Surface;
   click?: string;
+  wantsOffer: boolean;
 }
 
 function parseParams(url: URL): CheckoutParams {
@@ -62,6 +71,7 @@ function parseParams(url: URL): CheckoutParams {
   const space = url.searchParams.get('space');
   return {
     ref,
+    wantsOffer: url.searchParams.get('offer') === BLACK_FRIDAY_OFFER,
     clientDomain: ref ? ref.slice(0, split) : undefined,
     refSpaceKey: ref ? ref.slice(split + 2) : undefined,
     displaySpace: space && DISPLAY_SPACE_RE.test(space) ? space : undefined,
@@ -103,6 +113,7 @@ function goHref(p: CheckoutParams): string {
   const q = new URLSearchParams({ ref: p.ref as string });
   if (p.surface) q.set('surface', p.surface);
   if (p.click) q.set('click', p.click);
+  if (p.wantsOffer) q.set('offer', BLACK_FRIDAY_OFFER);
   q.set('trigger', 'button');
   return `/bundle-checkout/go?${q.toString()}`;
 }
@@ -130,6 +141,8 @@ h1{font-size:24px;line-height:32px;font-weight:600;margin:0}
 .lead{color:var(--lo);margin:8px 0 24px}
 .card{border:.5px solid var(--ctl);border-radius:8px}
 .row{display:flex;justify-content:space-between;gap:16px;padding:12px 16px;border-bottom:.5px solid var(--hair)}
+.offer{background:#f3eefd;color:#4c2981;border-radius:8px;padding:12px 16px;margin-bottom:16px}
+.offer strong,.offer small{display:block}
 .row:last-child{border-bottom:0}
 .k{color:var(--lo)}.v{font-weight:500;text-align:right;overflow-wrap:anywhere}
 .v small{display:block;font-weight:400;color:var(--lo);font-size:12px;line-height:16px}
@@ -150,7 +163,7 @@ function shell(title: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>${STYLE}</style></head><body><header class="top"><span class="logo" aria-hidden="true">Z</span>ZenUML</header>${body}</body></html>`;
 }
 
-function handoffHtml(p: CheckoutParams, nonce: string | undefined): string {
+function handoffHtml(p: CheckoutParams, nonce: string | undefined, offer: boolean): string {
   const space = escapeHtml(p.displaySpace ?? (p.refSpaceKey as string));
   const site = escapeHtml(`${p.clientDomain}.atlassian.net`);
   const href = escapeHtml(goHref(p));
@@ -170,9 +183,10 @@ if(document.visibilityState==='visible')start();else document.addEventListener('
   return shell('Secure checkout · ZenUML', `<main>
 <h1 id="h">Checkout is ready</h1>
 <p class="lead" id="lead">Stripe handles the payment for ZenUML. Continue when you are ready.</p>
+${offer ? `<div class="offer"><strong>Black Friday · 50% off the first year</strong><strong>${BLACK_FRIDAY_PRICE} first year</strong><small>${BLACK_FRIDAY_TERMS}</small><small>Applied automatically at checkout.</small></div>` : ''}
 <div class="card">
 <div class="row"><span class="k">Space</span><span class="v">${space}<small>${site}</small></span></div>
-<div class="row"><span class="k">Price</span><span class="v">$${BUNDLE_ANNUAL_PRICE_USD} per year<small>plus tax where applicable</small></span></div>
+${offer ? '' : `<div class="row"><span class="k">Price</span><span class="v">$${BUNDLE_ANNUAL_PRICE_USD} per year<small>plus tax where applicable</small></span></div>`}
 <div class="row"><span class="k">You get</span><span class="v">No diagram limit in this space<small>for this space only</small></span></div>
 <div class="row"><span class="k">Payment</span><span class="v">Card, by Stripe<small>No Confluence admin needed</small></span></div>
 </div>
@@ -189,6 +203,24 @@ const INVALID_HTML = shell('Checkout link not valid · ZenUML', `<main>
 <p class="fine">Still not working? Email support@zenuml.com and include the space key.</p>
 </main>`);
 
+function promotionCode(p: CheckoutParams, deps: BundleCheckoutDeps): string | null {
+  if (!p.wantsOffer || !p.surface || !blackFridayActive(deps.now?.() ?? Date.now())) return null;
+  return deps.stripePromotionCode === undefined ? BLACK_FRIDAY_STRIPE_CODE : deps.stripePromotionCode;
+}
+
+function unavailableOffer(p: CheckoutParams): Response {
+  const query = new URLSearchParams({ ref: p.ref as string });
+  if (p.displaySpace) query.set('space', p.displaySpace);
+  if (p.surface) query.set('surface', p.surface);
+  if (p.click) query.set('click', p.click);
+  const href = escapeHtml(`/bundle-checkout?${query}`);
+  return new Response(shell('Black Friday offer unavailable · ZenUML', `<main>
+<h1>The Black Friday offer is unavailable</h1>
+<p class="lead">You can still unlock this space for US$${BUNDLE_ANNUAL_PRICE_USD} per year, plus tax where applicable.</p>
+<p><a class="btn" href="${href}">Review standard checkout</a></p>
+</main>`), { status: 409, headers: headers() });
+}
+
 function methodGuard(request: Request): Response | null {
   if (request.method === 'GET' || request.method === 'HEAD') return null;
   return new Response('Method Not Allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
@@ -204,8 +236,14 @@ export async function handleBundleCheckoutPage(request: Request, deps: BundleChe
     if (!isHead) await record(deps, { ...baseEvent('bundle_checkout_redirected', p), handoff_outcome: 'invalid_ref' });
     return new Response(INVALID_HTML, { status: 400, headers: headers() });
   }
-  if (!isHead) await record(deps, { ...baseEvent('bundle_checkout_redirected', p), handoff_outcome: 'served' });
-  return new Response(handoffHtml(p, deps.nonce), { status: 200, headers: headers(deps.nonce) });
+  const code = promotionCode(p, deps);
+  if (p.wantsOffer && !code) return unavailableOffer(p);
+  if (!isHead) await record(deps, {
+    ...baseEvent('bundle_checkout_redirected', p),
+    handoff_outcome: 'served',
+    ...(code ? { bundle_offer: BLACK_FRIDAY_OFFER } : {}),
+  });
+  return new Response(handoffHtml(p, deps.nonce, Boolean(code)), { status: 200, headers: headers(deps.nonce) });
 }
 
 /** GET /bundle-checkout/go — records the step and sends the buyer to Stripe. */
@@ -215,13 +253,18 @@ export async function handleBundleCheckoutGo(request: Request, deps: BundleCheck
   const url = new URL(request.url);
   const p = parseParams(url);
   if (!p.ref) return new Response(INVALID_HTML, { status: 400, headers: headers() });
+  const code = promotionCode(p, deps);
+  if (p.wantsOffer && !code) return unavailableOffer(p);
   if (request.method === 'GET') {
     await record(deps, {
       ...baseEvent('bundle_checkout_continued', p),
       checkout_trigger: url.searchParams.get('trigger') === 'auto' ? 'auto' : 'button',
       countdown_stopped: url.searchParams.get('stopped') === '1',
+      ...(code ? { bundle_offer: BLACK_FRIDAY_OFFER } : {}),
     });
   }
-  const target = `${BUNDLE_PAYMENT_LINK}?${new URLSearchParams({ client_reference_id: p.ref }).toString()}`;
-  return new Response(null, { status: 302, headers: { location: target, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
+  const target = new URL(BUNDLE_PAYMENT_LINK);
+  target.searchParams.set('client_reference_id', p.ref);
+  if (code) target.searchParams.set('prefilled_promo_code', code);
+  return new Response(null, { status: 302, headers: { location: target.toString(), 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
 }

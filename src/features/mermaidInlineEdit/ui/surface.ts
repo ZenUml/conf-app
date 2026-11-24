@@ -1,3 +1,5 @@
+import type { InjectionKey } from 'vue';
+
 /**
  * provide/inject key: Workspace.vue provides `true`, so only a Mermaid
  * renderer inside the editor's preview pane can turn inline edit on. Every
@@ -8,3 +10,6 @@
  * Kept in its own file so Workspace.vue and Mermaid.vue import no feature code.
  */
 export const MERMAID_INLINE_EDIT_SURFACE = 'mermaidInlineEditSurface';
+
+export const reportInlineIntroRender: InjectionKey<(code: string, svg: Element | null) => void> =
+  Symbol('reportMermaidInlineIntroRender');

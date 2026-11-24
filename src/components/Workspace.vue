@@ -1,5 +1,5 @@
 <template>
-  <div class="workspace-container">
+  <div ref="workspaceRoot" class="workspace-container">
     <div class="content h-screen flex flex-col" style="height: 100vh; overflow: hidden;">
       <div class="flex-shrink-0">
         <Header
@@ -119,6 +119,14 @@
         <SyntaxErrorBox @request-ai-chat-repair="requestAIChatSyntaxRepair" />
       </div>
     </div>
+    <MermaidInlineIntro
+      v-if="mermaidIntro.intro.value"
+      :type="mermaidIntro.intro.value.type"
+      :workspace="workspaceRoot"
+      :can-open="mermaidIntro.canOpen"
+      @shown="mermaidIntro.onShown"
+      @dismiss="mermaidIntro.onDismiss"
+    />
   </div>
 </template>
 
@@ -128,6 +136,8 @@
   import Header from "@/components/Header/Header.vue";
   import DiagramPortal from "@/components/DiagramPortal.vue";
   import { MERMAID_INLINE_EDIT_SURFACE } from '@/features/mermaidInlineEdit/ui/surface'
+  import MermaidInlineIntro from '@/features/mermaidInlineIntro/MermaidInlineIntro.vue'
+  import { useMermaidInlineIntro } from '@/features/mermaidInlineIntro/useMermaidInlineIntro'
   import SyntaxErrorBox from '@/components/SyntaxErrorBox.vue'
   import ForeignDialectHint from '@/components/ForeignDialectHint.vue'
   import AIChatPanel from '@/components/AIChat/AIChatPanel.vue'
@@ -186,7 +196,16 @@
         diagramId: computed(() => store.state.diagram.id || undefined),
         covered: computed(() => showAIChat.value || templateGalleryOpen.value),
       })
+      const workspaceRoot = ref<HTMLElement | null>(null)
+      const mermaidIntro = useMermaidInlineIntro({
+        workspace: workspaceRoot,
+        mermaidCode: computed(() => store.state.diagram.diagramType === DiagramType.Mermaid
+          ? store.state.diagram.mermaidCode ?? null : null),
+        covered: computed(() => showAIChat.value || templateGalleryOpen.value || promo.dialogVisible.value),
+      })
       return {
+        workspaceRoot,
+        mermaidIntro,
         showAIChat,
         templateGalleryOpen,
         mcpShowNewDiagramCard: promo.showNewDiagramCard,
@@ -411,6 +430,7 @@
       ChevronDoubleRightIcon,
       McpPromoCard,
       ConnectMcpDialog,
+      MermaidInlineIntro,
     }
   }
 </script>

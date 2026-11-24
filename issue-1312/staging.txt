@@ -1,0 +1,9 @@
+CI-deployed Lite PR environment
+Run 45505281251, deployed candidate fee963ce5, source PR head 3290dafec.
+The Confluence editor iframe loaded index-B_PuDqK-.js from Atlassian CDN. The asset name matched the CI-published Lite preview. No Vite client was present.
+
+Test account A: the first Flowchart introduction displayed its matching diagram and A[Start] --> B[Approve]. Got it restored focus to the real source and preserved A[Draft] --> B[Review]. A fresh browser context with the same authenticated account rendered the Flowchart without showing the introduction again.
+
+Test account B: opened Flowchart, then Sequence, with reduced motion enabled. Both modals opened with Close focused and in the completed state. The Flowchart source highlighted A[Start] --> B[Approve]; the Sequence source highlighted C->>S: Confirm order. Escape closed the Sequence introduction and restored focus to CodeMirror. Both diagrams rendered without an introduction when opened again in new editor sessions.
+
+Screenshots use 1280 × 900 Chromium at the actual Confluence macro editor. The app centers and blocks the editor iframe. Atlassian owns the separate outer heading and close button.

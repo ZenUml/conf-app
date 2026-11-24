@@ -2066,6 +2066,8 @@ export type AnalyticsEventName =
   // editor_inline_edit_* event once flowchart inline edit ships, absent on events
   // sent before it). Flowchart labels use inline_edit_kind 'node_label' /
   // 'edge_label'. Never diagram text or ids. docs/features/mermaid-inline-edit.md.
+  // First visible source-selection hint per editor mount (surface=editor, macro_type=Mermaid).
+  | "editor_source_selection_hint_shown"
   | "editor_inline_edit_started"
   | "editor_inline_edit_succeeded"
   | "editor_inline_edit_rejected"

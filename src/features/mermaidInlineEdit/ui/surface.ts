@@ -8,3 +8,14 @@
  * Kept in its own file so Workspace.vue and Mermaid.vue import no feature code.
  */
 export const MERMAID_INLINE_EDIT_SURFACE = 'mermaidInlineEditSurface';
+
+/** CodeMirror publishes a UTF-16 range without changing focus or selection. */
+export const MERMAID_SOURCE_SELECTION = 'mermaid-source-selection';
+
+export interface MermaidSourceSelection {
+  owner: HTMLElement;
+  code: string;
+  from: number;
+  to: number;
+  typing: boolean;
+}

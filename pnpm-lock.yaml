@@ -200,7 +200,7 @@ importers:
         version: 1.6.5
       styled-components:
         specifier: ^6.6.0
-        version: 6.7.0(css-to-react-native@3.2.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 6.6.0(css-to-react-native@3.2.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       svg-pan-zoom:
         specifier: 3.6.2
         version: 3.6.2
@@ -9824,8 +9824,8 @@ packages:
   style-to-object@1.0.14:
     resolution: {integrity: sha512-LIN7rULI0jBscWQYaSswptyderlarFkjQ+t79nzty8tcIAceVomEVlLzH5VP4Cmsv6MtKhs7qaAiwlcp+Mgaxw==}
 
-  styled-components@6.7.0:
-    resolution: {integrity: sha512-bXQPHHWVSyNtLfCd8GM4yg4i5Cq+y7pDuj5gs/hm5+3vQ3G4QieAQ9QybKl4p1THR3qqEiDa/w4kqVDjZ/sO5Q==}
+  styled-components@6.6.0:
+    resolution: {integrity: sha512-drKKsqvDBxVRn4ySU67iQ5nQBuo/1xyYeBfdhDde112PkqrS3+95KPnpDs5hFRcmrW+q6+gbyywYYYR14oWFtw==}
     engines: {node: '>= 16'}
     peerDependencies:
       css-to-react-native: '>= 3.2.0'
@@ -12246,12 +12246,12 @@ snapshots:
 
   '@compiled/react@0.18.6(react@18.3.1)':
     dependencies:
-      csstype: 3.2.3
+      csstype: 3.2.4
       react: 18.3.1
 
   '@compiled/react@0.20.0(react@18.3.1)':
     dependencies:
-      csstype: 3.2.3
+      csstype: 3.2.4
       react: 18.3.1
 
   '@cspotcode/source-map-support@0.8.1':
@@ -12377,7 +12377,7 @@ snapshots:
       '@emotion/memoize': 0.9.0
       '@emotion/unitless': 0.10.0
       '@emotion/utils': 1.4.2
-      csstype: 3.2.3
+      csstype: 3.2.4
 
   '@emotion/sheet@1.4.0': {}
 
@@ -16222,7 +16222,7 @@ snapshots:
       '@vue/reactivity': 3.5.45
       '@vue/runtime-core': 3.5.45
       '@vue/shared': 3.5.45
-      csstype: 3.2.3
+      csstype: 3.2.4
 
   '@vue/runtime-dom@3.5.46':
     dependencies:
@@ -22243,7 +22243,7 @@ snapshots:
     dependencies:
       inline-style-parser: 0.2.7
 
-  styled-components@6.7.0(css-to-react-native@3.2.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+  styled-components@6.6.0(css-to-react-native@3.2.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       '@emotion/is-prop-valid': 1.4.0
       '@types/stylis': 4.2.7

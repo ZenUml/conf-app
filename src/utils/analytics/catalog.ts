@@ -2073,6 +2073,11 @@ export type AnalyticsEventName =
   | "editor_inline_edit_rejected"
   | "editor_inline_edit_cancelled"
   | "editor_inline_edit_unavailable"
+  // Mermaid inline-edit introduction (#1312): fires when the blocking modal
+  // actually opens for an account and diagram type, before playback ends.
+  // feature_area 'macro', surface 'editor', macro_type 'mermaid',
+  // inline_edit_diagram, inline_edit_intro_reduced_motion. No diagram text.
+  | "mermaid_inline_edit_intro_shown"
   // Onboarding funnel — "second diagram" prompt (registered ahead of its
   // producer: this task only registers the event names + properties so the
   // catalog/types are ready; no call site exists yet in this codebase. A

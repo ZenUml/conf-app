@@ -32,6 +32,7 @@ export const EVENT_SAMPLE_RATES: Record<string, number> = {
   duplication_detect: 0.1, // model/ApWrapper2.ts — cross/same-page warning probe
   click: 0.1, // generic UI-click telemetry (edit/fullscreen/copy_link/…)
   close_guard_rejected: 0.1, // editor close-guard diagnostic
+  mermaid_inline_edit_intro_shown: 0.1,
 
   // Phase-5a admin-activity probe (spaceAdminProbe.ts). The measurement question
   // — "do admins load Confluence pages on Lite installs?" — is answered (~38k

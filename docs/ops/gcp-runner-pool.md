@@ -52,7 +52,7 @@ gh variable set E2E_POOL_RUNNER --body hosted -R ZenUml/conf-app
 gh variable delete E2E_POOL_RUNNER -R ZenUml/conf-app
 ```
 
-The first command sends the daily regression back to 8 hosted shards per variant. The second returns it to the pool.
+The first command sends the daily regression back to 8 hosted shards per variant. The second returns it to the pool. `E2E_POOL_RUNNER=aws` sends it to the AWS copy of this pool instead ([aws-runner-pool.md](aws-runner-pool.md)).
 
 ## Setup (idempotent)
 

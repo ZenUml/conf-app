@@ -81,7 +81,7 @@ def read_source():
 
 
 def durable_types(author):
-    return evaluate(f'Object.keys(localStorage).filter(k => k.startsWith("storybook:confluence:") && k.includes("/{author}-{RUN}/")).sort().map(k => k.split(".").at(-1))')
+    return evaluate(f'Object.keys(localStorage).filter(k => k.startsWith("storybook:confluence:") && k.includes("/{author}-{RUN}/")).sort().map(k => k.split("-").at(-1))')
 
 
 browser('set', 'viewport', '1280', '760')
@@ -165,7 +165,7 @@ assert durable_types('flowchart-first') == ['flowchart', 'sequence']
 print('PASS Flowchart → Sequence for second account: reduced motion opens on both final views immediately')
 
 for author in ['sequence-first', 'flowchart-first']:
-    evaluate('Object.keys(localStorage).filter(k => k.startsWith("zenuml.mermaidInlineIntro")).forEach(k => localStorage.removeItem(k))')
+    evaluate('Object.keys(localStorage).filter(k => k.startsWith("zenuml-mermaid-inline-intro-v1-")).forEach(k => localStorage.removeItem(k))')
     for kind in ['sequence', 'flowchart']:
         enter(kind, author)
         check_absent()

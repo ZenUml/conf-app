@@ -1,6 +1,6 @@
 # Mermaid inline editing introduction · #1312
 
-The comparison uses a 1280 × 760 Chromium viewport, the actual Workspace editor in Storybook, and fictional Order tracking and Publishing workflow diagrams. The before capture used `204907399`. Its only change from `a6718484b` was the analytics declaration, so the workspace rendered the same UI. The after capture uses `c22c9d437`.
+The comparison uses a 1280 × 760 Chromium viewport, the actual Workspace editor in Storybook, and fictional Order tracking and Publishing workflow diagrams. The before capture used `204907399`. Its only change from `a6718484b` was the analytics declaration, so the workspace rendered the same UI. The after capture uses `3290dafec`, based on `1ab451e1c`. The intervening source-selection feature stays inactive during this comparison.
 
 | Test | Observed result |
 |---|---|
@@ -13,4 +13,4 @@ The comparison uses a 1280 × 760 Chromium viewport, the actual Workspace editor
 
 Open Storybook, then run `STORYBOOK_PORT=6006 python3 check-storybook.py`. The script uses a dedicated agent-browser session. See [browser results](storybook.txt). The Storybook fixture uses a simulated Confluence user-property API. Real Confluence checks are recorded in the PR as they complete.
 
-Local checks on `c22c9d437` passed. `pnpm lint` ended with zero errors, `pnpm test:unit` passed 9,990 tests with three skipped, and `pnpm build:lite` completed.
+Local checks on `3290dafec` passed. `pnpm lint` ended with zero errors, `pnpm test:unit` passed 10,000 tests with three skipped, and `pnpm build:lite` completed.

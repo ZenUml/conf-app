@@ -1,6 +1,7 @@
 import { setup, type Meta, type StoryObj } from '@storybook/vue3-vite'
 import { onUnmounted, provide, type App } from 'vue'
 import Workspace from './Workspace.vue'
+import PaywallGate from './UpgradePrompt/PaywallGate.vue'
 import { DiagramType } from '@/model/Diagram/Diagram'
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import store from '@/model/store2'
@@ -24,8 +25,9 @@ const seen = createIntroSeenStore(async (url, method) => {
   return new Response(null, { status: localStorage.getItem(key) ? 200 : 404 })
 })
 
-function fixture(code: string, title: string) {
+function fixture(code: string, title: string, gated = false) {
   return {
+    components: { PaywallGate },
     setup() {
       const previousForge = { ...forgeGlobal }
       onUnmounted(() => Object.assign(forgeGlobal, previousForge))
@@ -46,8 +48,11 @@ function fixture(code: string, title: string) {
       store.commit('updateMermaidCode', code)
       store.commit('updateTitle', title)
       provide(inlineIntroSeenStore, seen)
+      return { content: Workspace }
     },
-    template: '<story />',
+    template: gated
+      ? '<PaywallGate :content="content" :macros-created="110" :macros-limit="100" macro-kind="mermaid" action-type="page_editor" upgrade-url="#" enterprise-bundle-url="#" />'
+      : '<story />',
   }
 }
 
@@ -70,4 +75,8 @@ export const Flowchart: Story = {
 
 export const Unsupported: Story = {
   decorators: [() => fixture(unsupported, 'Customer orders')],
+}
+
+export const EditorUnderPaywall: Story = {
+  decorators: [() => fixture(flowchart, 'Publishing workflow', true)],
 }

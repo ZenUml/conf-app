@@ -147,8 +147,9 @@
   import type { CodePanelToggleTrigger } from '@/utils/analytics/catalog'
   import { DiagramType } from '@/model/Diagram/Diagram'
   import { getCodeFromDiagram, getStoreUpdateAction } from '@/model/Diagram/DiagramTypeConfig'
-  import { computed, ref } from 'vue'
+  import { computed, inject, ref } from 'vue'
   import { useStore } from 'vuex'
+  import { editorPaywallContinued } from '@/utils/paywall/editorContinueContext'
   import McpPromoCard from '@/components/AgentLink/McpPromoCard.vue'
   import ConnectMcpDialog from '@/components/AgentLink/ConnectMcpDialog.vue'
   import { useEditorMcpPromo } from '@/composables/agentLink/useEditorMcpPromo'
@@ -197,11 +198,13 @@
         covered: computed(() => showAIChat.value || templateGalleryOpen.value),
       })
       const workspaceRoot = ref<HTMLElement | null>(null)
+      const paywallContinued = inject(editorPaywallContinued)
       const mermaidIntro = useMermaidInlineIntro({
         workspace: workspaceRoot,
         mermaidCode: computed(() => store.state.diagram.diagramType === DiagramType.Mermaid
           ? store.state.diagram.mermaidCode ?? null : null),
-        covered: computed(() => showAIChat.value || templateGalleryOpen.value || promo.dialogVisible.value),
+        covered: computed(() => showAIChat.value || templateGalleryOpen.value
+          || promo.dialogVisible.value || paywallContinued?.value === false),
       })
       return {
         workspaceRoot,

@@ -71,6 +71,7 @@ export function useMermaidInlineIntro({
       checks.set(type, check)
     }
     const seen = await check
+    if (seen === undefined && checks.get(type) === check) checks.delete(type)
     if (stale || seen !== false || store.cached(currentAccount, type) || !canShow(type)) return
     intro.value = { account: currentAccount, type }
   }, { flush: 'post' })

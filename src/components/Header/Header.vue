@@ -65,7 +65,7 @@ import PublishButton from "@/components/PublishButton.vue";
 import TabSwitcher from "@/components/TabSwitcher/TabSwitcher.vue";
 import { setupCloseGuard } from "@/utils/closeGuard";
 import { registerEditorCloseTracking } from "@/utils/analytics/editorCloseOutcome";
-import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, saveDraft, isDraftNewerThanSaved } from "@/utils/draftStore";
+import { makeDebouncedDraftSaver, loadDraft, clearDraft, primeCloudId, getCachedCloudId, getCachedSavedVersionUpdatedAt, saveDraftSync, saveDraft, isDraftNewerThanSaved, clearDraftSync } from "@/utils/draftStore";
 import { DiagramType } from "@/model/Diagram/Diagram";
 import { getEditorDiagramOptions, getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/DiagramTypeConfig";
 import EventBus from "@/EventBus";
@@ -239,6 +239,12 @@ export default {
         || (typeof draft.buffers?.markdown === 'string' && this.$store.state.diagram.markdownCode === undefined)
         || this.diagramOptions.some(option => typeof draft.buffers?.[option.value] === 'string'
           && draft.buffers[option.value] !== getCodeFromDiagram(this.$store.state.diagram, option.value));
+    },
+    // A draft worth keeping: differs from what was loaded and from what was
+    // just published, and no Publish is mid-commit.
+    isUnsavedDraft(draftJson) {
+      if (this._publishCommitting) return false;
+      return draftJson !== this._originalDraft && draftJson !== this._savedDraft;
     },
     currentDraft() {
       const buffers = {};
@@ -461,7 +467,7 @@ export default {
     this._unwatchDraft = this.$watch(
       () => this.currentDraft(),
       (val) => {
-        if (JSON.stringify(val) !== this._originalDraft) {
+        if (this.isUnsavedDraft(JSON.stringify(val))) {
           this._draftSaver?.save(val);
         }
       },
@@ -483,7 +489,7 @@ export default {
     // sometimes destroyed before view.onClose finishes, so we keep the body
     // synchronous: flush the pending debounced write directly to localStorage.
     this._closeGuardOff = setupCloseGuard(() => {
-      if (JSON.stringify(this.currentDraft()) === this._originalDraft) return;
+      if (!this.isUnsavedDraft(JSON.stringify(this.currentDraft()))) return;
       const cloudId = getCachedCloudId();
       if (cloudId) {
         saveDraftSync(this._draftScope, cloudId, this.currentDraft());
@@ -496,9 +502,38 @@ export default {
     this._onPublished = () => {
       this.stopSaving();
       this._draftSaver?.cancel();
+      if (!this._savedDraft) this._savedDraft = JSON.stringify(this.currentDraft());
+      this._publishCommitting = false;
       clearDraft(this._draftScope);
     };
     EventBus.$on('saved', this._onPublished);
+
+    // Publish has saved the content and is about to call view.submit /
+    // view.close, which can destroy this iframe before 'saved' is emitted.
+    // Clear the draft synchronously and stop every writer (debounced saver,
+    // watcher, close guard) from re-creating it during teardown — including
+    // a late auto-title change.
+    this._onPublishCommitting = () => {
+      this._publishCommitting = true;
+      this._savedDraft = JSON.stringify(this.currentDraft());
+      this._draftSaver?.cancel();
+      clearDraftSync(this._draftScope);
+    };
+    EventBus.$on('publish-committing', this._onPublishCommitting);
+
+    // view.submit / view.close threw after commit: the macro still points at
+    // the old content, so write the draft back as the retry anchor.
+    this._onPublishCommitFailed = () => {
+      if (!this._publishCommitting) return;
+      this._publishCommitting = false;
+      this._savedDraft = null;
+      const draft = this.currentDraft();
+      const cloudId = getCachedCloudId();
+      if (cloudId && JSON.stringify(draft) !== this._originalDraft) {
+        saveDraftSync(this._draftScope, cloudId, draft);
+      }
+    };
+    EventBus.$on('publish-commit-failed', this._onPublishCommitFailed);
 
     // Release the Publish button when a save fails — forgeIndex.ts keeps the
     // dialog open for retry, so without this the spinner would never clear.
@@ -533,6 +568,8 @@ export default {
     this._unwatchDraft?.();
     clearTimeout(this._savingTimeout);
     if (this._onPublished) EventBus.$off('saved', this._onPublished);
+    if (this._onPublishCommitting) EventBus.$off('publish-committing', this._onPublishCommitting);
+    if (this._onPublishCommitFailed) EventBus.$off('publish-commit-failed', this._onPublishCommitFailed);
     if (this._onSaveError) EventBus.$off('save-error', this._onSaveError);
     if (this._onRestore) EventBus.$off('draft-restore', this._onRestore);
   },

@@ -84,74 +84,15 @@ jobs:
           VITE_MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}
           VITE_APP_VERSION: "${{ github.ref_name }}-${{ github.sha }}"
 
-      # ---------------------------------------------------------------------
-      # Manifest edits for the Lite variant.
-      #
-      # KEEP IN SYNC with the lite-applicable steps in staging-deploy.yml,
-      # which in turn mirror the lite manifestEdits in scripts/forge-wizard.mjs
-      # (the source of truth). Deploying the unedited manifest would ship
-      # modules Lite does not have — and any scope change that implies would
-      # make the install need re-consent, which --non-interactive cannot give.
-      # ---------------------------------------------------------------------
-      # ADR-0005 Option A — Lite KEEPS the page-rendered AsyncAPI macro
-      # (`zenuml-asyncapi-macro`); its content is stored under the shared
-      # zenuml-content-sequence type, discriminated by diagramType, like
-      # OpenAPI. Strip only the embed macro, BY EXACT KEY — the broad
-      # test("zenuml-asyncapi") filter this step used to carry would take the
-      # page macro with it — plus the async-api-doc custom content and the
-      # dashboard spacePage. Grant unsafe-eval for AsyncAPI Studio's runtime
-      # schema compilation. Mirrors the lite manifestEdits in
-      # scripts/forge-wizard.mjs.
-      - name: Remove asyncapi embed/content/dashboard from manifest, allow unsafe-eval (Lite keeps the AsyncAPI macro)
+      # Variant manifest edits come from scripts/forge-wizard.mjs, the same
+      # list the wizard applies for development, so staging and production
+      # cannot drift from it (see scripts/ci/manifest-edits.mjs).
+      - name: Write the variant manifest edits
+        run: node scripts/ci/manifest-edits.mjs "lite" manifest-edits.sh
+      - name: Apply the variant manifest edits
         uses: mikefarah/yq@master
         with:
-          cmd: yq eval 'del(.modules.macro[] | select(.key == "zenuml-asyncapi-embed-macro")) | del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc"))) | del(.modules["confluence:spacePage"]) | .permissions.content.scripts = ["unsafe-eval"]' -i manifest.yml
-
-      - name: Remove Connect lifecycle module (connectModules) from manifest
-        uses: mikefarah/yq@master
-        with:
-          cmd: yq eval 'del(.connectModules)' -i manifest.yml
-
-      # Keep Lite's byline entry, drop the others — this deploys the Lite app,
-      # and `zenuml-byline-diagrams` IS Lite's byline. Deleting the whole
-      # contentBylineItem block (what this step used to do) shipped a build with
-      # the feature silently absent, which is exactly the failure #78204e5 fixed
-      # in release.yml / staging-deploy.yml. Mirrors staging-deploy.yml:81-85.
-      - name: Keep only the Lite byline entry in manifest
-        uses: mikefarah/yq@master
-        with:
-          cmd: yq eval 'del(.modules["confluence:contentBylineItem"][] | select(.key != "zenuml-byline-diagrams"))' -i manifest.yml
-
-      - name: Remove licensing (Lite is free)
-        uses: mikefarah/yq@master
-        with:
-          cmd: yq eval 'del(.app.licensing)' -i manifest.yml
-
-      - name: Remove diagramly admin module from Lite manifest
-        uses: mikefarah/yq@master
-        with:
-          cmd: |
-            yq eval '
-              del(.modules["confluence:globalSettings"][] | select(.key == "diagramly-admin-create-demo-page"))
-              | del(.modules.function[] | select(.key == "createDemoPage"))
-              | del(.modules.function[] | select(.key == "createDemoPageScheduled"))
-              | del(.modules.scheduledTrigger[] | select(.key == "diagramly-demo-page-pipeline"))
-            ' -i manifest.yml
-
-      # Mirrors staging-deploy.yml "Remove Full conversion modules from
-      # non-Full variants". fullPresenceFn is not just wrong-variant baggage
-      # here — it writes the `zenuml-full-active` space property that the
-      # byline display condition SUBTRACTS, so shipping it inside the Lite app
-      # would make this deployment hide the very byline it exists to test.
-      - name: Remove Full-only modules from Lite manifest
-        uses: mikefarah/yq@master
-        with:
-          cmd: |
-            yq eval '
-              del(.modules.function[] | select(.key == "liteFullConversionFn" or .key == "fullPresenceFn"))
-              | del(.modules.scheduledTrigger[] | select(.key == "full-lite2full-hourly" or .key == "full-presence-daily"))
-            ' -i manifest.yml
-
+          cmd: sh manifest-edits.sh
       - name: Upload final manifest
         uses: actions/upload-artifact@v4
         with:

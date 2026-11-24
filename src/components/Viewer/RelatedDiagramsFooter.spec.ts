@@ -43,6 +43,9 @@ const actorRects: Record<string, DOMRect> = {
   GONE: { left: 420, right: 540, top: 40, bottom: 70, width: 120, height: 30 } as DOMRect,
 }
 
+// Some tests move PA to exercise resize and edge flipping; restore it after each.
+const initialActorRects = { ...actorRects }
+
 function host(): HTMLElement {
   const div = document.createElement('div')
   div.style.position = 'relative'
@@ -184,6 +187,7 @@ beforeEach(() => {
 
 afterEach(() => {
   document.body.innerHTML = ''
+  Object.assign(actorRects, initialActorRects)
 })
 
 describe('RelatedDiagramsFooter', () => {

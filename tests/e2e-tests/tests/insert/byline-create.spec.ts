@@ -46,6 +46,11 @@ const TYPED_SEQUENCE_LINK = /^https:\/\/[^/]+\/d\/sequence\/[^/]+\/\d+$/;
 // the insert suite — to the same shard, which was the Lite E2E's tail (shard 2/8
 // at 3m30s on main run 34655187796). One extra page creation is cheaper than
 // that.
+// Each test builds its own page, so the planner may place tests of this
+// file on different shards (scripts/test-selection/plan.mjs splits a
+// file per test only when it declares parallel mode).
+test.describe.configure({ mode: 'parallel' });
+
 test.describe(`Byline create path - ${testConfig.productType}`, { tag: ['@test:byline-create', '@variant:lite', '@variant:full', '@variant:diagramly', '@byline', '@sequence', '@deeplink', '@feature:diagram-discovery', '@interface:byline-diagrams', '@scenario:diagram-discovery:byline-diagrams', '@feature:diagram-links', '@scenario:diagram-links:byline-diagrams'] }, () => {
   test.skip(!testConfig.isForge, 'byline is Forge-only');
   test.skip(!testConfig.isLite, 'the Diagrams byline entry ships on Lite only');

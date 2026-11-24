@@ -1119,9 +1119,9 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
       trackPageEditorAuthoringStarted();
     }
   } else if(isGraph) {
-    await import(editable ? "@/forge-graph-editor" : "@/forge-graph-viewer");
+    await (editable ? import("@/forge-graph-editor") : import("@/forge-graph-viewer"));
   } else if(isEmbed) {
-    await import(editable ? "@/forge-embed-editor" : "@/forge-embed-viewer");
+    await (editable ? import("@/forge-embed-editor") : import("@/forge-embed-viewer"));
   } else if(isAsyncApi && (import.meta.env.PRODUCT_TYPE === 'asyncapi' || import.meta.env.PRODUCT_TYPE === 'lite')) {
     // Build-time literal: Vite replaces PRODUCT_TYPE via `define` so
     // full/diagramly short-circuit and dead-code-eliminate the dynamic
@@ -1151,14 +1151,14 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
         isEmbedMacro: isAsyncApiEmbed,
         isViewModeEditModal,
       });
-      await import(entry === 'embed-picker'
-        ? "@/forge-asyncapi-embed-editor"
-        : "@/forge-asyncapi-editor");
+      await (entry === 'embed-picker'
+        ? import("@/forge-asyncapi-embed-editor")
+        : import("@/forge-asyncapi-editor"));
     } else {
       await import("@/forge-asyncapi-viewer");
     }
   } else {
-    await import(editable ? "@/forge-swagger-editor" : "@/forge-swagger-ui");
+    await (editable ? import("@/forge-swagger-editor") : import("@/forge-swagger-ui"));
   }
 
   // Last, and for every macro kind: if THIS macro is the one the user just
@@ -1566,6 +1566,12 @@ EventBus.$on('save', async () => {
       content_id: String(id),
       custom_content_id: String(id),
     });
+    // The editor clears its local draft NOW, synchronously: view.submit /
+    // view.close below can tear the iframe down before their promise settles,
+    // so 'saved' (emitted after the await) is not a reliable place to clear.
+    // A failure below emits 'publish-commit-failed', and the editor writes the
+    // draft back as the retry anchor.
+    EventBus.$emit('publish-committing', id);
     try {
       if (needsWriteback && !isValidCustomContentId(id)) {
         // conf-app#320 defense-in-depth: never write a garbage customContentId
@@ -1603,6 +1609,7 @@ EventBus.$on('save', async () => {
       // The 'saved' event is intentionally NOT emitted here so the local
       // draft survives as a retry anchor.
       console.error('view.submit/close failed after save', error);
+      EventBus.$emit('publish-commit-failed', error);
       // The dialog didn't close — release the Publish button (Header.vue).
       EventBus.$emit('save-error', error);
       trackEvent('save_failed', 'view_submit_failed', 'error', {

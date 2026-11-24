@@ -9,10 +9,14 @@ import { POLICY_VERSION } from '../../scripts/test-selection/classify.mjs';
 const workflow = (name: string) => readFileSync(`.github/workflows/${name}.yml`, 'utf8');
 const structure = (name: string) => load(workflow(name)) as any;
 const phases = ['main-build-preparation', 'main-staging-validation', 'main-draft-preparation'];
-const children = ['pr-e2e-validation', 'staging-lite-e2e', 'staging-full-e2e', 'staging-diagramly-e2e', 'staging-asyncapi-e2e'];
+// The PR E2E child is still a dispatched run; each main staging lane calls its
+// E2E workflow inside the staging run (see main-staging-validation.yml).
+const children = ['pr-e2e-validation'];
+const calledChildren = ['staging-lite-e2e', 'staging-full-e2e', 'staging-diagramly-e2e', 'staging-asyncapi-e2e'];
 describe('staging workflow safety contracts', () => {
   it('holds queued staging ownership through parent deploy/test runs without nested same-group locks', () => {
-    for (const name of ['build-test-deploy', 'pr-validation', 'daily-regression']) { const yaml = workflow(name); expect(yaml).toMatch(/concurrency:\n  group: conf-app-staging\n  cancel-in-progress: false\n  queue: max/); }
+    for (const name of ['build-test-deploy', 'daily-regression']) { const yaml = workflow(name); expect(yaml).toMatch(/concurrency:\n  group: conf-app-staging\n  cancel-in-progress: false\n  queue: max/); }
+    expect(workflow('pr-validation')).toMatch(/concurrency:\n  group: conf-app-pr-slot\n  cancel-in-progress: false\n  queue: max/);
     expect(workflow('staging-deploy')).toContain("github.workflow == 'Staging Deploy' && 'conf-app-staging'");
     expect(workflow('staging-transaction')).not.toContain('concurrency:');
   });
@@ -52,11 +56,30 @@ describe('staging workflow safety contracts', () => {
       expect(verifier.env.PARENT_RUN_ID).toBe('${{ inputs.parent-run-id }}');
       expect(verifier.env.PARENT_ATTEMPT).toBe('${{ inputs.parent-attempt }}');
       const dispatcherNames = ['main-staging-validation', 'pr-validation'].flatMap(parent => Object.values(structure(parent).jobs).map((job: any) => job.name));
-      for (const expected of JSON.parse(verifier.env.EXPECTED_PARENT_JOBS)) expect(dispatcherNames).toContain(expected);
+      // A dispatcher's name may be an expression that yields the expected name while the job runs.
+      const names = (name: string) => name.startsWith('${{') ? [...name.matchAll(/'([^']+)'/g)].map(match => match[1]) : [name];
+      for (const expected of JSON.parse(verifier.env.EXPECTED_PARENT_JOBS)) expect(dispatcherNames.flatMap(names)).toContain(expected);
       expect(child.jobs.parent.if).toBeUndefined();
       expect(child.on.workflow_dispatch.inputs['source-sha'].required).toBe(true);
     }
-    for (const name of ['main-staging-validation', 'pr-validation']) {
+    for (const name of calledChildren) {
+      const child = structure(name);
+      expect(child.on).toHaveProperty('workflow_call');
+      expect(child.on).not.toHaveProperty('workflow_dispatch');
+      expect(child).not.toHaveProperty('concurrency');
+      expect(child.permissions.actions).toBe('read');
+      const testJobs = Object.entries(child.jobs).filter(([id]) => id !== 'parent') as [string, any][];
+      expect(testJobs.length).toBeGreaterThan(0);
+      for (const [, job] of testJobs) {
+        expect(job.uses).toBe('./.github/workflows/e2e-test.yml');
+        expect([job.needs].flat()).toContain('parent');
+      }
+      // One run deploys and tests, so the child checks the backend, not a parent run.
+      expect(JSON.stringify(child.jobs.parent.steps)).not.toContain('--verify-parent');
+      expect(child.jobs.parent.steps.some((step: any) => step.name === 'Verify pinned staging backend source')).toBe(true);
+      expect(child.on.workflow_call.inputs['source-sha'].required).toBe(true);
+    }
+    for (const name of ['pr-validation']) {
       const dispatches = (Object.values(structure(name).jobs) as any[]).flatMap(job => job.steps || [])
         .filter(step => step.run === 'node scripts/ci/wait-for-e2e.mjs');
       expect(dispatches.length).toBeGreaterThan(0);
@@ -68,6 +91,7 @@ describe('staging workflow safety contracts', () => {
     const staging = structure('main-staging-validation');
     for (const variant of ['lite', 'full', 'diagramly', 'asyncapi']) {
       expect(staging.jobs[`staging-${variant}-e2e`].needs.slice().sort()).toEqual([`staging-${variant}`, `e2e-auth-${variant}`, 'parent'].sort());
+      expect(staging.jobs[`staging-${variant}-e2e`].uses).toBe(`./.github/workflows/staging-${variant}-e2e.yml`);
     }
     expect(staging.jobs).not.toHaveProperty('staging-full-e2e-now');
   });
@@ -122,15 +146,12 @@ describe('staging workflow safety contracts', () => {
         if (job.uses === './.github/workflows/staging-deploy.yml') expect(job.with.ref).toBe('${{ inputs.source-sha }}');
       }
     }
-    for (const job of Object.values(structure('main-staging-validation').jobs) as any[]) {
-      const dispatch = job.steps?.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs');
-      if (!dispatch) continue;
-      expect(dispatch.env.ROOT_RUN_ID).toBe('${{ inputs.parent-run-id }}');
-      expect(dispatch.env.ROOT_ATTEMPT).toBe('${{ inputs.parent-attempt }}');
-    }
   });
   it('keeps parent staging ownership through cancellation cleanup', () => {
-    for (const name of ['build-test-deploy', 'main-staging-validation', 'pr-validation']) {
+    // main-staging-validation dispatches no child any more: its lanes are called.
+    expect((Object.values(structure('main-staging-validation').jobs) as any[])
+      .some(job => job.steps?.some((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs'))).toBe(false);
+    for (const name of ['build-test-deploy', 'pr-validation']) {
       const dispatchJobs = (Object.values(structure(name).jobs) as any[])
         .filter(job => job.steps?.some((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs'));
       expect(dispatchJobs.length).toBeGreaterThan(0);
@@ -139,7 +160,6 @@ describe('staging workflow safety contracts', () => {
         expect(job.if).not.toContain('always()');
         const dispatch = job.steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs');
         expect(dispatch.if).toBe({
-          'main-staging-validation': '${{ success() && !cancelled() }}',
           'build-test-deploy': '${{ !cancelled() }}',
           'pr-validation': "${{ !cancelled() && steps.current.outputs.current != 'false' }}",
         }[name]);
@@ -158,6 +178,14 @@ describe('staging workflow safety contracts', () => {
         expect(job.with.ref).toBe('${{ inputs.source-sha }}');
         expect(job.with['source-run-id']).toBe('${{ inputs.parent-run-id }}');
         expect(job.with['source-attempt']).toBe('${{ inputs.parent-attempt }}');
+      }
+    }
+    // A called lane runs in the staging run, so artifacts come from this run.
+    for (const name of calledChildren) {
+      for (const job of Object.values(structure(name).jobs).filter((job: any) => job.uses) as any[]) {
+        expect(job.with.ref).toBe('${{ inputs.source-sha }}');
+        expect(job.with['source-run-id']).toBeUndefined();
+        expect(job.with['source-attempt']).toBeUndefined();
       }
     }
     const jobs = structure('e2e-test').jobs;
@@ -199,6 +227,9 @@ describe('staging workflow safety contracts', () => {
     const canRecover = (failed: string[]) => failed.length > 0 && failed.every(name => matcher.test(name));
     expect(canRecover(['E2E: Lite / shard 1/10', 'E2E auth: Lite / auth bootstrap'])).toBe(true);
     expect(canRecover(['Validate: Lite', 'Validate: Full', 'Validate: Diagramly', 'Validate: AsyncAPI'])).toBe(true);
+    // A lane now calls its E2E workflow, so its failures carry the lane prefix.
+    expect(canRecover(['Validate: Full / regression / shard 2/4', 'Validate: Lite / Verify staging backend', 'Validate: AsyncAPI / render / plan concrete tests'])).toBe(true);
+    expect(canRecover(['Validate: Full / regression / shard 2/4', 'Deploy: Full / deploy'])).toBe(false);
     expect(canRecover(['E2E validation', 'Pipeline outcome'])).toBe(true);
     for (const failure of ['Build and Unit Test', 'Deploy: Lite', 'Jev category selection', 'Select E2E for this PR', 'Draft: Lite']) {
       expect(canRecover(['E2E validation', 'Pipeline outcome', failure])).toBe(false);

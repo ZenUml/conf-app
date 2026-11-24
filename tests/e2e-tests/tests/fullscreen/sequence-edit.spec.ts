@@ -1,4 +1,4 @@
-// sequence-edit:0..5 — Edit flow for an existing Diagram (Sequence) macro.
+// sequence-edit:0..6 — Edit flow for an existing Diagram (Sequence) macro.
 // Each test seeds the macro by running the create+publish flow, then opens
 // the Edit modal. This is intentionally stateful within a test (not across
 // tests) — Confluence pages are heavyweight to set up.
@@ -13,13 +13,20 @@ import {
   clickHeaderClose,
   modalContentFrame,
 } from '../../helpers/FullscreenModalHelper.js';
-import { insertAndPublishMacro, openEditModal } from '../../helpers/MacroFlowHelper.js';
+import { insertAndPublishMacro, insertMacro, openEditModal } from '../../helpers/MacroFlowHelper.js';
+import { MacroPage } from '../../pages/MacroPage.js';
 import {
   bridgeModalFrame,
   dispatchSyntheticBeforeunload,
   dirtyEditor,
+  listDraftKeys,
   readPersistedDraft,
 } from '../../helpers/CloseGuardHelper.js';
+
+// Each test builds its own page, so the planner may place tests of this
+// file on different shards (scripts/test-selection/plan.mjs splits a
+// file per test only when it declares parallel mode).
+test.describe.configure({ mode: 'parallel' });
 
 test.describe('Sequence — Edit flow', { tag: ['@test:sequence-edit', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@sequence', '@feature:editing', '@interface:fullscreen-editor', '@scenario:editing:fullscreen-editor', '@feature:publishing', '@scenario:publishing:fullscreen-editor'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
@@ -92,5 +99,35 @@ test.describe('Sequence — Edit flow', { tag: ['@test:sequence-edit', '@variant
     await expectModalClosed(page, 'edit');
     await openEditModal(page, 'sequence');
     await expect.poll(async () => (await readPersistedDraft(bridgeModalFrame(page)))?.code ?? '', { timeout: 15_000 }).toContain('// dirty');
+  });
+
+  // sequence-edit:6 — Publish clears the create draft. Under Playwright
+  // view.submit tears the editor iframe down before its promise settles; the
+  // draft used to be cleared only after that await, so the published diagram
+  // stayed behind as a `new:diagram` draft and the next new macro offered it
+  // back in the "Unsaved changes" banner.
+  test('sequence-edit:6 — Publish leaves no new:diagram draft behind', async ({ page }) => {
+    const isNewDiagramDraft = (key: string) => key.endsWith('.new:diagram');
+    const { editorPage } = await insertMacro(page, 'sequence');
+    await fillEditorTitle(page, `seq-draft-clear-${Date.now()}`);
+
+    await test.step('positive control: the create draft exists before Publish', async () => {
+      await expect
+        .poll(async () => (await listDraftKeys(modalContentFrame(page, 'edit'))).some(isNewDiagramDraft), { timeout: 15_000 })
+        .toBe(true);
+    });
+
+    await clickEditorPublish(page);
+    await expectModalClosed(page, 'edit');
+    await editorPage.publishPage();
+    const macroPage = new MacroPage(page);
+    await macroPage.dismissSpotlightModal();
+
+    await test.step('after Publish: the rendered viewer sees no new:diagram draft', async () => {
+      const viewer = macroPage.getSequenceMacroFrame();
+      await expect(viewer.locator('body')).toBeVisible({ timeout: 30_000 });
+      const keys = await listDraftKeys(viewer);
+      expect(keys.filter(isNewDiagramDraft)).toEqual([]);
+    });
   });
 });

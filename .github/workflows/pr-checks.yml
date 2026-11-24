@@ -57,17 +57,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: "24"
-          cache: pnpm
-      - name: Install dependencies (skip post-install scripts)
-        run: pnpm install --frozen-lockfile --ignore-scripts
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
+      - name: Install dependencies
+        uses: ./.github/actions/install-deps
       # Unit integration tests discover the real E2E inventory through its config.
       # Install its locked module dependencies only; --list needs no browsers.
       - name: Install E2E discovery dependencies
@@ -77,7 +68,7 @@ jobs:
   asyncapi-build:
     needs: basic-scope
     if: ${{ always() && github.event.action != 'labeled' && needs.basic-scope.outputs.run != 'false' }}
-    name: ${{ github.event.action == 'labeled' && 'Ignored label AsyncAPI' || 'AsyncAPI build and CI script tests' }}
+    name: ${{ github.event.action == 'labeled' && 'Ignored label AsyncAPI' || 'AsyncAPI build' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -120,24 +111,17 @@ jobs:
           restore-keys: |
             studio-${{ steps.studio-sha.outputs.sha }}-
             studio-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: "24"
-          cache: pnpm
-      - name: Install dependencies (skip post-install scripts)
-        run: pnpm install --frozen-lockfile --ignore-scripts
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-      - run: node --test scripts/ci/*.node-test.mjs scripts/test-selection/tests/*.node-test.mjs
+      - name: Install dependencies
+        uses: ./.github/actions/install-deps
       # Verify the asyncapi variant builds even on feature-branch PRs. AsyncAPI
       # staging only deploys from the default branch (like full/diagramly), so
       # this is the smoke test for PRs.
       # The Cache step above usually makes this near-instant (vite build only).
+      # The MCP app view is a second, independent vite build. It has its own job
+      # below, so this job stops at the AsyncAPI bundle. Run 44798848681: the
+      # AsyncAPI bundle took 65 s and the MCP app 30 s, one after the other.
       - name: Verify asyncapi build
-        run: pnpm build:asyncapi
+        run: pnpm build:asyncapi:app
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
           # Skip Puppeteer's chromium download inside the Studio submodule's
@@ -145,10 +129,66 @@ jobs:
           # build doesn't need it).
           PUPPETEER_SKIP_DOWNLOAD: "true"
 
+  # The second half of every `build:*` script. It needs no Studio submodule, so
+  # it also carries the CI script tests, which need only Node.
+  mcp-app-build:
+    needs: basic-scope
+    if: ${{ always() && github.event.action != 'labeled' && needs.basic-scope.outputs.run != 'false' }}
+    name: ${{ github.event.action == 'labeled' && 'Ignored label MCP app' || 'MCP app build and CI script tests' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Install dependencies
+        uses: ./.github/actions/install-deps
+        with:
+          save: 'true'
+      - run: node --test scripts/ci/*.node-test.mjs scripts/test-selection/tests/*.node-test.mjs
+      - name: Verify MCP app build
+        run: pnpm build:mcp-app
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+
+  # oxlint needs no project install: one pinned binary, fetched by npx. The
+  # version is read from package.json, so `pnpm lint` and CI always agree.
+  # The fetch happens before the timer starts, so the 5 s budget covers the
+  # lint run itself. Measured locally: about 1.8 s for 1,327 files.
+  lint:
+    needs: basic-scope
+    if: ${{ always() && github.event.action != 'labeled' && needs.basic-scope.outputs.run != 'false' }}
+    name: ${{ github.event.action == 'labeled' && 'Ignored label lint' || 'Lint' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          # package.json names pnpm, so setup-node would otherwise look for a
+          # pnpm binary to cache with. This job installs nothing.
+          package-manager-cache: false
+      - name: Lint with oxlint within a 5 second budget
+        run: |
+          VERSION=$(node -p "require('./package.json').devDependencies.oxlint")
+          npx --yes "oxlint@$VERSION" --version
+          START=$(date +%s%N)
+          STATUS=0
+          npx --yes "oxlint@$VERSION" -c .oxlintrc.json src/ functions/ scripts/ tests/unit/ || STATUS=$?
+          ELAPSED_MS=$(( ($(date +%s%N) - START) / 1000000 ))
+          echo "oxlint $VERSION took ${ELAPSED_MS} ms (budget 5000 ms)"
+          if [ "$STATUS" -ne 0 ]; then exit "$STATUS"; fi
+          if [ "$ELAPSED_MS" -gt 5000 ]; then
+            echo "::error::oxlint took ${ELAPSED_MS} ms, over the 5000 ms budget"
+            exit 1
+          fi
+
   # One result for people and tools that look for this name.
   build:
     name: ${{ github.event.action == 'labeled' && 'Ignored label build' || 'Build and Unit Test' }}
-    needs: [basic-scope, unit, asyncapi-build]
+    needs: [basic-scope, unit, asyncapi-build, mcp-app-build, lint]
     if: ${{ always() && github.event.action != 'labeled' && needs.basic-scope.outputs.run != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -157,9 +197,11 @@ jobs:
         env:
           UNIT: ${{ needs.unit.result }}
           ASYNCAPI: ${{ needs.asyncapi-build.result }}
+          MCP_APP: ${{ needs.mcp-app-build.result }}
+          LINT: ${{ needs.lint.result }}
         run: |
-          echo "Unit tests: $UNIT; AsyncAPI build and CI script tests: $ASYNCAPI"
-          [ "$UNIT" = success ] && [ "$ASYNCAPI" = success ]
+          echo "Unit tests: $UNIT; AsyncAPI build: $ASYNCAPI; MCP app build and CI script tests: $MCP_APP; Lint: $LINT"
+          [ "$UNIT" = success ] && [ "$ASYNCAPI" = success ] && [ "$MCP_APP" = success ] && [ "$LINT" = success ]
 
   authorize-preview:
     name: Authorize preview tests
@@ -197,20 +239,12 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v5
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "24"
-          cache: pnpm
       # Deliberately NO asyncapi-studio submodule init. vite.config only copies
       # the Studio when `command === 'build'`, and mermaid is served in dev by
       # an in-config middleware straight out of node_modules, so `vite dev`
       # needs neither. Skipping it is most of what keeps this job cheap.
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
+        uses: ./.github/actions/install-deps
       - name: Install E2E test dependencies
         run: cd tests/e2e-tests && pnpm install --ignore-workspace
       - name: Cache Playwright browsers

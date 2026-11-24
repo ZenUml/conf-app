@@ -80,6 +80,20 @@ export const TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE = 0.1;
 // them over 4,905 user x macro keys (~31k billable events in one day).
 export const LICENSE_NOTICE_REPEAT_SAMPLE_RATE = 0.1;
 
+// Events whose volume is controlled where they are emitted rather than by
+// name in the tables here: sampled per occurrence (the rates above) or
+// deduplicated per browser per UTC day. sampleRateFor() does not read this
+// set; it records the decision for eventVolumeClassification.spec.ts, which
+// requires every AnalyticsEventName to have one.
+export const PER_OCCURRENCE_SAMPLED_EVENTS = new Set<string>([
+  "macro_viewed", // macroViewOfDay.ts: repeats at MACRO_VIEWED_REPEAT_SAMPLE_RATE
+  "title_draft_requested", // titleDraft/offer.ts: misses at TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE
+  "license_notice_shown", // licenseNotice/noticeOccurrence.ts
+  "license_notice_evaluated", // licenseNotice/noticeOccurrence.ts
+  "paywall_banner_shown", // PaywallWarningBanner.vue: once per browser x site x space x day
+  "agent_link_mcp_button_shown", // agentLink/connectMcpShown.ts: once per viewer x day
+]);
+
 // Rates that change on a fixed date. Before `until` (exclusive, UTC) the
 // event is sent at `before`; from then on at `after`.
 //
@@ -120,6 +134,20 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   // and stamps sample_rate itself, so a kept view sends every row. About 500 a
   // month. Must not sit in OCTOBER_REDUCED_EVENTS (a second, per-row cut).
   "fullscreen_zoom_summary",
+  // MCP Apps view Copy / Download / Save / Open buttons (#1271): one per
+  // deliberate press, sent by functions/agent-link/viewEvent.ts, so bounded by
+  // presses on views already counted, unsampled, by agent_link_app_view_rendered.
+  // Rate 1: the per-action, per-outcome splits are the point.
+  "agent_link_app_view_action_used",
+  // Mermaid sequence inline edit: user actions in the editor preview only, and
+  // `unavailable` at most once per editor session (a few hundred a month at
+  // most). Rate 1 on purpose, so it must not sit in OCTOBER_REDUCED_EVENTS: a
+  // 10% cut would leave too few rejections per reason to read.
+  "editor_inline_edit_started",
+  "editor_inline_edit_succeeded",
+  "editor_inline_edit_rejected",
+  "editor_inline_edit_cancelled",
+  "editor_inline_edit_unavailable",
   "title_draft_requested",
   "title_draft_flag_shown",
   "title_draft_not_now",

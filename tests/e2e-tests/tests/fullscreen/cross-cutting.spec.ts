@@ -25,6 +25,11 @@ import {
   readPersistedDraft,
 } from '../../helpers/CloseGuardHelper.js';
 
+// Each test builds its own page, so the planner may place tests of this
+// file on different shards (scripts/test-selection/plan.mjs splits a
+// file per test only when it declares parallel mode).
+test.describe.configure({ mode: 'parallel' });
+
 test.describe('Forge bridge fullscreen modal — cross-cutting chrome', { tag: ['@test:cross-cutting', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@modal', '@sequence', '@feature:draft-recovery', '@interface:editor', '@scenario:draft-recovery:editor'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only; Connect uses different chrome');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence macro required to mount the modal');

@@ -1,0 +1,122 @@
+// The render_diagram tool itself, with no transport, rate limit or analytics.
+//
+// Shared by the public Worker (renderMcp.ts) and the local stdio package
+// (packages/render-mcp-local), which runs this on the user's own machine so a
+// diagram's source never reaches our servers. Keep it free of Cloudflare
+// bindings and of Mixpanel: the local package bundles this file.
+
+import { parseDsl, type DslError } from './parseDsl';
+import { detectDiagramType } from './detectDiagramType';
+
+/**
+ * The types the view can draw (mcpApps.ts RENDERABLE_TYPES), under the names
+ * the agent sends. Lower case, because that is what the view compares against.
+ */
+export const RENDER_TYPES = ['sequence', 'mermaid', 'plantuml', 'markdown', 'graph', 'openapi', 'asyncapi'] as const;
+export type RenderType = (typeof RENDER_TYPES)[number];
+
+/**
+ * Larger than any diagram we have seen stored, small enough that a public
+ * endpoint cannot be made to parse a novel. DrawIO XML is the largest kind.
+ */
+export const MAX_SOURCE_CHARS = 500_000;
+const MAX_TITLE_CHARS = 200;
+
+export const RENDER_TOOL = {
+  name: 'render_diagram',
+  title: 'Render diagram',
+  description:
+    'Draw a diagram from its source and show it to the user. Nothing is saved anywhere. The source may be ' +
+    'a ZenUML sequence diagram, Mermaid, PlantUML (@startuml … @enduml), Markdown (with ```mermaid code blocks drawn ' +
+    'as diagrams), draw.io / diagrams.net XML, an OpenAPI or Swagger spec, or an AsyncAPI spec (YAML or JSON). ' +
+    'diagramType is optional: leave it out and the language is detected from the source (a source with no recognised ' +
+    'header is read as ZenUML, so pass markdown explicitly), or pass it to be explicit. The result says which type was ' +
+    'used and whether the source parsed; when it did not, ' +
+    'it lists the errors with line and column, so fix them and call again.',
+  annotations: {
+    title: 'Render diagram',
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+  inputSchema: {
+    type: 'object',
+    properties: {
+      diagramType: {
+        type: 'string',
+        enum: [...RENDER_TYPES],
+        description: 'Optional. The language `source` is written in; detected from the source when omitted.',
+      },
+      source: { type: 'string', description: 'The complete diagram source.' },
+      title: { type: 'string', description: 'Optional. Shown with the diagram.' },
+    },
+    required: ['source'],
+  },
+} as const;
+
+export const INSTRUCTIONS =
+  'Use render_diagram to draw a diagram for the user from its source: a ZenUML sequence diagram, Mermaid, PlantUML, ' +
+  'Markdown, draw.io XML, or an OpenAPI or AsyncAPI spec. No Atlassian site or sign-in is involved and nothing is saved. Prefer `sequence` ' +
+  '(ZenUML) for sequence diagrams. If the result reports parse errors, fix the source and call render_diagram again. ' +
+  'The zenuml://, mermaid://, plantuml:// and openapi:// dsl-guide resources give the rules of each language.';
+
+export interface RenderResult {
+  diagramType: RenderType;
+  source: string;
+  title?: string;
+  /** True when diagramType was left out and inferred from the source. */
+  detected?: true;
+  /** False when the parser reported errors; true when it accepted the source or has no parser for this type. */
+  valid: boolean;
+  /** True for a type with no parser here (graph). */
+  unvalidated?: true;
+  errors?: DslError[];
+}
+
+export class RenderParamsError extends Error {
+  constructor(message: string, readonly code: 'bad_params' | 'too_large') {
+    super(message);
+  }
+}
+
+function readParams(args: Record<string, unknown>): { diagramType: RenderType; detected: boolean; source: string; title?: string } {
+  const rawType = typeof args.diagramType === 'string' ? args.diagramType.trim().toLowerCase() : '';
+  // A type that is given but not one of ours is refused, not replaced by a
+  // guess: the agent meant something, and it should learn the list.
+  const givenType = rawType ? RENDER_TYPES.find((t) => t === rawType) : undefined;
+  if (rawType && !givenType) {
+    throw new RenderParamsError(
+      `diagramType must be one of: ${RENDER_TYPES.join(', ')}, or left out to detect it from the source.`,
+      'bad_params',
+    );
+  }
+  if (typeof args.source !== 'string' || args.source.trim() === '') {
+    throw new RenderParamsError('source is required and must be a non-empty string.', 'bad_params');
+  }
+  if (args.source.length > MAX_SOURCE_CHARS) {
+    throw new RenderParamsError(`source is longer than ${MAX_SOURCE_CHARS} characters.`, 'too_large');
+  }
+  const title = typeof args.title === 'string' && args.title.trim() ? args.title.trim().slice(0, MAX_TITLE_CHARS) : undefined;
+  return { diagramType: givenType ?? detectDiagramType(args.source), detected: !givenType, source: args.source, title };
+}
+
+/** Parse-check the source and shape what the view and the agent both read. */
+export async function renderDiagram(args: Record<string, unknown>): Promise<RenderResult> {
+  const { diagramType, detected, source, title } = readParams(args);
+  const parsed = await parseDsl(diagramType, source);
+  const base = { diagramType, source, ...(title ? { title } : {}), ...(detected ? { detected: true as const } : {}) };
+  if (!parsed.ok) return { ...base, valid: false, errors: parsed.errors };
+  return { ...base, valid: true, ...(parsed.unvalidated ? { unvalidated: true as const } : {}) };
+}
+
+/** What the agent reads first. The source itself rides structuredContent, for the view. */
+export function summaryFor(r: RenderResult): string {
+  const detected = r.detected ? ` (detected from the source; pass diagramType if that is wrong)` : '';
+  if (!r.valid) {
+    const lines = (r.errors ?? []).map((e) => `- line ${e.line}, column ${e.col}: ${e.message}`);
+    return `The ${r.diagramType} source${detected} did not parse, so the diagram may not draw. Fix these and call render_diagram again:\n${lines.join('\n')}`;
+  }
+  if (r.unvalidated) return `Sent the ${r.diagramType} diagram${detected} to the view. This type is not syntax-checked here.`;
+  return `Rendered the ${r.diagramType} diagram${detected}. The source parsed.`;
+}

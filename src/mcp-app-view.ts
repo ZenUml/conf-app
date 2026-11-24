@@ -97,10 +97,21 @@ interface HostContext {
 
 let hostContext: HostContext = {};
 
+/**
+ * What the host said it can do, from the `ui/initialize` result. Download
+ * goes through `ui/download-file` where `downloadFile` is declared: claude.ai
+ * declares it, and its sandbox opens no tab for a plain link (#1271 spike,
+ * 2026-11-21), so an `<a download>` click there is expected to do nothing.
+ */
+let hostCapabilities: Record<string, unknown> = {};
+
 /** Reset between tests: the state above lives as long as the frame. */
 export function resetViewState(): void {
   hostContext = {};
+  hostCapabilities = {};
   drawnType = null;
+  drawnPayload = null;
+  drawnImage = null;
   userZoom = 1;
   pendingRequests.clear();
 }
@@ -116,6 +127,32 @@ export function fullscreenAvailable(): boolean {
 
 /** The type of the diagram on screen, or null while there is none (status text). */
 let drawnType: string | null = null;
+
+/** The diagram on screen, for Copy and Download. Null while there is none. */
+let drawnPayload: DiagramPayload | null = null;
+
+/**
+ * The drawing as an SVG file, for Download. Null for a document (OpenAPI,
+ * AsyncAPI, Markdown), whose source is the file worth keeping.
+ */
+let drawnImage: (() => Promise<Blob>) | null = null;
+
+/**
+ * Which server answered the last tool call, as far as the result says. Only the
+ * local @zenuml/render-mcp server stamps its results (`mcpMode: 'local'`); the
+ * view events carry it so local use can be told apart from remote (viewEvent.ts).
+ */
+let resultMode: 'local' | null = null;
+
+/** `mcpMode: 'local'` from a tool result's structuredContent, else null. */
+export function mcpModeOf(result: unknown): 'local' | null {
+  const content = (result as { structuredContent?: { mcpMode?: unknown } } | undefined)?.structuredContent;
+  return content?.mcpMode === 'local' ? 'local' : null;
+}
+
+function modeField(): { mcp_mode?: 'local' } {
+  return resultMode ? { mcp_mode: resultMode } : {};
+}
 
 /**
  * The spec's protocol revision, sent in `ui/initialize`.
@@ -224,6 +261,8 @@ function reportSize(): void {
 
 function status(message: string): void {
   drawnType = null;
+  drawnPayload = null;
+  drawnImage = null;
   updateToolbar();
   const el = document.getElementById('app');
   if (el) el.innerHTML = `<p class="zen-mcp-status"></p>`;
@@ -380,7 +419,7 @@ export function typeFromToolInput(params: unknown): string | null {
  * run script or fetch anything, whatever the agent put in the source, and the
  * host's CSP allows `data:` images by default.
  */
-async function renderPlantUml(el: HTMLElement, payload: DiagramPayload): Promise<void> {
+async function renderPlantUml(el: HTMLElement, payload: DiagramPayload): Promise<string> {
   const { renderPlantUmlLocally } = await import('@/utils/plantuml/engine');
   const svg = await renderPlantUmlLocally(payload.dsl);
   const img = document.createElement('img');
@@ -395,6 +434,7 @@ async function renderPlantUml(el: HTMLElement, payload: DiagramPayload): Promise
   el.innerHTML = '';
   el.appendChild(img);
   await loaded;
+  return svg;
 }
 
 /**
@@ -410,6 +450,7 @@ function reportRender(type: string, failure?: unknown): void {
       new URL('mcp/view-event', viewOrigin()).href,
       JSON.stringify({
         macro_type: type,
+        ...modeField(),
         render_outcome: failed ? 'failed' : 'rendered',
         fullscreen_available: fullscreenAvailable(),
         ...(type === 'plantuml'
@@ -567,6 +608,7 @@ function reportZoom(action: ZoomAction, input: ZoomInput): void {
       JSON.stringify({
         kind: 'zoom',
         macro_type: drawnType,
+        ...modeField(),
         viewport_action: action,
         viewport_input: input,
         fullscreen_active: isFullscreen(),
@@ -621,8 +663,9 @@ function toolButton(id: string, label: string, onClick: () => void): HTMLButtonE
 function updateToolbar(): void {
   const wantsZoom = zoomable();
   const wantsFullscreen = fullscreenAvailable() && drawnType !== null;
+  const wantsKeep = drawnType !== null && drawnPayload !== null;
   let bar = document.getElementById('zen-mcp-toolbar');
-  if (!wantsZoom && !wantsFullscreen) {
+  if (!wantsZoom && !wantsFullscreen && !wantsKeep) {
     bar?.remove();
     return;
   }
@@ -646,19 +689,254 @@ function updateToolbar(): void {
   } else if (!wantsZoom && hasZoom) {
     for (const id of ['zen-mcp-zoom-out', 'zen-mcp-zoom-fit', 'zen-mcp-zoom-in']) document.getElementById(id)?.remove();
   }
+  updateKeepButtons(bar, wantsKeep);
   let button = document.getElementById('zen-mcp-fullscreen') as HTMLButtonElement | null;
   if (!wantsFullscreen) {
     button?.remove();
+  } else {
+    if (!button) {
+      button = toolButton('zen-mcp-fullscreen', 'Fullscreen', () => void toggleFullscreen());
+      bar.appendChild(button);
+    }
+    const label = isFullscreen() ? 'Exit fullscreen' : 'Fullscreen';
+    button.innerHTML = isFullscreen() ? EXIT_ICON : ENTER_ICON;
+    button.title = label;
+    button.setAttribute('aria-label', label);
+  }
+  // One reading order, whichever control was added last.
+  for (const id of TOOLBAR_ORDER) {
+    const control = document.getElementById(id);
+    if (control && control.parentElement === bar) bar.appendChild(control);
+  }
+}
+
+const TOOLBAR_ORDER = ['zen-mcp-copy', 'zen-mcp-download', 'zen-mcp-zoom-out', 'zen-mcp-zoom-fit', 'zen-mcp-zoom-in', 'zen-mcp-fullscreen'];
+
+const COPY_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 3.5v-1h-8v8h1" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>';
+const DOWNLOAD_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
+const DONE_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+const FAILED_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+
+/** What Download saves for the diagram on screen. */
+function downloadLabel(): string {
+  return drawnImage ? 'Download SVG' : 'Download source';
+}
+
+/** Copy and Download: present while a diagram is on screen. */
+function updateKeepButtons(bar: HTMLElement, wanted: boolean): void {
+  const ids = ['zen-mcp-copy', 'zen-mcp-download'];
+  if (!wanted) {
+    for (const id of ids) document.getElementById(id)?.remove();
     return;
   }
-  if (!button) {
-    button = toolButton('zen-mcp-fullscreen', 'Fullscreen', () => void toggleFullscreen());
-    bar.appendChild(button);
+  if (!document.getElementById('zen-mcp-copy')) {
+    const copy = toolButton('zen-mcp-copy', 'Copy source', () => void copySource());
+    copy.innerHTML = COPY_ICON;
+    bar.appendChild(copy);
   }
-  const label = isFullscreen() ? 'Exit fullscreen' : 'Fullscreen';
-  button.innerHTML = isFullscreen() ? EXIT_ICON : ENTER_ICON;
-  button.title = label;
-  button.setAttribute('aria-label', label);
+  let download = document.getElementById('zen-mcp-download') as HTMLButtonElement | null;
+  if (!download) {
+    download = toolButton('zen-mcp-download', downloadLabel(), () => void downloadDiagram());
+    download.innerHTML = DOWNLOAD_ICON;
+    bar.appendChild(download);
+  }
+  // The label follows the diagram: a new result may be a document.
+  download.title = downloadLabel();
+  download.setAttribute('aria-label', downloadLabel());
+}
+
+/** Show the outcome on the button for a moment, then put it back. */
+function flash(id: string, ok: boolean, label: string, icon: string): void {
+  const button = document.getElementById(id);
+  if (!button) return;
+  button.innerHTML = ok ? DONE_ICON : FAILED_ICON;
+  button.title = ok ? (id === 'zen-mcp-copy' ? 'Copied' : 'Downloaded') : `${label} failed`;
+  setTimeout(() => {
+    const again = document.getElementById(id);
+    if (!again) return;
+    again.innerHTML = icon;
+    again.title = id === 'zen-mcp-download' ? downloadLabel() : label;
+  }, 1500);
+}
+
+/**
+ * Put text on the clipboard. The async Clipboard API needs the host to grant
+ * `clipboard-write` to this frame (mcpApps.ts asks for it, a host MAY honour
+ * it), so fall back to the older copy command, which needs only the click.
+ */
+export async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // refused: try the copy command
+  }
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+  document.body.appendChild(area);
+  try {
+    area.select();
+    return document.execCommand?.('copy') === true;
+  } catch {
+    return false;
+  } finally {
+    area.remove();
+  }
+}
+
+async function copySource(): Promise<void> {
+  const payload = drawnPayload;
+  const type = drawnType;
+  if (!payload || !type) return;
+  const ok = await writeClipboard(payload.dsl);
+  flash('zen-mcp-copy', ok, 'Copy source', COPY_ICON);
+  reportAction(type, { view_action: 'copy_source', action_outcome: ok ? 'done' : 'failed' });
+}
+
+/** The file name for a download: the title, made safe, else the type. */
+export function downloadName(payload: DiagramPayload, extension: string): string {
+  // Runs of whitespace become one hyphen.
+  const base = (payload.title ?? '').trim().replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '-').slice(0, 80);
+  return `${base || `${payload.diagramType.toLowerCase()}-diagram`}.${extension}`;
+}
+
+/** A document's source file extension: YAML or JSON for a spec, md for Markdown. */
+export function sourceExtension(payload: DiagramPayload): string {
+  const type = payload.diagramType.toLowerCase();
+  if (type === 'markdown') return 'md';
+  if (type === 'openapi' || type === 'asyncapi') return payload.dsl.trimStart().startsWith('{') ? 'json' : 'yaml';
+  return 'txt';
+}
+
+/** A text blob's contents. FileReader, not blob.text(), which older engines lack. */
+function readText(blob: Blob): Promise<string> {
+  return new Promise((resolveRead, rejectRead) => {
+    const reader = new FileReader();
+    reader.onload = () => resolveRead(String(reader.result));
+    reader.onerror = () => rejectRead(reader.error ?? new Error('could not read the file'));
+    reader.readAsText(blob);
+  });
+}
+
+/**
+ * Mermaid's SVG as a file that sizes itself. Mermaid writes width="100%", a
+ * max-width style and no height, for a page to size; opened on its own the
+ * drawing then fills the window. Give it its viewBox size instead.
+ */
+export function svgFile(markup: string): string {
+  const doc = new DOMParser().parseFromString(markup, 'image/svg+xml');
+  const svg = doc.documentElement;
+  // Not well-formed XML: leave mermaid's string as it is rather than lose the drawing.
+  if (svg.nodeName !== 'svg' || doc.getElementsByTagName('parsererror').length) return markup;
+  const box = (svg.getAttribute('viewBox') ?? '').trim().split(/[\s,]+/).map(Number);
+  if (box.length === 4 && box[2] > 0 && box[3] > 0) {
+    svg.setAttribute('width', String(box[2]));
+    svg.setAttribute('height', String(box[3]));
+    // By hand: an element parsed as XML has no `style` object in every engine.
+    const style = (svg.getAttribute('style') ?? '')
+      .split(';')
+      .filter((rule) => rule.trim() && !/^\s*max-width\s*:/i.test(rule))
+      .join(';');
+    if (style) svg.setAttribute('style', style);
+    else svg.removeAttribute('style');
+  }
+  // A standalone file needs the namespace, or a viewer will not read it as SVG.
+  if (!svg.getAttribute('xmlns')) svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  return new XMLSerializer().serializeToString(svg);
+}
+
+function svgBlob(svg: string): Blob {
+  return new Blob([svg], { type: 'image/svg+xml' });
+}
+
+/**
+ * Decode a data URL by hand: fetching it would be a `connect-src` request,
+ * which the host's CSP limits to our own origin.
+ */
+export function dataUrlBlob(url: string): Blob {
+  const comma = url.indexOf(',');
+  if (!url.startsWith('data:') || comma < 0) throw new Error('not a data URL');
+  const header = url.slice(5, comma);
+  const body = url.slice(comma + 1);
+  const type = header.split(';')[0] || 'application/octet-stream';
+  if (header.endsWith(';base64')) {
+    const bytes = Uint8Array.from(atob(body), (c) => c.charCodeAt(0));
+    return new Blob([bytes], { type });
+  }
+  return new Blob([decodeURIComponent(body)], { type });
+}
+
+/**
+ * The host shows its own confirmation dialog and answers only once the user
+ * has chosen, as claude.ai does for `ui/open-link` (#1271 spike: a 10 s limit
+ * fired while its dialog was still open). Long enough for a person.
+ */
+const HOST_DIALOG_TIMEOUT_MS = 5 * 60_000;
+
+/**
+ * Save a file through the host (`ui/download-file`, ext-apps draft): the host
+ * names it from the last segment of the resource URI and asks the user first.
+ * True when saved; false when the host reports an error or the user cancelled.
+ */
+async function saveThroughHost(text: string, mimeType: string, name: string): Promise<boolean> {
+  const { result, error } = await ask(
+    'ui/download-file',
+    { contents: [{ type: 'resource', resource: { uri: `file:///${encodeURIComponent(name)}`, mimeType, text } }] },
+    HOST_DIALOG_TIMEOUT_MS,
+  );
+  return !error && (result as { isError?: unknown } | undefined)?.isError !== true;
+}
+
+/**
+ * Hand the browser a file to save, for a host without `ui/download-file`. A
+ * sandbox without `allow-downloads` drops it without telling the frame, so
+ * success here means the download was started, not that it was saved.
+ */
+function saveFile(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+async function downloadDiagram(): Promise<void> {
+  const payload = drawnPayload;
+  const type = drawnType;
+  if (!payload || !type) return;
+  const image = drawnImage;
+  const format = image ? 'svg' : 'source';
+  let ok = true;
+  try {
+    const blob = image ? await image() : new Blob([payload.dsl], { type: 'text/plain' });
+    const name = image ? downloadName(payload, 'svg') : downloadName(payload, sourceExtension(payload));
+    if ('downloadFile' in hostCapabilities) ok = await saveThroughHost(await readText(blob), blob.type || 'text/plain', name);
+    else saveFile(blob, name);
+  } catch (e) {
+    console.error('[zenuml] download failed', e);
+    ok = false;
+  }
+  flash('zen-mcp-download', ok, downloadLabel(), DOWNLOAD_ICON);
+  reportAction(type, { view_action: 'download', download_format: format, action_outcome: ok ? 'done' : 'failed' });
+}
+
+function reportAction(type: string, fields: Record<string, string>): void {
+  try {
+    navigator.sendBeacon?.(
+      new URL('mcp/view-event', viewOrigin()).href,
+      JSON.stringify({ kind: 'action', macro_type: type, ...modeField(), ...fields }),
+    );
+  } catch {
+    // analytics never fails the view
+  }
 }
 
 /**
@@ -723,7 +1001,7 @@ function reportFullscreen(outcome: string): void {
   try {
     navigator.sendBeacon?.(
       new URL('mcp/view-event', viewOrigin()).href,
-      JSON.stringify({ kind: 'fullscreen', macro_type: drawnType, fullscreen_outcome: outcome }),
+      JSON.stringify({ kind: 'fullscreen', macro_type: drawnType, ...modeField(), fullscreen_outcome: outcome }),
     );
   } catch {
     // analytics never fails the view
@@ -754,6 +1032,7 @@ async function render(payload: DiagramPayload): Promise<void> {
 
   // Drawings are scaled to the container (fitDiagram); documents reflow.
   const target = FIT_TYPES.has(type) ? prepareFitBox(el) : el;
+  let image: (() => Promise<Blob>) | null = null;
   try {
     if (type === 'mermaid') {
       const mermaid = (await import('mermaid')).default;
@@ -761,8 +1040,10 @@ async function render(payload: DiagramPayload): Promise<void> {
       const { svg } = await mermaid.render(`zen-mcp-${Date.now()}`, payload.dsl);
       target.innerHTML = svg;
       giveSvgItsNaturalSize(target);
+      image = async () => svgBlob(svgFile(svg));
     } else if (type === 'plantuml') {
-      await renderPlantUml(target, payload);
+      const svg = await renderPlantUml(target, payload);
+      image = async () => svgBlob(svg);
     } else if (type === 'sequence') {
       const [{ default: ZenUml }, { configureDiagramFonts }] = await Promise.all([
         import('@zenuml/core'),
@@ -778,8 +1059,15 @@ async function render(payload: DiagramPayload): Promise<void> {
       // Confluence store (scoped themes, sticky offset against a scrolling
       // iframe) — this frame does not scroll and has no per-diagram theme.
       await zenuml.render(payload.dsl, { theme: 'theme-default', stickyOffset: false });
+      // core draws HTML, not SVG; its getSvg wraps that HTML in an SVG data URL.
+      image = async () => dataUrlBlob(await zenuml.getSvg());
     } else if (type === 'graph') {
       await renderGraph(target, payload.dsl);
+      image = async () => {
+        const drawing = target.querySelector('svg');
+        if (!drawing) throw new Error('the drawing has no SVG');
+        return svgBlob(new XMLSerializer().serializeToString(drawing));
+      };
     } else if (type === 'openapi') {
       await renderOpenApi(el, payload.dsl);
     } else if (type === 'asyncapi') {
@@ -804,6 +1092,8 @@ async function render(payload: DiagramPayload): Promise<void> {
   }
 
   drawnType = type;
+  drawnPayload = payload;
+  drawnImage = image;
   userZoom = 1;
   updateToolbar();
   fitDiagram();
@@ -826,6 +1116,8 @@ export function onHostMessage(event: MessageEvent): void {
       status('The host refused this view.');
       return;
     }
+    const caps = (msg.result as { hostCapabilities?: unknown } | undefined)?.hostCapabilities;
+    hostCapabilities = caps && typeof caps === 'object' ? (caps as Record<string, unknown>) : {};
     const context = (msg.result as { hostContext?: unknown } | undefined)?.hostContext;
     if (context && typeof context === 'object') applyHostContext(context as HostContext);
     send('ui/notifications/initialized');
@@ -847,6 +1139,7 @@ export function onHostMessage(event: MessageEvent): void {
   }
 
   if (msg.method === 'ui/notifications/tool-result') {
+    resultMode = mcpModeOf(msg.params);
     const payload = extractDiagram(msg.params);
     if (payload) void render(payload);
     else status('No diagram in this result.');

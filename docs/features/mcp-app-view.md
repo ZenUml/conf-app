@@ -29,6 +29,30 @@ Two ways forward were considered; the second is the one built:
 
 `update_diagram` returns no diagram type or source, so after an update the view says "No diagram in this result." for every type.
 
+## Copy and Download
+
+When a diagram is on screen, the toolbar starts with two buttons (#1271):
+
+- **Copy source** puts the diagram's source on the clipboard. It uses the Clipboard API and falls back to `document.execCommand('copy')`. The UI resource asks for `_meta.ui.permissions.clipboardWrite`, which a host may grant or not.
+- **Download** saves an SVG for a drawing and the source file for a document:
+  - Mermaid and PlantUML save the SVG they drew, Graph the DrawIO viewer's `<svg>`, and Sequence `@zenuml/core`'s `getSvg()`. That returns a data URL, which the view decodes itself, because a `fetch()` of it would be a `connect-src` request.
+  - OpenAPI and AsyncAPI save `.yaml` or `.json`, and Markdown saves `.md`.
+  - Where the host declares `hostCapabilities.downloadFile`, Download sends `ui/download-file` with one embedded `resource`. Otherwise it clicks an `<a download>`, which a sandbox without `allow-downloads` drops silently.
+
+Both report `agent_link_app_view_action_used`. A `done` for the `<a download>` path means the browser started the download, not that it saved the file.
+
+## Host capabilities claude.ai declares
+
+Measured 2026-11-21 with the throwaway spike PR #1273, on conf-stg-lite:
+
+- **Capabilities.** The `ui/initialize` result reports `hostInfo` `Claude 1.0.0`, protocol `2026-01-26`, and `hostCapabilities` keys `openLinks, downloadFile, updateModelContext, message, serverTools, serverResources, logging, sandbox`. `downloadFile` and `message` come from the ext-apps draft (`src/spec.types.ts` on main), not the 2026-01-26 spec.
+- **`ui/open-link` works, behind a confirmation.** claude.ai shows its own "Open external link" dialog with the URL and Cancel / Open link. It opens the tab only after the user clicks Open link.
+  - It answers only once the user has chosen, with `{"isError":false}` rather than the spec's `{}`.
+  - A 10-second request timeout fired while the dialog was still open, and the tab opened anyway. Give requests that the host confirms a timeout a person can meet (the view uses 5 minutes).
+- **A plain `<a target="_blank">` opens nothing.** Expect the same of other navigation or download the frame tries on its own, and use the host request instead.
+
+Evidence (screenshots) stayed local and is not in the repo.
+
 ## Rendering without an Atlassian site: `POST /mcp`
 
 A second, public MCP endpoint, `POST /mcp` (route `functions/mcp/index.ts`, logic in `functions/agent-link/renderMcp.ts`), uses the same view with **no sign-in and no Confluence**. The address to publish is **`https://zenuml.com/mcp`**, served by the separate render Worker ([render-mcp-deployment.md](../ops/render-mcp-deployment.md)). That origin advertises no OAuth, so clients that run OAuth discovery connect without trying to sign in ([#1038](https://github.com/ZenUml/conf-app/issues/1038)). `https://conf-lite.zenuml.com/mcp` and the original `/mcp/render` stay as aliases for clients already configured with them, including the Claude directory listing submitted on 2026-10-31. On `conf-lite` they share an origin with agent-link's OAuth documents, so some clients still attempt a sign-in there first.
@@ -44,6 +68,10 @@ A second, public MCP endpoint, `POST /mcp` (route `functions/mcp/index.ts`, logi
 - **Why not an anonymous tool on `/agent-link/mcp`:** a token-less request there must get the 401 + RFC 9728 challenge, which is what starts OAuth in a host that has never connected. Answering it without a token would let hosts skip sign-in and then fail on every Confluence tool.
 - **Route:** `/mcp` and `/mcp/render` are listed in `public/_routes.json` (without it Pages serves the SPA's HTML there). `_middleware.ts` does not authenticate it. It sits outside `/agent-link/` because the URL is public and has nothing to do with linking to Confluence; the Confluence connector stays at `/agent-link/mcp`.
 - **Analytics:** the existing `agent_link_mcp_initialized`, `agent_link_mcp_tool_called` and `agent_link_app_view_*` events, with `mcp_mode: 'render'`. `_tool_called` adds `macro_type`, `render_validation` (`valid` | `invalid` | `unvalidated`) and `render_type_source` (`given` | `detected`). There is no user, so these share Mixpanel's `unknown_user_account_id`; filter by `mcp_mode`.
+
+## Rendering on the user's machine: `tools/render-mcp-local`
+
+A remote server always receives the tool call's arguments, so `POST /mcp` sees every source it draws. `tools/render-mcp-local` is the same `render_diagram` tool, run as a stdio server on the user's machine; it shares `functions/agent-link/renderTool.ts`, the DSL guides and `oauth/mcpApps.ts` with the Worker. Its `resources/read` fetches `view.html` from `https://zenuml.com` and declares that origin in `_meta.ui.csp`, so the host loads the same view and assets, while the source stays between the host and the local process. Our servers still see the asset fetches (which reveal the diagram type) and the enum-only `/mcp/view-event` posts. See its README.
 
 ## Pieces
 

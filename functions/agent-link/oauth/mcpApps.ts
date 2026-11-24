@@ -129,9 +129,14 @@ export function uiCsp(origin: string): Record<string, unknown> {
   };
 }
 
-/** `_meta` for the UI resource itself: this is where the csp belongs. */
+/**
+ * `_meta` for the UI resource itself: this is where the csp belongs, and the
+ * browser permissions the view asks for. `clipboardWrite` is for its Copy
+ * button; a host MAY grant it (iframe `allow="clipboard-write"`), and the view
+ * falls back to the copy command when it does not.
+ */
 export function uiResourceMeta(origin: string): Record<string, unknown> {
-  return { ui: { csp: uiCsp(origin) } };
+  return { ui: { csp: uiCsp(origin), permissions: { clipboardWrite: {} } } };
 }
 
 /**

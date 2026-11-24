@@ -36,8 +36,12 @@ vi.mock('@/model/globals/forgeGlobal', async (original) => {
 })
 vi.mock('@/utils/analytics/trackAnalyticsEvent', () => ({ trackAnalyticsEvent: vi.fn() }))
 
+// Wrappers attach to document.body; one left mounted keeps calling the shared
+// captureBlob spy from a later test, so each test unmounts what it mounted.
+const mounted: Array<{ unmount: () => void }> = []
+
 function mountExport(captureTarget: HTMLElement) {
-  return mount(ExportModal, {
+  const wrapper = mount(ExportModal, {
     props: {
       visible: false,
       macroType: 'mermaid',
@@ -46,6 +50,8 @@ function mountExport(captureTarget: HTMLElement) {
     },
     attachTo: document.body,
   })
+  mounted.push(wrapper)
+  return wrapper
 }
 
 describe('PNG Export feedback acceptance', () => {
@@ -56,7 +62,11 @@ describe('PNG Export feedback acceptance', () => {
     exportDiagram.mockClear()
   })
 
-  afterEach(() => { warn.mockRestore(); document.body.innerHTML = '' })
+  afterEach(() => {
+    warn.mockRestore()
+    mounted.splice(0).forEach((w) => w.unmount())
+    document.body.innerHTML = ''
+  })
 
   it('reveals the flush-right Feedback trigger only on edge hover or keyboard focus', async () => {
     const wrapper = mountExport(document.createElement('div'))
@@ -99,7 +109,9 @@ describe('PNG Export feedback acceptance', () => {
     await wrapper.setProps({ visible: true })
     await flushPromises()
 
-    expect(captureBlob).toHaveBeenCalledWith(target, expect.any(Object))
+    // Preview capture waits for assets first. A capture still in flight from an
+    // earlier test can land first, so wait for THIS test's node, not "a call".
+    await vi.waitFor(() => expect(captureBlob).toHaveBeenCalledWith(target, expect.any(Object)))
     await (wrapper.vm as any).handleExport()
     // main added a fourth argument (the export context) to exportDiagram; what
     // matters here is still the third: the node handed to the export is the

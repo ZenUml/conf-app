@@ -110,6 +110,8 @@ export type AnalyticsProperties = {
   attempt_id?: string;
   recovery_request_id?: string;
   recovery_grant_id?: string;
+  /** `edit` only: the gated editor opens an existing diagram or creates a new one (one shared grant). */
+  edit_target?: 'existing_diagram' | 'new_diagram';
   recovery_state?: 'disabled' | 'not_requested' | 'pending_activation' | 'active' | 'expired' | 'unavailable';
   recovery_action?: 'contact_support' | 'plan_usage' | 'return_inline' | 'continue_request' | 'dismiss_notice';
   recovery_outcome?: 'created' | 'reused' | 'activated' | 'already_active' | 'extended' | 'already_applied';

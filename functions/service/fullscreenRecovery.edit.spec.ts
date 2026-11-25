@@ -99,13 +99,21 @@ describe('edit request gate: examples E1-E9', () => {
       data: { forgeContext: { ...alice, forgeAppId: FULL } } } as any);
     expect((await res.json() as any).snapshot).toMatchObject({ state: 'disabled', policyVersion: 'edit-contact-v1' });
   });
-  it('E7 a site at watermark or block_create has no edit gate; neither has one with no policy', async () => {
-    for (const stage of ['notice', 'watermark', 'block_create', null]) {
+  it('E7 a site at notice or watermark has no edit gate; neither has one with no policy', async () => {
+    for (const stage of ['notice', 'watermark', null]) {
       const { env } = setup({ stage });
       expect((await snap(env, alice, ACTIVATED)).state, String(stage)).toBe('disabled');
     }
     const { env } = setup({ stage: 'block_edit' });
     expect((await snap(env, alice, new Date('2026-12-07T23:59:59Z'))).state, 'before effectiveAt').toBe('disabled');
+  });
+  it('block_create: the same edit request gate covers creating, and one grant covers both', async () => {
+    const { env } = setup({ stage: 'block_create' });
+    expect((await snap(env, alice, BEFORE_ACTIVATION)).state).toBe('not_requested');
+    const c = await createRecoveryRequest(env, alice, edit(), BEFORE_ACTIVATION);
+    expect(c.snapshot.state).toBe('pending_activation');
+    await activateRecovery(env, alice, { action: 'activate', attemptId: edit().attemptId, requestId: c.snapshot.request!.id, spaceKey: 'ENG', feature: 'edit' }, ACTIVATED);
+    expect((await snap(env, alice, ACTIVATED)).state).toBe('active');
   });
   it('E8 the grant is personal: a second user has no request', async () => {
     const { env } = setup();
@@ -125,7 +133,7 @@ describe('edit request gate: examples E1-E9', () => {
 });
 
 describe('edit gate rules', () => {
-  it('refuses a request when the site is not at block_edit', async () => {
+  it('refuses a request when the site is before block_create', async () => {
     const { env } = setup({ stage: 'watermark' });
     await expect(createRecoveryRequest(env, alice, edit(), BEFORE_ACTIVATION)).rejects.toMatchObject({ code: 'not_enforced' });
   });

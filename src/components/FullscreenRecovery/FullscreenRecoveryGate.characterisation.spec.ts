@@ -21,7 +21,7 @@ describe('FullscreenRecoveryGate copy, feature omitted', () => {
     expect(wrapper.findAll('.recovery__choice').map(label => label.text())).toEqual([
       'Inspect details on my own', 'Present this diagram to others', 'Discuss it with colleagues', 'Something else',
     ])
-    expect(wrapper.findAll('button').map(button => button.text())).toEqual(['Contact support', 'Plan and usage', 'Back to diagram'])
+    expect(wrapper.findAll('button').map(button => button.text())).toEqual(['Request temporary access', 'Plan and usage', 'Back to diagram'])
     expect(html(wrapper)).toMatchInlineSnapshot(`
       "<section class="recovery" aria-labelledby="recovery-title" data-testid="fullscreen-recovery-gate">
         <div class="recovery__eyebrow">ZenUML Lite · Fullscreen</div>
@@ -34,7 +34,7 @@ describe('FullscreenRecoveryGate copy, feature omitted', () => {
           <summary>Additional context (optional)</summary> <label class="recovery__label" for="recovery-note">Anything that would help us understand your use</label> <textarea id="recovery-note" rows="3" maxlength="2000"></textarea>
         </details>
         <!--v-if-->
-        <div class="recovery__actions"><button type="button" class="recovery__primary" disabled="">Contact support</button> <button type="button" class="recovery__secondary">Plan and usage</button></div> <button type="button" class="recovery__link">Back to diagram</button>
+        <div class="recovery__actions"><button type="button" class="recovery__primary" disabled="">Request temporary access</button> <button type="button" class="recovery__secondary">Plan and usage</button></div> <button type="button" class="recovery__link">Back to diagram</button>
       </section>"
     `)
   })
@@ -42,14 +42,14 @@ describe('FullscreenRecoveryGate copy, feature omitted', () => {
   it('contact view', async () => {
     const wrapper = mount(FullscreenRecoveryGate, { props: { snapshot: base, initialScenarios: ['present', 'discuss'] } })
     await wrapper.get('button.recovery__primary').trigger('click')
-    expect(wrapper.get('h1').text()).toBe('Contact support')
+    expect(wrapper.get('h1').text()).toBe('Request temporary access')
     expect(wrapper.text()).toContain("We'll reply about this Fullscreen request at the address you provide.")
     expect(wrapper.text()).toContain('Current Confluence site, diagram reference, and your Fullscreen use.')
     expect(wrapper.text()).toContain('Use: Present this diagram to others, Discuss it with colleagues')
     expect(html(wrapper)).toMatchInlineSnapshot(`
       "<section class="recovery" aria-labelledby="recovery-title" data-testid="fullscreen-recovery-gate">
         <div class="recovery__eyebrow">ZenUML Lite · Fullscreen</div>
-        <h1 id="recovery-title">Contact support</h1>
+        <h1 id="recovery-title">Request temporary access</h1>
         <p class="recovery__lead">We'll reply about this Fullscreen request at the address you provide.</p>
         <div class="recovery__context"><strong>Included with your request</strong>
           <p>Current Confluence site, diagram reference, and your Fullscreen use.</p>

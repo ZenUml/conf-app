@@ -19,14 +19,14 @@
       </details>
       <BundleBlackFridayOffer v-if="blackFriday" />
       <div class="recovery__actions">
-        <button type="button" class="recovery__primary" :disabled="scenarios.length === 0" @click="showContact">Contact support</button>
+        <button type="button" class="recovery__primary" :disabled="scenarios.length === 0" @click="showContact">Request temporary access</button>
         <button type="button" class="recovery__secondary" @click="planUsage">Plan and usage</button>
       </div>
       <button type="button" class="recovery__link" @click="close">{{ copy.backLabel }}</button>
     </template>
 
     <template v-else-if="view === 'contact'">
-      <h1 id="recovery-title">Contact support</h1>
+      <h1 id="recovery-title">Request temporary access</h1>
       <p class="recovery__lead">{{ copy.contactLead }}</p>
       <div class="recovery__context">
         <strong>Included with your request</strong>
@@ -110,6 +110,7 @@ type View = 'scenarios' | 'contact' | 'ready' | 'expired' | 'request'
 const props = withDefaults(defineProps<{
   snapshot: RecoverySnapshot
   feature?: RecoveryFeature
+  editTarget?: 'existing_diagram' | 'new_diagram'
   request?: (input: RecoveryRequestInput) => Promise<RecoveryResult>
   context?: Partial<Pick<RecoveryRequestInput, 'contentId' | 'customContentId' | 'spaceKey'>>
   initialView?: 'request'
@@ -158,7 +159,7 @@ function analyticsBase(attemptId = gateAttemptId) {
     feature_area: 'upgrade' as const, surface: props.surface ?? (props.feature === 'edit' ? 'editor' as const : 'viewer' as const), feature: props.feature,
     policy_version: definition.value.policyVersion,
     entry_point: props.surface === 'dashboard' ? 'dashboard' as const : 'macro_toolbar' as const,
-    attempt_id: attemptId, recovery_state: localSnapshot.value.state,
+    attempt_id: attemptId, recovery_state: localSnapshot.value.state, edit_target: props.editTarget,
     recovery_request_id: localSnapshot.value.request?.id,
     recovery_grant_id: localSnapshot.value.grant?.id,
   }

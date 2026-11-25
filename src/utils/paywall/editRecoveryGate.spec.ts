@@ -10,6 +10,7 @@ const fakeCS = {
   initialize: vi.fn().mockResolvedValue(undefined),
   shouldBlockActions: { value: false },
   editRequestGateApplies: { value: true },
+  createRequestGateApplies: { value: true },
   macrosCreated: { value: 2282 }, macroCountSource: { value: 'kv' },
   cssEnabled: { value: true }, paywallPolicySource: { value: 'default_on' },
   spacePaid: { value: false }, spacePaidStatusKnown: { value: true }, spacePaidSource: { value: undefined },
@@ -36,6 +37,7 @@ const open = async (customContentId: string | undefined, onContinueEditing = vi.
 beforeEach(async () => {
   vi.clearAllMocks()
   fakeCS.editRequestGateApplies.value = true
+  fakeCS.createRequestGateApplies.value = true
   recoveryMount.mockResolvedValue('handled')
   vi.mocked((await import('@/model/globals')).default.apWrapper.isLite).mockReturnValue(true)
 })
@@ -44,7 +46,7 @@ describe('Click Edit on an existing diagram', () => {
   it('E1/E2/E4: the server says the gate applies -> the recovery gate with feature edit replaces the editor', async () => {
     const { result, onContinueEditing } = await open('cc-1')
     expect(result).toBe(true)
-    expect(recoveryMount).toHaveBeenCalledWith(expect.objectContaining({ feature: 'edit', spaceKey: 'ENG', content: Content, onOpen: onContinueEditing }))
+    expect(recoveryMount).toHaveBeenCalledWith(expect.objectContaining({ feature: 'edit', editTarget: 'existing_diagram', spaceKey: 'ENG', content: Content, onOpen: onContinueEditing }))
   })
   it('E3: an active grant (the server answers "disabled") -> the ordinary editor', async () => {
     recoveryMount.mockResolvedValue('disabled')
@@ -65,7 +67,26 @@ describe('Click Edit on an existing diagram', () => {
     expect((await open('cc-1')).result).toBe(false)
     expect(recoveryMount).not.toHaveBeenCalled()
   })
-  it('creating a new diagram is unchanged', async () => {
+})
+
+describe('Create a new diagram', () => {
+  it('site at block_create or later -> the same edit request gate, tagged as a new diagram', async () => {
+    fakeCS.editRequestGateApplies.value = false
+    const { result, onContinueEditing } = await open(undefined)
+    expect(result).toBe(true)
+    expect(recoveryMount).toHaveBeenCalledWith(expect.objectContaining({ feature: 'edit', editTarget: 'new_diagram', spaceKey: 'ENG', onOpen: onContinueEditing }))
+  })
+  it('an active edit grant opens the editor; a failed lookup opens it too', async () => {
+    recoveryMount.mockResolvedValue('disabled')
+    expect((await open(undefined)).result).toBe(false)
+    recoveryMount.mockRejectedValue(new Error('boom'))
+    expect((await open(undefined)).result).toBe(false)
+  })
+  it('no create effect (notice, watermark, Full, Diagramly) -> no lookup', async () => {
+    fakeCS.createRequestGateApplies.value = false
+    expect((await open(undefined)).result).toBe(false)
+    vi.mocked((await import('@/model/globals')).default.apWrapper.isLite).mockReturnValue(false)
+    fakeCS.createRequestGateApplies.value = true
     expect((await open(undefined)).result).toBe(false)
     expect(recoveryMount).not.toHaveBeenCalled()
   })

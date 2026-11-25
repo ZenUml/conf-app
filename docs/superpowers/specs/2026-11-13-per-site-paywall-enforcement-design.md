@@ -199,8 +199,8 @@ Stages are cumulative. Each effect is a fixed property of the stage.
 | off | no (the existing banner rules apply) | no | allowed | allowed |
 | notice | yes | no | allowed | allowed |
 | watermark | yes | yes | allowed | allowed |
-| block_create | yes | yes | blocked | allowed |
-| block_edit | yes | yes | blocked | request gate: no editor until the user's request is saved; then 7 days |
+| block_create | yes | yes | request gate (shared `edit` grant) | allowed |
+| block_edit | yes | yes | request gate (shared `edit` grant) | request gate: no editor until the user's request is saved; then 7 days |
 
 ### End-to-end examples
 
@@ -230,7 +230,7 @@ Site policy `stage = watermark`, `effectiveAt = 2026-12-08T00:00:00Z`, product L
 | View, inline and Fullscreen | unchanged | diagram visible, watermark over it, notice strip under it | same as watermark | same as watermark |
 | Export and stored PNG | unchanged | unchanged, no watermark | unchanged, no watermark | unchanged, no watermark |
 | Edit an existing diagram | allowed | allowed | allowed | request gate in place of the editor (see "Edit request gate") |
-| Create a new diagram in an over-limit space | allowed | allowed | blocked, no continue button | blocked, no continue button |
+| Create a new diagram in an over-limit space | allowed | allowed | edit request gate in place of the editor; one `edit` grant covers creating and editing | same as block_create |
 | Create in a space under 150 | allowed | allowed | allowed | allowed |
 | Page banner (information only, one link: "View plan and usage") | dated notice | "diagrams in this space carry a watermark" | "new diagrams are paused" | "editing is limited" |
 | Plan-and-usage page | purchase options | purchase options | purchase options | purchase options |
@@ -242,7 +242,7 @@ Examples for a site with `stage = block_create`, `effectiveAt = 2026-12-08`:
 | Space | Diagrams | Licence | Date | Action | Outcome |
 |---|---|---|---|---|---|
 | A | 2,282 | none | 2026-12-01 | insert a new diagram | allowed, banner shows the date |
-| A | 2,282 | none | 2026-12-08 | insert a new diagram | blocked, purchase options shown |
+| A | 2,282 | none | 2026-12-08 | insert a new diagram | edit request gate; after the request is saved, the editor opens for 7 days from the first save |
 | A | 2,282 | none | 2026-12-08 | edit an existing diagram | allowed |
 | A | 2,282 | space licence | 2026-12-08 | insert a new diagram | allowed |
 | B | 91 | none | 2026-12-08 | insert a new diagram | allowed |
@@ -416,7 +416,7 @@ Add the names to `src/utils/analytics/catalog.ts` and `types.ts` in the first co
 | T−21 → T | Answer every request as a quote; no free extension | Each reply recorded in the private handbook |
 | T | Write `stage = watermark` | `license_notice_shown` on over-limit spaces only; views and edits unchanged week on week; export carries no watermark |
 | T+30 | Review: purchase, open commercial thread, or neither | Owner decides: hold, set a date for `block_create`, or delete the key |
-| later, dated | Write `stage = block_create`, only after the purchase path changes ship | `paywall_blocked_create` > 0; edits of existing diagrams unchanged week on week |
+| later, dated | Write `stage = block_create`, only after the purchase path changes ship | `fullscreen_recovery_gate_shown` with `feature = edit`, `edit_target = new_diagram` > 0; edits of existing diagrams unchanged week on week |
 
 Rollback at any point: delete the key. The next `space-status` read returns no enforcement.
 
@@ -460,7 +460,7 @@ an email address. On the one pilot site, 2026-10-28 → 2026-11-13:
 | Step | Users |
 |---|---|
 | Saw the gate | 115 |
-| Answered the questionnaire (clicked **Contact support**, which needs at least one choice) | 15 |
+| Answered the questionnaire (clicked **Request temporary access**, formerly Contact support, which needs at least one choice) | 15 |
 | Submitted an email | 4 |
 | Answers we can read | 4 |
 
@@ -472,7 +472,7 @@ way they leave it.
 
 | Event (existing) | When | Properties to add |
 |---|---|---|
-| `fullscreen_recovery_action_selected`, `recovery_action = contact_support` | **Contact support** clicked | `scenario_codes` (array of the four codes), `has_note` (boolean) |
+| `fullscreen_recovery_action_selected`, `recovery_action = contact_support` | **Request temporary access** clicked | `scenario_codes` (array of the four codes), `has_note` (boolean) |
 | `fullscreen_recovery_action_selected`, `recovery_action = plan_usage` | **Plan and usage** clicked from the questionnaire screen | `scenario_codes` (may be empty), `has_note` |
 | `fullscreen_recovery_action_selected`, `recovery_action = return_inline` | **Back to diagram** clicked from the questionnaire screen | `scenario_codes` (may be empty) |
 
@@ -489,7 +489,7 @@ Examples:
 
 | User does | Recorded today | Recorded after the change |
 |---|---|---|
-| Ticks "Present this diagram to others", clicks Contact support, closes at the email step | `action_selected`, no choice | `action_selected` with `scenario_codes = ["present"]`, `has_note = false` |
+| Ticks "Present this diagram to others", clicks Request temporary access, closes at the email step | `action_selected`, no choice | `action_selected` with `scenario_codes = ["present"]`, `has_note = false` |
 | Ticks nothing, clicks Back to diagram | `action_selected`, no choice | `action_selected` with `scenario_codes = []` |
 | Ticks two choices, types a note, submits an email | `request_submitted` with both codes, `has_note = true` | unchanged, plus the same codes on the earlier `action_selected` |
 
@@ -546,7 +546,7 @@ Site at `block_edit`, product Lite, space not covered. One user.
 | E4 | activated 2026-12-08 09:00 | 2026-12-15 09:00 | gate, view "Your temporary editing access has ended" | not reachable |
 | E5 | any | recovery lookup fails or times out | editor (fail open) | allowed |
 | E6 | none | any, product Full or Diagramly | editor | allowed |
-| E7 | none | any, site at `watermark` or `block_create` | editor | allowed |
+| E7 | none | any, site at `watermark` or `block_create` (Edit on an existing diagram) | editor | allowed |
 | E8 | none, a second user on the same site | any | gate (the grant is personal: one request per user per feature) | not reachable |
 | E9 | Fullscreen request active, no edit request | any | gate (a Fullscreen grant does not open the editor) | not reachable |
 
@@ -554,8 +554,11 @@ Rules that follow:
 
 - The server decides. The client never compares a count or a date.
 - Reading stays available in every row.
-- The gate applies to editing an existing diagram. Creating a new diagram is the `block_create`
-  effect, which is not built; this section does not change the create path.
+- The gate applies to editing an existing diagram from `block_edit`, and to creating a new diagram
+  from `block_create`. Owner decision 2026-11-25: creating uses this same gate, not a hard block, and
+  one `edit` request and grant per user covers both (no separate `create` feature, no migration).
+  The 7-day request is the grace period, so `block_create` needs no dated banner first.
+  `edit_target` (`existing_diagram` | `new_diagram`) on the recovery events tells the two apart.
 - Support extends or closes an edit request with the same tool and the same rules as a
   Fullscreen request.
 

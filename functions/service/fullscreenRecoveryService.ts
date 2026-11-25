@@ -111,18 +111,18 @@ export function readRecoveryPolicy(
 }
 
 /**
- * `edit` is on when the site policy is at `block_create` or later and in force, the space has reached the
+ * `edit` is on when the site policy blocks creating or editing (either switch) and is in force, the space has reached the
  * enforcement threshold, and the space is not exempt (`resolveEnforcement`). Licence and paid-rail
  * coverage is then decided by `recoveryEligibility`, which snapshot, request and activation all run
  * after this read: that is the precondition `resolveEnforcement` states, and the coverage rules
  * stay in one place. Any error or missing binding reads as "no gate" (fail open).
- * One `edit` grant covers both creating (gated from `block_create`) and editing existing diagrams
- * (gated from `block_edit`); the client decides which of the two it asks about.
+ * One `edit` grant covers both creating (`blockCreate`) and editing existing diagrams
+ * (`requestEdit`); the client decides which of the two it asks about.
  */
 async function readEditPolicy(env: RecoveryEnv, cloudId: string, context: RecoveryPolicyContext): Promise<RecoveryPolicy | null> {
   if (!context.forgeAppId || !context.spaceKey) return null;
   const enforcement = await resolveEnforcement(env, { cloudId, forgeAppId: context.forgeAppId, spaceKey: context.spaceKey }, context.now);
-  return enforcement?.effects.blockCreate === true ? { enabled: true, limit: enforcement.limit } : null;
+  return enforcement?.effects.blockCreate === true || enforcement?.effects.requestEdit === true ? { enabled: true, limit: enforcement.limit } : null;
 }
 
 /** Only a server-managed KV policy can enforce this gate. Malformed policy fails open. */

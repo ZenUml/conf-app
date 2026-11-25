@@ -23,7 +23,7 @@ One request and one initial grant are stored per `(cloudId, accountId, fullscree
 They are read and extended with the same support CLI and API; the list shows each case's `feature`, and the
 first reply and the new-request notification use editing wording. Differences from Fullscreen:
 
-- On when the site policy `paywall-enforcement:policy:<cloudId>` is at `block_edit` and in force, the space has
+- On when the site policy `paywall-enforcement:policy:<cloudId>` sets `effects.blockCreate` or `effects.requestEdit` and is in force, the space has
   reached the enforcement threshold, and no licence, paid rail or exemption covers it. There is no per-site
   `fullscreen-recovery:policy:*` key for edit.
 - The grant starts at the first successful save after the request (7 days, personal), not when a diagram renders.

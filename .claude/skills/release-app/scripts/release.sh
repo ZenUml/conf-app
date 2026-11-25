@@ -8,7 +8,7 @@
 #   release.sh <variant> --publish --notes-file <file>
 #     Publish that draft, then block until its deploy and smoke finish.
 #     Lite waits until Diagramly's smoke for the same commit succeeded.
-#     Full waits until Lite's smoke succeeded, after the 24-hour soak gate.
+#     Full waits until Lite's smoke succeeded, after the 8-hour soak and its error check.
 #     Exit 0 smoke passed. Exit 2 deploy passed and no smoke jobs ran.
 #     Any other non-zero exit means do not publish the next variant.
 #     Lite and Full also refuse to publish until the prerequisite variant's

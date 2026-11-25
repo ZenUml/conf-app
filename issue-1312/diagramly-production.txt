@@ -1,0 +1,16 @@
+Diagramly production verification for #1312 and editor source linking
+
+Release: v2026.11.251042-diagramly
+Forge production version: 4.137.0
+Release commit: 496befa9dff8abbe29151dade81a77be28a2f41b
+Production deployment and smoke: https://github.com/ZenUml/conf-app/actions/runs/45528124405
+The JavaScript loaded by the production editor contained the exact release tag.
+
+Manual checks against a synthetic fixture in the production Confluence editor:
+- Sequence: the introduction appeared over the editor, showed the message rename to "Confirm order", started with focus on Close, and had no opt-out control. Escape closed it and restored focus to the Mermaid tab.
+- Sequence on reopen: the rendered Sequence editor stayed open without showing the introduction again. Its saved seen value was present.
+- Flowchart: in the same account, the first Flowchart introduction appeared independently. The copy covered node text and connecting labels. The demo highlighted "Start" and "Approve"; the fixture source in the editor remained "Draft" and "Review". Got it closed the introduction and restored focus to the source editor.
+- Reduced motion: the browser session requested reduced motion; both introductions were observed in their completed demonstration state.
+- Source linking: a collapsed caret inside a Sequence message drew the ring around the matching preview message with no hint. A keyboard text selection showed the inline-editing hint. Both interactions kept focus in the source editor.
+
+The synthetic changes were discarded. The original saved fixture was visible after closing the editor.

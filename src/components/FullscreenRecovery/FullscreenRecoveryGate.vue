@@ -19,14 +19,14 @@
       </details>
       <BundleBlackFridayOffer v-if="blackFriday" />
       <div class="recovery__actions">
-        <button type="button" class="recovery__primary" :disabled="scenarios.length === 0" @click="showContact">Contact support</button>
+        <button type="button" class="recovery__primary" :disabled="scenarios.length === 0" @click="showContact">Request temporary access</button>
         <button type="button" class="recovery__secondary" @click="planUsage">Plan and usage</button>
       </div>
       <button type="button" class="recovery__link" @click="close">{{ copy.backLabel }}</button>
     </template>
 
     <template v-else-if="view === 'contact'">
-      <h1 id="recovery-title">Contact support</h1>
+      <h1 id="recovery-title">Request temporary access</h1>
       <p class="recovery__lead">{{ copy.contactLead }}</p>
       <div class="recovery__context">
         <strong>Included with your request</strong>

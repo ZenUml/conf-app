@@ -460,7 +460,7 @@ an email address. On the one pilot site, 2026-10-28 → 2026-11-13:
 | Step | Users |
 |---|---|
 | Saw the gate | 115 |
-| Answered the questionnaire (clicked **Contact support**, which needs at least one choice) | 15 |
+| Answered the questionnaire (clicked **Request temporary access**, formerly Contact support, which needs at least one choice) | 15 |
 | Submitted an email | 4 |
 | Answers we can read | 4 |
 
@@ -472,7 +472,7 @@ way they leave it.
 
 | Event (existing) | When | Properties to add |
 |---|---|---|
-| `fullscreen_recovery_action_selected`, `recovery_action = contact_support` | **Contact support** clicked | `scenario_codes` (array of the four codes), `has_note` (boolean) |
+| `fullscreen_recovery_action_selected`, `recovery_action = contact_support` | **Request temporary access** clicked | `scenario_codes` (array of the four codes), `has_note` (boolean) |
 | `fullscreen_recovery_action_selected`, `recovery_action = plan_usage` | **Plan and usage** clicked from the questionnaire screen | `scenario_codes` (may be empty), `has_note` |
 | `fullscreen_recovery_action_selected`, `recovery_action = return_inline` | **Back to diagram** clicked from the questionnaire screen | `scenario_codes` (may be empty) |
 
@@ -489,7 +489,7 @@ Examples:
 
 | User does | Recorded today | Recorded after the change |
 |---|---|---|
-| Ticks "Present this diagram to others", clicks Contact support, closes at the email step | `action_selected`, no choice | `action_selected` with `scenario_codes = ["present"]`, `has_note = false` |
+| Ticks "Present this diagram to others", clicks Request temporary access, closes at the email step | `action_selected`, no choice | `action_selected` with `scenario_codes = ["present"]`, `has_note = false` |
 | Ticks nothing, clicks Back to diagram | `action_selected`, no choice | `action_selected` with `scenario_codes = []` |
 | Ticks two choices, types a note, submits an email | `request_submitted` with both codes, `has_note = true` | unchanged, plus the same codes on the earlier `action_selected` |
 

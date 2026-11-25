@@ -1,6 +1,7 @@
 import { mount, enableAutoUnmount } from '@vue/test-utils';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Mermaid from '@/components/Mermaid.vue';
+import Example from '@/utils/sequence/Example';
 import store from '@/model/store2';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
 import {
@@ -128,7 +129,7 @@ describe('Mermaid render-failure telemetry', () => {
 
   it.each([
     ['authored', 'graph TD\nA-->B', 'authored'],
-    ['bundled example', 'sequenceDiagram\n    Alice->>John: Hello John, how are you?\n    John-->>Alice: Great!\n    Alice-)John: See you later!\n', 'default'],
+    ['bundled example', Example.Mermaid, 'default'],
   ])('macro_viewed carries content_state for a %s body (#113)', async (_label, code, expected) => {
     loadMermaidMock.mockResolvedValue({
       render: vi.fn(() => Promise.resolve({ svg: '<svg>ok</svg>' })),

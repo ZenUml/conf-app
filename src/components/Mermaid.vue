@@ -4,9 +4,9 @@
       <div class="text-4xl mb-3">🌿</div>
       <div class="text-sm font-semibold text-emerald-700 mb-1">Start with Mermaid</div>
       <div class="text-xs text-gray-400 mb-4">Type or paste Mermaid syntax in the editor</div>
-      <pre class="text-left text-xs font-mono bg-gray-900 text-emerald-300 rounded-lg px-5 py-4 leading-relaxed">sequenceDiagram
-    Alice-&gt;&gt;John: Hello John!
-    John--&gt;&gt;Alice: Hi Alice!</pre>
+      <pre class="text-left text-xs font-mono bg-gray-900 text-emerald-300 rounded-lg px-5 py-4 leading-relaxed">flowchart TD
+    Start([Start]) --&gt; Step[Do something]
+    Step --&gt; Done([Done])</pre>
     </div>
     <DiagramViewport
       v-else

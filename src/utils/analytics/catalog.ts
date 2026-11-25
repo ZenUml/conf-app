@@ -1051,7 +1051,9 @@ export type AnalyticsEventName =
   // two features. `feature` ('fullscreen' | 'edit') tells them apart; for `edit`,
   // `surface` is 'editor' and activation (first successful save) is reported with the
   // same `_activation_completed` / `_activation_failed` events. `fullscreen_view_ready`
-  // is Fullscreen-only (the editor has no equivalent moment).
+  // is Fullscreen-only (the editor has no equivalent moment). For `edit`, `edit_target`
+  // says whether the gated editor opened an existing diagram (`block_edit`) or a new
+  // one (`block_create`); both share one 7-day grant.
   // Contact recovery: intent, durable request, successful view and support outcomes
   // stay separate. Never put email addresses or free-form customer text in events.
   | "fullscreen_recovery_gate_shown"

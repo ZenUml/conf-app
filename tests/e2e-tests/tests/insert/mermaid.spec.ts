@@ -37,13 +37,13 @@ test.describe(`Smoke Test - ${macroType}`, { tag: ['@test:mermaid', '@variant:li
       console.log(`  ✓ Mermaid macro inserted`);
     });
 
-    // The Mermaid seed (src/utils/sequence/Example.ts) is a sequenceDiagram
-    // between Alice and John, so the rendered SVG carries both names as visible
+    // The Mermaid seed (src/utils/sequence/Example.ts) is a flowchart with an
+    // "Approved?" decision, so the rendered SVG carries that label as visible
     // text. Asserting the text proves Mermaid actually parsed and drew the
     // diagram rather than leaving the load-failed panel — which lives inside
     // this same iframe and would otherwise pass an iframe-visibility check.
     const pageId = await publishAndVerifyMacros(page, editorPage, 1, 'smoke-mermaid', async (macroPage) => {
-      await macroPage.assertMacroContent(macroPage.getSequenceMacroFrame(), 'Alice');
+      await macroPage.assertMacroContent(macroPage.getSequenceMacroFrame(), 'Approved?');
       await macroPage.assertMacroRendersDiagram(macroPage.getSequenceMacroFrame());
     });
     if (pageId) createdPageIds.push(pageId);

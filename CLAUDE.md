@@ -129,7 +129,8 @@ Full rules, artifact routing table, pre-commit grep, and background: [docs/polic
 | Email to an ordinary user we found in Confluence, Forge, Mixpanel or D1 data, who did not contact us | No |
 
 - The privacy policy is not a blocker for the first-touch email (owner, 2026-11-17).
-- The other contact rules still apply: owner's yes for each send, no repeat when there is no reply, no internal telemetry in the message, no contact with inactive payers. See `.claude/skills/customer-followup/references/contact-policy.md`.
+- **The first-install welcome email needs no per-send approval (owner, 2026-11-25).** Once its template is approved, send it to each new install's Marketplace contact without asking. This standing approval covers only that one email per install; a follow-up or any other message still needs the owner's yes.
+- The other contact rules still apply: owner's yes for each other send, no repeat when there is no reply, no internal telemetry in the message, no contact with inactive payers. See `.claude/skills/customer-followup/references/contact-policy.md`.
 
 ### Never commit directly to `main`
 

@@ -1,0 +1,30 @@
+........................................................................../Users/pengxiao/workspaces/zenuml/conf-app-ink-display/ink-display/board/test_layout.py:225: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
+  return [v for v in img.crop((728, b + 8, 1348, b + 14)).getdata()]
+.../Users/pengxiao/workspaces/zenuml/conf-app-ink-display/ink-display/board/test_layout.py:136: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
+  self.assertEqual(min(img.crop((380, 157, 457, 184)).getdata()), 0)
+........./Users/pengxiao/workspaces/zenuml/conf-app-ink-display/ink-display/board/test_layout.py:127: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
+  return sum(1 for v in box.getdata() if v < 200)
+..../Users/pengxiao/workspaces/zenuml/conf-app-ink-display/ink-display/board/test_layout.py:115: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
+  return sum(1 for p in img.getdata() if p > 200)
+................127.0.0.1 GET /r/<token>.png 200
+127.0.0.1 GET /r/<token>.png 200
+127.0.0.1 GET /r/<token>.png 200
+.127.0.0.1 GET - 200
+.127.0.0.1 GET /r/<token>.png 200
+.127.0.0.1 GET /r/<token>.full 200
+127.0.0.1 GET /r/<token>.full 200
+127.0.0.1 GET /r/<token>.full 200
+.127.0.0.1 GET - Not Found
+127.0.0.1 GET - 404
+....127.0.0.1 GET /r/<token>.png 200
+.127.0.0.1 GET - Not Found
+127.0.0.1 GET - 404
+127.0.0.1 GET - Not Found
+127.0.0.1 GET - 404
+127.0.0.1 GET - Not Found
+127.0.0.1 GET - 404
+........................................................................
+----------------------------------------------------------------------
+Ran 187 tests in 58.303s
+
+OK

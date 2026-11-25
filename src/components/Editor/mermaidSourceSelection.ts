@@ -4,7 +4,7 @@ import { MERMAID_SOURCE_SELECTION, type MermaidSourceSelection } from '@/feature
 
 export const mermaidSourceSelection = ViewPlugin.fromClass(class {
   private readonly owner: HTMLElement | null
-  private active: { from: number; to: number } | null = null
+  private active = false
 
   constructor(private readonly view: EditorView) {
     this.owner = view.dom.closest('.workspace-container')
@@ -19,35 +19,17 @@ export const mermaidSourceSelection = ViewPlugin.fromClass(class {
       return
     }
 
-    let { from, to } = selection.main
-    if (update.docChanged) {
-      const active = this.active
-      if (!active || !update.transactions.every(transaction =>
-        transaction.isUserEvent('input.type') || transaction.isUserEvent('delete')
-      )) {
-        this.clear()
-        return
-      }
-
-      let contained = true
-      update.changes.iterChangedRanges((changeFrom, changeTo) => {
-        contained &&= changeFrom >= active.from && changeTo <= active.to
-      })
-      from = update.changes.mapPos(active.from, -1)
-      to = update.changes.mapPos(active.to, 1)
-      if (!contained || selection.main.from < from || selection.main.to > to) {
-        this.clear()
-        return
-      }
-    }
-
-    if (from === to || doc.lineAt(from).number !== doc.lineAt(to).number) {
+    const { from, to } = selection.main
+    const typing = update.docChanged && update.transactions.every(transaction =>
+      !transaction.docChanged || transaction.isUserEvent('input.type') || transaction.isUserEvent('delete')
+    )
+    if ((update.docChanged && !typing) || doc.lineAt(from).number !== doc.lineAt(to).number) {
       this.clear()
       return
     }
 
-    this.active = { from, to }
-    this.publish(from, to, update.docChanged)
+    this.active = true
+    this.publish({ owner: this.owner, code: doc.toString(), from, to, typing })
   }
 
   destroy() {
@@ -55,20 +37,12 @@ export const mermaidSourceSelection = ViewPlugin.fromClass(class {
   }
 
   private clear() {
-    if (!this.active) return
-    this.active = null
-    this.publish(0, 0, false)
+    if (!this.owner || !this.active) return
+    this.active = false
+    this.publish({ owner: this.owner, clear: true })
   }
 
-  private publish(from: number, to: number, typing: boolean) {
-    if (!this.owner) return
-    const detail: MermaidSourceSelection = {
-      owner: this.owner,
-      code: this.view.state.doc.toString(),
-      from,
-      to,
-      typing,
-    }
+  private publish(detail: MermaidSourceSelection) {
     this.view.dom.ownerDocument.defaultView?.dispatchEvent(
       new CustomEvent(MERMAID_SOURCE_SELECTION, { detail }),
     )

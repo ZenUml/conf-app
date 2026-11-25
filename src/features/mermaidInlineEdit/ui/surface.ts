@@ -17,10 +17,12 @@ export const reportInlineIntroRender: InjectionKey<(code: string, svg: Element |
 /** CodeMirror publishes a UTF-16 range without changing focus or selection. */
 export const MERMAID_SOURCE_SELECTION = 'mermaid-source-selection';
 
-export interface MermaidSourceSelection {
+export interface MermaidSourceRange {
   owner: HTMLElement;
   code: string;
   from: number;
   to: number;
   typing: boolean;
 }
+
+export type MermaidSourceSelection = MermaidSourceRange | { owner: HTMLElement; clear: true };

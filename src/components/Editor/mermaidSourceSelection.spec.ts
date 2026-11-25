@@ -40,12 +40,12 @@ describe('Mermaid source selection', () => {
 
   it('publishes the exact selected occurrence and keeps focus and selection', () => {
     view.dispatch({ selection: { anchor: to, head: from } })
-    expect(events).toEqual([{ owner: workspace, code: source, from, to, typing: false }])
+    expect(events.at(-1)).toEqual({ owner: workspace, code: source, from, to, typing: false })
     expect(view.state.selection.main).toMatchObject({ anchor: to, head: from })
     expect(view.hasFocus).toBe(true)
   })
 
-  it('maps a selection through replacement typing and clears on a later caret move', () => {
+  it('publishes the caret after replacement typing, backspace, and arrow movement', () => {
     view.dispatch({ selection: { anchor: from, head: to } })
     view.dispatch({
       changes: { from, to, insert: 'New' },
@@ -55,7 +55,7 @@ describe('Mermaid source selection', () => {
     expect(events.at(-1)).toEqual({
       owner: workspace,
       code: source.slice(0, from) + 'New]',
-      from,
+      from: from + 3,
       to: from + 3,
       typing: true,
     })
@@ -66,30 +66,36 @@ describe('Mermaid source selection', () => {
     })
     expect(events.at(-1)).toMatchObject({
       code: source.slice(0, from) + 'New label]',
-      from,
+      from: from + 9,
       to: from + 9,
       typing: true,
     })
-    view.dispatch({ selection: { anchor: from + 2 }, userEvent: 'select' })
-    expect(events.at(-1)).toMatchObject({ from: 0, to: 0, typing: false })
+    view.dispatch({
+      changes: { from: from + 8, to: from + 9 },
+      selection: { anchor: from + 8 },
+      userEvent: 'delete.backward',
+    })
+    expect(events.at(-1)).toMatchObject({ from: from + 8, to: from + 8, typing: true })
+    view.dispatch({ selection: { anchor: from + 7 }, userEvent: 'select' })
+    expect(events.at(-1)).toMatchObject({ from: from + 7, to: from + 7, typing: false })
   })
 
   it('clears on multiline and multiple selections', () => {
     const selectLabel = () => view.dispatch({ selection: { anchor: from, head: to } })
     selectLabel()
     view.dispatch({ selection: { anchor: 0, head: to } })
-    expect(events.at(-1)).toMatchObject({ from: 0, to: 0 })
+    expect(events.at(-1)).toMatchObject({ owner: workspace, clear: true })
     selectLabel()
     view.dispatch({
       selection: EditorSelection.create([EditorSelection.cursor(0), EditorSelection.range(from, to)]),
     })
-    expect(events.at(-1)).toMatchObject({ from: 0, to: 0 })
+    expect(events.at(-1)).toMatchObject({ owner: workspace, clear: true })
   })
 
   it('clears on changes that did not come from source typing', () => {
     view.dispatch({ selection: { anchor: from, head: to } })
     view.dispatch({ changes: { from, to, insert: 'Changed elsewhere' } })
-    expect(events.at(-1)).toMatchObject({ from: 0, to: 0, typing: false })
+    expect(events.at(-1)).toMatchObject({ owner: workspace, clear: true })
   })
 
   it('clears when focus moves away from the source editor', async () => {
@@ -98,7 +104,7 @@ describe('Mermaid source selection', () => {
     workspace.append(other)
     other.focus()
     await vi.waitFor(() => {
-      expect(events.at(-1)).toMatchObject({ from: 0, to: 0, typing: false })
+      expect(events.at(-1)).toMatchObject({ owner: workspace, clear: true })
     })
   })
 })

@@ -268,7 +268,10 @@ export function buildFlowchartSourceMap(
   const nodes = new Map<string, FlowNodeLocation>();
   for (const v of theirs.vertices) {
     const owner = c.label.get(v.id);
-    const base = { domId: v.domId, shape: v.type, quoted: v.labelType === 'string' };
+    const vertexIds = c.ids.get(v.id) ?? [];
+    const idRanges = vertexIds.filter(([start, end]) => T.slice(start, end) === v.id)
+      .map(toOriginal).filter(([start, end]) => code.slice(start, end) === v.id);
+    const base = { idRanges, domId: v.domId, shape: v.type, quoted: v.labelType === 'string' };
     let readOnly: FlowReadOnlyReason | null = null;
     let labelRange: Range | null = null;
     let innerRange: Range | null = null;
@@ -285,7 +288,7 @@ export function buildFlowchartSourceMap(
     } else {
       // No declaration carries text: the node shows its id.
       if (v.text !== v.id) return reject('node without label text does not show its id');
-      const first = c.ids.get(v.id)?.[0];
+      const first = vertexIds[0];
       if (first && T.slice(first[0], first[1]) === v.id) {
         const r = toOriginal(first);
         if (code.slice(r[0], r[1]) === v.id) insertAt = r[1];

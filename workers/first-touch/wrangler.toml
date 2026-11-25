@@ -1,0 +1,32 @@
+# First-touch email for new conf-app installs. See index.ts.
+# Deploy: npx wrangler deploy -c workers/first-touch/wrangler.toml
+# Dry run against live data (reads Marketplace, Gmail and KV; writes and sends nothing):
+#   npx wrangler dev -c workers/first-touch/wrangler.toml --remote --test-scheduled --var DRY_RUN:1
+#   curl "http://localhost:8787/__scheduled?cron=0+23+*+*+*"
+name = "conf-first-touch"
+main = "index.ts"
+account_id = "8d5fc7ce04adc5096f52485cce7d7b3d"
+compatibility_date = "2026-01-20"
+workers_dev = false
+preview_urls = false
+
+[triggers]
+# 23:00 UTC = 09:00/10:00 Melbourne. Licences show in the export about a day after install.
+crons = ["0 23 * * *"]
+
+[vars]
+REPORT_TO = "peng@zenuml.com"
+WINDOW_DAYS = "3"
+
+# Production KV_FEATURE_FLAGS (wrangler-prod.toml); this worker owns the `first-touch:` prefix.
+[[kv_namespaces]]
+binding = "KV"
+id = "fe9042cb20994651b0a2ef9e68f9037c"
+
+[[rules]]
+type = "Text"
+globs = ["**/*.html"]
+fallthrough = false
+
+[observability]
+enabled = true

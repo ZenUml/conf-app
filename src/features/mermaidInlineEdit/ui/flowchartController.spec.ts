@@ -631,10 +631,10 @@ describe('flowchart source selection discovery', () => {
     const h = setup();
     await h.render();
     const ring = () => h.container.querySelector<HTMLElement>('[data-testid="mermaid-source-selection-ring"]');
-    const select = (text: string) => {
+    const select = (text: string, caret = false) => {
       const from = CODE.indexOf(text);
       window.dispatchEvent(new CustomEvent('mermaid-source-selection', {
-        detail: { owner: h.container, code: CODE, from, to: from + text.length, typing: false },
+        detail: { owner: h.container, code: CODE, from, to: caret ? from : from + text.length, typing: false },
       }));
     };
     node(h, 'A').getBoundingClientRect = () => ({ left: 20, right: 45, top: 5, bottom: 20 }) as DOMRect;
@@ -643,8 +643,11 @@ describe('flowchart source selection discovery', () => {
 
     select('Start');
     expect(ring()?.style.left).toBe('20px');
-    select('yes');
+    select('A[Start]', true);
+    expect(ring()?.style.left).toBe('20px');
+    select('yes', true);
     expect(ring()?.style.left).toBe('120px');
+    expect(h.container.querySelector('[data-testid="mermaid-source-selection-hint"]')).toBeNull();
     select('shared');
     expect(ring()).toBeNull();
     select('Linked');

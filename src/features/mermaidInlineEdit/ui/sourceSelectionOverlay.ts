@@ -3,7 +3,7 @@ import type { SourceMap } from '../types';
 import { baseProps, unionRect, type InlineEditAdapter } from './adapter';
 import { elementsOf } from './domMapping';
 import { isTypingInSourceLabel, matchSourceLabel, type SourceLabel } from './sourceSelection';
-import { MERMAID_SOURCE_SELECTION, type MermaidSourceSelection } from './surface';
+import { MERMAID_SOURCE_SELECTION, type MermaidSourceSelection, type MermaidSourceRange } from './surface';
 
 interface SourceSelectionOverlayDeps {
   svg: () => Element | null;
@@ -19,7 +19,7 @@ interface SourceSelectionOverlayDeps {
 export function attachSourceSelectionOverlay(container: HTMLElement, deps: SourceSelectionOverlayDeps) {
   const doc = container.ownerDocument;
   const win = doc.defaultView ?? window;
-  let sourceSelection: MermaidSourceSelection | null = null;
+  let sourceSelection: MermaidSourceRange | null = null;
   let approvedSource: { code: string; label: SourceLabel; root: Element; elements: Element[]; props: AnalyticsProperties } | null = null;
   let sourceRing: HTMLDivElement | null = null;
   let sourceHint: HTMLDivElement | null = null;
@@ -71,7 +71,7 @@ export function attachSourceSelectionOverlay(container: HTMLElement, deps: Sourc
     }
   }
 
-  function showSourceRing(root: Element, typing: boolean): void {
+  function showSourceRing(root: Element, showHint: boolean): void {
     const vp = deps.viewport();
     if (!vp) return hideSourceRing();
     if (!sourceRing) {
@@ -88,7 +88,7 @@ export function attachSourceSelectionOverlay(container: HTMLElement, deps: Sourc
         sourceResizeObserver.observe(vp);
       }
     }
-    if (typing) {
+    if (!showHint) {
       sourceHint?.remove();
       sourceHint = null;
     } else if (!sourceHint) {
@@ -110,16 +110,26 @@ export function attachSourceSelectionOverlay(container: HTMLElement, deps: Sourc
     if (!mapped) {
       if (approvedSource?.root === root && selection.code === deps.getCode()
         && isTypingInSourceLabel(approvedSource.code, approvedSource.label.range, selection)) {
-        showSourceRing(root, true);
-      } else hideSourceRing();
+        showSourceRing(root, false);
+      } else {
+        if (!selection.typing) approvedSource = null;
+        hideSourceRing();
+      }
       return;
     }
     const { map, adapter: mapAdapter } = mapped;
     const label = matchSourceLabel(map, selection);
-    if (!label || (selection.typing && (!approvedSource
-      || approvedSource.label.kind !== label.kind || approvedSource.label.key !== label.key))) {
+    if (!label) {
       approvedSource = null;
       return hideSourceRing();
+    }
+    const showHint = !selection.typing && selection.from !== selection.to;
+    // Arrow movement inside one label reuses its already verified rendered elements.
+    if (approvedSource?.root === root && approvedSource.code === selection.code
+      && approvedSource.label.kind === label.kind && approvedSource.label.key === label.key) {
+      approvedSource.label = label;
+      if (!sourceRing || !!sourceHint !== showHint) showSourceRing(root, showHint);
+      return;
     }
     const exact = (selector: string, predicate: (el: Element) => boolean) => {
       const matches = Array.from(root.querySelectorAll(selector)).filter(predicate);
@@ -146,16 +156,15 @@ export function attachSourceSelectionOverlay(container: HTMLElement, deps: Sourc
     approvedSource = { code: selection.code, label, root, elements, props: {
       ...baseProps(mapAdapter.diagram), inline_edit_kind: began.open.props.inline_edit_kind,
     } };
-    showSourceRing(root, selection.typing);
+    showSourceRing(root, showHint);
   }
 
   const onSourceSelection = (event: Event) => {
     const selection = (event as CustomEvent<MermaidSourceSelection | null>).detail;
     if (selection === null) return clearSourceSelection();
     if (!selection?.owner?.contains(container)) return;
-    if (deps.isBlocked() || (!selection.typing && selection.from === selection.to)) return clearSourceSelection();
+    if ('clear' in selection || deps.isBlocked()) return clearSourceSelection();
     sourceSelection = selection;
-    if (!selection.typing) approvedSource = null;
     updateSourceSelection();
   };
 

@@ -33,7 +33,13 @@ const SMALL = `sequenceDiagram
 
 const REPEATED_MESSAGES = `sequenceDiagram
   Alice->>Bob: Repeat
+
   Alice->>Bob: Repeat`
+
+const REPEATED_NODES = `flowchart LR
+  A[Repeat]
+  B[Repeat]
+  A --> B`
 
 function large(): string {
   const names = ['Alice', 'Bob', 'Carol', 'Dave', 'Erin', 'Frank', 'Grace', 'Heidi', 'Ivan', 'Judy']
@@ -96,6 +102,28 @@ const preview = () => document.querySelector('#workspace-right') as HTMLElement
 const code = () => (store.state as any).diagram.mermaidCode as string
 const layer = () => document.querySelector('[data-testid="mermaid-inline-edit-layer"]') as HTMLElement | null
 const hint = () => document.querySelector('[data-testid="mermaid-inline-edit-hint"]') as HTMLElement | null
+const sourceRing = () => preview().querySelector<HTMLElement>('[data-testid="mermaid-source-selection-ring"]')
+const sourceHint = () => preview().querySelector<HTMLElement>('[data-testid="mermaid-source-selection-hint"]')
+
+function sourceEditor(canvasElement: HTMLElement): EditorView {
+  const editor = canvasElement.querySelector<HTMLElement>('.cm-editor')
+  const view = editor && EditorView.findFromDOM(editor)
+  if (!view) throw new Error('CodeMirror source editor not found')
+  return view
+}
+
+function assertSourceRingOn(target: Element, other: Element) {
+  const outline = sourceRing()?.getBoundingClientRect()
+  if (!outline) throw new Error('Source selection ring not found')
+  const x = (outline.left + outline.right) / 2
+  const y = (outline.top + outline.bottom) / 2
+  const contains = (element: Element) => {
+    const bounds = element.getBoundingClientRect()
+    return x > bounds.left && x < bounds.right && y > bounds.top && y < bounds.bottom
+  }
+  expect(contains(target)).toBe(true)
+  expect(contains(other)).toBe(false)
+}
 
 /** Wait until the preview is editable (map computed for the code on screen). */
 async function editable(roledescription = 'sequence') {
@@ -200,26 +228,59 @@ type Story = StoryObj<typeof Workspace>
 /** No play function: try it by hand. */
 export const TryByHand: Story = { decorators: decorate(SMALL) }
 
+export const SourceCaretMessages: Story = {
+  decorators: decorate(REPEATED_MESSAGES),
+  play: async ({ canvasElement }) => {
+    await editable()
+    const view = sourceEditor(canvasElement)
+    const second = REPEATED_MESSAGES.lastIndexOf('Repeat')
+    view.focus()
+    view.dispatch({ selection: { anchor: second + 2 } })
+    await waitFor(() => assertSourceRingOn(messageText(1), messageText(0)))
+    expect(sourceHint()).toBeNull()
+    expect(view.state.selection.main.empty).toBe(true)
+
+    await userEvent.keyboard('{ArrowUp}')
+    await waitFor(() => expect(sourceRing()).toBeNull())
+    await userEvent.keyboard('{ArrowUp}')
+    await waitFor(() => assertSourceRingOn(messageText(0), messageText(1)))
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}')
+    await waitFor(() => assertSourceRingOn(messageText(1), messageText(0)))
+
+    document.execCommand('insertText', false, 'x')
+    await waitFor(() => {
+      expect(messageText(1).textContent).toBe('Rexpeat')
+      assertSourceRingOn(messageText(1), messageText(0))
+    })
+    expect(view.hasFocus).toBe(true)
+    expect(sourceHint()).toBeNull()
+  },
+}
+
+export const SourceCaretFlowchart: Story = {
+  decorators: decorate(REPEATED_NODES),
+  play: async ({ canvasElement }) => {
+    await editable('flowchart-v2')
+    const view = sourceEditor(canvasElement)
+    const second = REPEATED_NODES.lastIndexOf('Repeat')
+    view.focus()
+    view.dispatch({ selection: { anchor: second + 2 } })
+    await waitFor(() => assertSourceRingOn(flowNode('B'), flowNode('A')))
+    expect(sourceHint()).toBeNull()
+    expect(view.state.selection.main.empty).toBe(true)
+
+    await userEvent.keyboard('{ArrowUp}')
+    await waitFor(() => assertSourceRingOn(flowNode('A'), flowNode('B')))
+    expect(view.hasFocus).toBe(true)
+  },
+}
+
 export const SourceSelectionHint: Story = {
   decorators: decorate(REPEATED_MESSAGES),
   play: async ({ canvasElement }) => {
     await editable()
-    const editor = canvasElement.querySelector<HTMLElement>('.cm-editor')
-    const view = editor && EditorView.findFromDOM(editor)
-    if (!view) throw new Error('CodeMirror source editor not found')
-
-    const ring = () => preview().querySelector<HTMLElement>('[data-testid="mermaid-source-selection-ring"]')
-    const sourceHint = () => preview().querySelector<HTMLElement>('[data-testid="mermaid-source-selection-hint"]')
-    const assertSecondMessageHighlighted = () => {
-      const bounds = ring()?.getBoundingClientRect()
-      if (!bounds) throw new Error('Source selection ring not found')
-      const centerY = (bounds.top + bounds.bottom) / 2
-      const second = messageText(1).getBoundingClientRect()
-      const first = messageText(0).getBoundingClientRect()
-      expect(centerY).toBeGreaterThan(second.top)
-      expect(centerY).toBeLessThan(second.bottom)
-      expect(centerY).toBeGreaterThan(first.bottom)
-    }
+    const view = sourceEditor(canvasElement)
+    const assertSecondMessageHighlighted = () => assertSourceRingOn(messageText(1), messageText(0))
 
     const first = REPEATED_MESSAGES.indexOf('Repeat')
     const second = REPEATED_MESSAGES.lastIndexOf('Repeat')
@@ -245,7 +306,7 @@ export const SourceSelectionHint: Story = {
 
     select(first, second + 'Updated'.length)
     await waitFor(() => {
-      expect(ring()).toBeNull()
+      expect(sourceRing()).toBeNull()
       expect(sourceHint()).toBeNull()
     })
     select(second, second + 'Updated'.length)
@@ -253,7 +314,7 @@ export const SourceSelectionHint: Story = {
     await userEvent.dblClick(messageText(1))
     await waitFor(() => {
       expect(layer()?.textContent).toBe('Updated')
-      expect(ring()).toBeNull()
+      expect(sourceRing()).toBeNull()
       expect(sourceHint()).toBeNull()
     })
   },

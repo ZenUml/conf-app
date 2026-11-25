@@ -948,6 +948,8 @@ describe('source selection discovery', () => {
         const last = source.lastIndexOf('Same');
         map.messages.set(4, { textRange: [first, first + 4] });
         map.messages.set(5, { textRange: [last, last + 4] });
+        const reference = source.indexOf('A->>B');
+        map.participants.get('A')!.idRanges.push([reference, reference + 1]);
         return map;
       },
     });
@@ -966,8 +968,19 @@ describe('source selection discovery', () => {
     second.getBoundingClientRect = () => rectangle(left);
     const from = code.lastIndexOf('Same');
 
-    select(code, from, from + 4, false, document.createElement('div'));
+    select(code, from, from, false, document.createElement('div'));
     expect(ring()).toBeNull();
+    select(code, from, from);
+    expect(ring()?.style.left).toBe('120px');
+    expect(hint()).toBeNull();
+    const reference = code.indexOf('A->>B');
+    const participant = header(h, 'A').querySelector('text')!;
+    participant.getBoundingClientRect = () => rectangle(60);
+    select(code, reference + 1, reference + 1);
+    expect(ring()?.style.left).toBe('60px');
+    const first = code.indexOf('Same');
+    select(code, first + 4, first + 4);
+    expect(ring()?.style.left).toBe('20px');
     select(code, from, from + 4);
     expect(ring()?.style.left).toBe('120px');
     expect(hint()?.textContent).toBe('You can also double-click here to edit.');
@@ -978,7 +991,7 @@ describe('source selection discovery', () => {
 
     const typed = code.slice(0, from) + 'Same!' + code.slice(from + 4);
     h.store.code = typed;
-    select(typed, from, from + 5, true);
+    select(typed, from + 5, from + 5, true);
     h.controller.onCodeChanged(typed);
     expect(ring()?.style.left).toBe('160px');
     expect(hint()).toBeNull();
@@ -1024,7 +1037,7 @@ describe('source selection discovery', () => {
     expect(hasRing()).toBe(false);
     select(CODE_A, 26, 31);
     expect(hasRing()).toBe(true);
-    select(CODE_A, 0, 0);
+    window.dispatchEvent(new CustomEvent('mermaid-source-selection', { detail: { owner: h.container, clear: true } }));
     expect(hasRing()).toBe(false);
     h.controller.destroy();
   });

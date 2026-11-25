@@ -68,7 +68,7 @@ export const EditContact: Story = {
   args: { feature: 'edit', snapshot: { ...editBase, state: 'not_requested' } },
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(canvas.getByLabelText('Fix or update this diagram'))
+    await userEvent.click(canvas.getByLabelText('Fix or update a diagram'))
     await userEvent.click(canvas.getByRole('button', { name: 'Contact support' }))
     await expect(canvas.getByRole('heading', { name: 'Contact support' })).toBeVisible()
   },

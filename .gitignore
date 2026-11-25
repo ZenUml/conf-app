@@ -127,3 +127,6 @@ tests/e2e-tests/selection-metrics.json
 tests/e2e-tests/test-plan.json
 
 .agents/skills
+
+# Amp orb portal registrations
+.amp/portals/*

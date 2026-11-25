@@ -10,7 +10,13 @@ export const ENFORCEMENT_THRESHOLD = 150;
 export type EnforcementStage = 'notice' | 'watermark' | 'block_create' | 'block_edit';
 export type Tri = 'yes' | 'no' | 'unknown';
 
-export interface EnforcementPolicy { stage: EnforcementStage; effectiveAt: string }
+/** The three switches a site policy sets. Each is independent; none implies another. */
+export type PolicyEffects = { watermark: boolean; blockCreate: boolean; requestEdit: boolean };
+/**
+ * `stage` is a label derived from `effects` (the highest switch that is on). Deployed clients
+ * read it only for analytics and require it to be one of the four names.
+ */
+export interface EnforcementPolicy { stage: EnforcementStage; effects: PolicyEffects; effectiveAt: string }
 export interface EnforcementEffects {
   datedBanner: boolean; watermark: boolean; blockCreate: boolean;
   /** At `block_edit` an existing diagram opens behind the edit request gate. */
@@ -24,15 +30,41 @@ export interface SpaceEnforcement {
 
 const STAGES: readonly EnforcementStage[] = ['notice', 'watermark', 'block_create', 'block_edit'];
 
+const POLICY_SWITCHES = ['watermark', 'blockCreate', 'requestEdit'] as const;
+const NO_EFFECTS: PolicyEffects = { watermark: false, blockCreate: false, requestEdit: false };
+
+/** The legacy cumulative ladder: `{ "stage": ... }` keys written before independent switches. */
+function ladderEffects(stage: EnforcementStage): PolicyEffects {
+  const rank = STAGES.indexOf(stage);
+  return { watermark: rank >= 1, blockCreate: rank >= 2, requestEdit: rank >= 3 };
+}
+
+function stageLabel(effects: PolicyEffects): EnforcementStage {
+  return effects.requestEdit ? 'block_edit' : effects.blockCreate ? 'block_create' : effects.watermark ? 'watermark' : 'notice';
+}
+
+/**
+ * Two shapes. `{ "effects": { "watermark"?, "blockCreate"?, "requestEdit"? }, "effectiveAt" }`
+ * sets each switch on its own; an absent switch is off. `{ "stage", "effectiveAt" }` is the
+ * legacy ladder. Anything else, including both shapes at once or a non-boolean switch, is no policy.
+ */
 export function parseEnforcementPolicy(raw: string | null): EnforcementPolicy | null {
   if (raw === null) return null;
   let value: unknown;
   try { value = JSON.parse(raw); } catch { return null; }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const { stage, effectiveAt } = value as Record<string, unknown>;
-  if (typeof stage !== 'string' || !STAGES.includes(stage as EnforcementStage)) return null;
+  const { stage, effects, effectiveAt } = value as Record<string, unknown>;
   if (typeof effectiveAt !== 'string' || !Number.isFinite(Date.parse(effectiveAt))) return null;
-  return { stage: stage as EnforcementStage, effectiveAt };
+  if (effects !== undefined) {
+    if (stage !== undefined || !effects || typeof effects !== 'object' || Array.isArray(effects)) return null;
+    const given = effects as Record<string, unknown>;
+    if (Object.keys(given).some(key => !(POLICY_SWITCHES as readonly string[]).includes(key))) return null;
+    if (Object.values(given).some(v => typeof v !== 'boolean')) return null;
+    const parsed = { ...NO_EFFECTS, ...(given as Partial<PolicyEffects>) };
+    return { stage: stageLabel(parsed), effects: parsed, effectiveAt };
+  }
+  if (typeof stage !== 'string' || !STAGES.includes(stage as EnforcementStage)) return null;
+  return { stage: stage as EnforcementStage, effects: ladderEffects(stage as EnforcementStage), effectiveAt };
 }
 
 /** Before `effectiveAt` every stage behaves as `notice`; the boundary instant is in force. */
@@ -54,15 +86,13 @@ export function decideEnforcement(
   return input.stage !== null && input.limit === 'yes' && input.covered === 'no' ? input.stage : 'off';
 }
 
-export function effectsOf(stage: EnforcementStage): EnforcementEffects {
-  const rank = STAGES.indexOf(stage);
-  return {
-    datedBanner: true,
-    watermark: rank >= 1,
-    blockCreate: rank >= 2,
-    requestEdit: rank >= 3,
-    meterEdit: rank >= 3,
-  };
+/** Before `effectiveAt` every switch is off: the dated banner alone (`notice`). */
+export function effectsInForce(policy: EnforcementPolicy, now: Date): PolicyEffects {
+  return stageInForce(policy, now) === 'notice' ? NO_EFFECTS : policy.effects;
+}
+
+export function effectsOf(effects: PolicyEffects): EnforcementEffects {
+  return { datedBanner: true, ...effects, meterEdit: effects.requestEdit };
 }
 
 export interface EnforcementEnv {
@@ -112,7 +142,7 @@ export async function resolveEnforcement(
     if (decideEnforcement({ stage, limit, covered }) === 'off') return null;
     return {
       stage, effectiveAt: policy.effectiveAt, count: count as number,
-      limit: ENFORCEMENT_MACROS_LIMIT, effects: effectsOf(stage),
+      limit: ENFORCEMENT_MACROS_LIMIT, effects: effectsOf(effectsInForce(policy, now)),
     };
   } catch (error) {
     console.error('paywall-enforcement: resolve failed', error);

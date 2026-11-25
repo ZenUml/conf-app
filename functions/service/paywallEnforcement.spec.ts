@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  decideEnforcement, effectsOf, parseEnforcementPolicy, resolveEnforcement,
+  decideEnforcement, effectsInForce, effectsOf, parseEnforcementPolicy, resolveEnforcement,
   stageInForce, thresholdReached, type EnforcementStage,
 } from './paywallEnforcement';
 
@@ -55,15 +55,41 @@ describe('enforcement', () => {
 });
 
 describe('effects', () => {
+  // A legacy `{ stage }` key keeps the cumulative ladder.
   it.each([
     ['notice', true, false, false, false],
     ['watermark', true, true, false, false],
     ['block_create', true, true, true, false],
     ['block_edit', true, true, true, true],
-  ] as const)('%s', (stage, datedBanner, watermark, blockCreate, requestEdit) => {
+  ] as const)('legacy %s', (stage, datedBanner, watermark, blockCreate, requestEdit) => {
     // `meterEdit` is the old name of `requestEdit`. Both are emitted until every client reads the new one,
     // so no deploy order makes an old client drop the whole enforcement object.
-    expect(effectsOf(stage)).toEqual({ datedBanner, watermark, blockCreate, requestEdit, meterEdit: requestEdit });
+    expect(effectsOf(parseEnforcementPolicy(policy(stage))!.effects))
+      .toEqual({ datedBanner, watermark, blockCreate, requestEdit, meterEdit: requestEdit });
+  });
+
+  const switches = (effects: unknown, effectiveAt: unknown = EFFECTIVE) => JSON.stringify({ effects, effectiveAt });
+  it.each([
+    ['edit only: no watermark, create open', { requestEdit: true }, { watermark: false, blockCreate: false, requestEdit: true }, 'block_edit'],
+    ['create only', { blockCreate: true }, { watermark: false, blockCreate: true, requestEdit: false }, 'block_create'],
+    ['watermark and edit, create open', { watermark: true, requestEdit: true }, { watermark: true, blockCreate: false, requestEdit: true }, 'block_edit'],
+    ['nothing on is notice', {}, { watermark: false, blockCreate: false, requestEdit: false }, 'notice'],
+  ] as const)('independent switches: %s', (_n, given, effects, stage) => {
+    expect(parseEnforcementPolicy(switches(given))).toEqual({ stage, effects, effectiveAt: EFFECTIVE });
+  });
+  it.each([
+    ['a non-boolean switch', switches({ requestEdit: 'yes' })],
+    ['an unknown switch', switches({ blockView: true })],
+    ['both shapes at once', JSON.stringify({ stage: 'watermark', effects: { requestEdit: true }, effectiveAt: EFFECTIVE })],
+    ['effects not an object', switches([true])],
+    ['no effectiveAt', JSON.stringify({ effects: { requestEdit: true } })],
+  ])('independent switches: %s -> no policy', (_n, raw) => {
+    expect(parseEnforcementPolicy(raw)).toBeNull();
+  });
+  it('independent switches stay off until effectiveAt', () => {
+    const p = parseEnforcementPolicy(switches({ requestEdit: true }))!;
+    expect(effectsInForce(p, new Date('2026-12-07T23:59:59Z'))).toEqual({ watermark: false, blockCreate: false, requestEdit: false });
+    expect(effectsInForce(p, new Date(EFFECTIVE))).toEqual({ watermark: false, blockCreate: false, requestEdit: true });
   });
 });
 
@@ -130,6 +156,13 @@ describe('resolveEnforcement end-to-end examples', () => {
     expect(result?.stage).toBe('notice');
     expect(result?.effects.watermark).toBe(false);
     expect(result?.effects.datedBanner).toBe(true);
+  });
+  it('independent switches: edit blocked, create open, no watermark', async () => {
+    const pol = JSON.stringify({ effects: { requestEdit: true }, effectiveAt: EFFECTIVE });
+    expect(await resolveEnforcement(fakeEnv({ policy: pol }).env, input, AFTER)).toEqual({
+      stage: 'block_edit', effectiveAt: EFFECTIVE, count: 2282, limit: 100,
+      effects: { datedBanner: true, watermark: false, blockCreate: false, requestEdit: true, meterEdit: true },
+    });
   });
   it('12: no policy key -> off after exactly one KV read and no other reads', async () => {
     const { env, kvGet, dbFirst } = fakeEnv({ policy: null });

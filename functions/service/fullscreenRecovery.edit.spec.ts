@@ -51,7 +51,7 @@ function setup(over: { stage?: string | null; count?: number; exemptions?: strin
   const env: RecoveryEnv = {
     DB: db, FULLSCREEN_RECOVERY_ENCRYPTION_KEY: KEY,
     KV_FEATURE_FLAGS: { get: async (k: string) => k === `paywall-enforcement:policy:${CLOUD}`
-      ? (stage === null ? null : stage.startsWith('{') ? stage : JSON.stringify({ stage, effectiveAt: EFFECTIVE }))
+      ? (stage === null ? null : stage.startsWith('{') ? stage : JSON.stringify({ effects: LADDER[stage], effectiveAt: EFFECTIVE }))
       : k === `fullscreen-recovery:policy:${CLOUD}` ? (fullscreenPolicy ? JSON.stringify({ enabled: true }) : null)
       : k === 'PAYWALL_EXEMPTIONS' ? exemptions : null } as KVNamespace,
     SPACE_LICENSE_KV: { get: async (k: string) => licenses[k] ?? null } as KVNamespace,
@@ -61,6 +61,11 @@ function setup(over: { stage?: string | null; count?: number; exemptions?: strin
   };
   return { sqlite, env };
 }
+// Test shorthand: the effects that the old stage names stood for.
+const LADDER: Record<string, object> = {
+  notice: {}, watermark: { watermark: true }, block_create: { watermark: true, blockCreate: true },
+  block_edit: { watermark: true, blockCreate: true, requestEdit: true },
+};
 const snap = (env: RecoveryEnv, who: RecoveryIdentity, now: Date) => recoverySnapshot(env, who, now, 'ENG', 'edit');
 
 describe('edit request gate: examples E1-E9', () => {

@@ -68,22 +68,26 @@ KV namespace `KV_FEATURE_FLAGS`, key `paywall-enforcement:policy:<cloudId>`:
 }
 ```
 
-Independent switches (owner decision 2026-11-25; preferred for new keys):
+Independent switches (owner decision 2026-11-25; the only format the server reads):
 
 ```json
 { "effects": { "watermark": true, "blockCreate": false, "requestEdit": true }, "effectiveAt": "2026-12-08T00:00:00Z" }
 ```
 
-Each switch is on its own; an absent switch is off; none implies another. A key with both `effects`
-and `stage`, an unknown switch, or a non-boolean value is treated as absent. The server still reports a
-`stage` label, derived as the highest switch that is on (`requestEdit` → `block_edit`, then
-`blockCreate` → `block_create`, then `watermark`, else `notice`); clients use it for analytics only.
-A `blockCreate` or `requestEdit` switch turns on the edit request gate for creating or editing respectively.
+Each switch is on its own; an absent switch is off; none implies another. `effects` alone decides
+behaviour: any other field, including a `stage`, is ignored. A key without `effects`, with an unknown
+switch, or with a non-boolean value is treated as absent. The server reports a `stage` label derived
+from the switches (`requestEdit` → `block_edit`, then `blockCreate` → `block_create`, then `watermark`,
+else `notice`); clients use it for analytics only. `blockCreate` or `requestEdit` turns on the edit
+request gate for creating or editing respectively.
+
+The stage names below (`notice` … `block_edit`) now name these switch combinations:
+`watermark` = `{watermark}`, `block_create` = `{watermark, blockCreate}`,
+`block_edit` = `{watermark, blockCreate, requestEdit}`, `notice` = `{}`.
 
 | Field | Rule |
 |---|---|
 | `effects` | The independent switches above |
-| `stage` | Legacy shape, still read: `notice`, `watermark`, `block_create` or `block_edit`, cumulative (each stage keeps the effects of the stages before it). Any other value: treat the policy as absent |
 | `effectiveAt` | ISO instant. For `notice` it is the date shown to users. For a block stage it is when the block starts; before it, the site behaves as `notice` |
 | `nextStage` | Shown in the notice copy only. It never advances the stage by itself |
 | Stage change | A human writes the key. No job advances a stage automatically |
@@ -205,8 +209,7 @@ withdrawn, and so is the 2026-11-15 morning rule `count >= MACROS_LIMIT`. The st
 
 ### 5. Effects
 
-For a legacy `stage` key, stages are cumulative and each effect is a fixed property of the stage,
-as below. For an `effects` key, each column is its own switch.
+Each column is its own switch. The rows show the named combinations.
 
 | Enforcement | Dated banner | Watermark + strip | Create a diagram | Edit a diagram |
 |---|---|---|---|---|

@@ -13,13 +13,13 @@ export type Tri = 'yes' | 'no' | 'unknown';
 /** The three switches a site policy sets. Each is independent; none implies another. */
 export type PolicyEffects = { watermark: boolean; blockCreate: boolean; requestEdit: boolean };
 /**
- * `stage` is a label derived from `effects` (the highest switch that is on). Deployed clients
- * read it only for analytics and require it to be one of the four names.
+ * `stage` is a label derived from `effects` (the highest switch that is on), never read from KV.
+ * Clients use it only for analytics and require it to be one of the four names.
  */
 export interface EnforcementPolicy { stage: EnforcementStage; effects: PolicyEffects; effectiveAt: string }
 export interface EnforcementEffects {
   datedBanner: boolean; watermark: boolean; blockCreate: boolean;
-  /** At `block_edit` an existing diagram opens behind the edit request gate. */
+  /** An existing diagram opens behind the edit request gate. */
   requestEdit: boolean;
   /** Old name of `requestEdit`, emitted until every deployed client reads the new one. */
   meterEdit: boolean;
@@ -28,46 +28,35 @@ export interface SpaceEnforcement {
   stage: EnforcementStage; effectiveAt: string; count: number; limit: number; effects: EnforcementEffects;
 }
 
-const STAGES: readonly EnforcementStage[] = ['notice', 'watermark', 'block_create', 'block_edit'];
-
 const POLICY_SWITCHES = ['watermark', 'blockCreate', 'requestEdit'] as const;
 const NO_EFFECTS: PolicyEffects = { watermark: false, blockCreate: false, requestEdit: false };
-
-/** The legacy cumulative ladder: `{ "stage": ... }` keys written before independent switches. */
-function ladderEffects(stage: EnforcementStage): PolicyEffects {
-  const rank = STAGES.indexOf(stage);
-  return { watermark: rank >= 1, blockCreate: rank >= 2, requestEdit: rank >= 3 };
-}
 
 function stageLabel(effects: PolicyEffects): EnforcementStage {
   return effects.requestEdit ? 'block_edit' : effects.blockCreate ? 'block_create' : effects.watermark ? 'watermark' : 'notice';
 }
 
 /**
- * Two shapes. `{ "effects": { "watermark"?, "blockCreate"?, "requestEdit"? }, "effectiveAt" }`
- * sets each switch on its own; an absent switch is off. `{ "stage", "effectiveAt" }` is the
- * legacy ladder. Anything else, including both shapes at once or a non-boolean switch, is no policy.
+ * `{ "effects": { "watermark"?, "blockCreate"?, "requestEdit"? }, "effectiveAt" }`. Each switch is
+ * independent; an absent switch is off. `effects` alone decides behaviour: any other field,
+ * including a `stage`, is ignored. A missing `effects`, an unknown switch or a non-boolean value is
+ * no policy (fail open).
  */
 export function parseEnforcementPolicy(raw: string | null): EnforcementPolicy | null {
   if (raw === null) return null;
   let value: unknown;
   try { value = JSON.parse(raw); } catch { return null; }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const { stage, effects, effectiveAt } = value as Record<string, unknown>;
+  const { effects, effectiveAt } = value as Record<string, unknown>;
   if (typeof effectiveAt !== 'string' || !Number.isFinite(Date.parse(effectiveAt))) return null;
-  if (effects !== undefined) {
-    if (stage !== undefined || !effects || typeof effects !== 'object' || Array.isArray(effects)) return null;
-    const given = effects as Record<string, unknown>;
-    if (Object.keys(given).some(key => !(POLICY_SWITCHES as readonly string[]).includes(key))) return null;
-    if (Object.values(given).some(v => typeof v !== 'boolean')) return null;
-    const parsed = { ...NO_EFFECTS, ...(given as Partial<PolicyEffects>) };
-    return { stage: stageLabel(parsed), effects: parsed, effectiveAt };
-  }
-  if (typeof stage !== 'string' || !STAGES.includes(stage as EnforcementStage)) return null;
-  return { stage: stage as EnforcementStage, effects: ladderEffects(stage as EnforcementStage), effectiveAt };
+  if (!effects || typeof effects !== 'object' || Array.isArray(effects)) return null;
+  const given = effects as Record<string, unknown>;
+  if (Object.keys(given).some(key => !(POLICY_SWITCHES as readonly string[]).includes(key))) return null;
+  if (Object.values(given).some(v => typeof v !== 'boolean')) return null;
+  const parsed = { ...NO_EFFECTS, ...(given as Partial<PolicyEffects>) };
+  return { stage: stageLabel(parsed), effects: parsed, effectiveAt };
 }
 
-/** Before `effectiveAt` every stage behaves as `notice`; the boundary instant is in force. */
+/** Before `effectiveAt` every policy behaves as `notice`; the boundary instant is in force. */
 export function stageInForce(policy: EnforcementPolicy | null, now: Date): EnforcementStage | null {
   if (!policy) return null;
   if (policy.stage === 'notice') return 'notice';

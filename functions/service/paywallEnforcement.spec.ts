@@ -6,15 +6,20 @@ import {
 
 const LITE = '8ad26115-211f-4216-971b-0540f606303d';
 const EFFECTIVE = '2026-12-08T00:00:00Z';
-const policy = (stage: string, effectiveAt: unknown = EFFECTIVE) => JSON.stringify({ stage, effectiveAt });
+// Test shorthand: the effects that the old stage names stood for.
+const LADDER: Record<string, object> = {
+  notice: {}, watermark: { watermark: true }, block_create: { watermark: true, blockCreate: true },
+  block_edit: { watermark: true, blockCreate: true, requestEdit: true },
+};
+const policy = (stage: string, effectiveAt: unknown = EFFECTIVE) => JSON.stringify({ effects: LADDER[stage], effectiveAt });
 
 describe('stage in force', () => {
   it.each([
     ['key absent', null, '2026-12-09T00:00:00Z', null],
     ['not JSON', 'nope', '2026-12-09T00:00:00Z', null],
     ['not an object', '[1]', '2026-12-09T00:00:00Z', null],
-    ['unknown stage', policy('block_all'), '2026-12-09T00:00:00Z', null],
-    ['effectiveAt missing', JSON.stringify({ stage: 'watermark' }), '2026-12-09T00:00:00Z', null],
+    ['no effects (a stage alone is not a policy)', JSON.stringify({ stage: 'watermark', effectiveAt: EFFECTIVE }), '2026-12-09T00:00:00Z', null],
+    ['effectiveAt missing', JSON.stringify({ effects: { watermark: true } }), '2026-12-09T00:00:00Z', null],
     ['effectiveAt not a date', policy('watermark', 'soon'), '2026-12-09T00:00:00Z', null],
     ['notice early', policy('notice'), '2026-11-20T00:00:00Z', 'notice'],
     ['notice late', policy('notice'), '2026-12-09T00:00:00Z', 'notice'],
@@ -55,17 +60,17 @@ describe('enforcement', () => {
 });
 
 describe('effects', () => {
-  // A legacy `{ stage }` key keeps the cumulative ladder.
   it.each([
     ['notice', true, false, false, false],
     ['watermark', true, true, false, false],
     ['block_create', true, true, true, false],
     ['block_edit', true, true, true, true],
-  ] as const)('legacy %s', (stage, datedBanner, watermark, blockCreate, requestEdit) => {
+  ] as const)('%s-equivalent switches', (stage, datedBanner, watermark, blockCreate, requestEdit) => {
     // `meterEdit` is the old name of `requestEdit`. Both are emitted until every client reads the new one,
     // so no deploy order makes an old client drop the whole enforcement object.
-    expect(effectsOf(parseEnforcementPolicy(policy(stage))!.effects))
-      .toEqual({ datedBanner, watermark, blockCreate, requestEdit, meterEdit: requestEdit });
+    const parsed = parseEnforcementPolicy(policy(stage))!;
+    expect(parsed.stage).toBe(stage);
+    expect(effectsOf(parsed.effects)).toEqual({ datedBanner, watermark, blockCreate, requestEdit, meterEdit: requestEdit });
   });
 
   const switches = (effects: unknown, effectiveAt: unknown = EFFECTIVE) => JSON.stringify({ effects, effectiveAt });
@@ -80,11 +85,15 @@ describe('effects', () => {
   it.each([
     ['a non-boolean switch', switches({ requestEdit: 'yes' })],
     ['an unknown switch', switches({ blockView: true })],
-    ['both shapes at once', JSON.stringify({ stage: 'watermark', effects: { requestEdit: true }, effectiveAt: EFFECTIVE })],
     ['effects not an object', switches([true])],
     ['no effectiveAt', JSON.stringify({ effects: { requestEdit: true } })],
   ])('independent switches: %s -> no policy', (_n, raw) => {
     expect(parseEnforcementPolicy(raw)).toBeNull();
+  });
+  it('a stage field never decides: effects win, the label comes from effects', () => {
+    const raw = JSON.stringify({ stage: 'watermark', effects: { requestEdit: true }, effectiveAt: EFFECTIVE });
+    expect(parseEnforcementPolicy(raw)).toEqual({
+      stage: 'block_edit', effects: { watermark: false, blockCreate: false, requestEdit: true }, effectiveAt: EFFECTIVE });
   });
   it('independent switches stay off until effectiveAt', () => {
     const p = parseEnforcementPolicy(switches({ requestEdit: true }))!;

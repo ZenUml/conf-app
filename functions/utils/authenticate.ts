@@ -17,6 +17,10 @@ type ForgeInstallationContext = {
 
 type ForgeFitApp = {
   id?: unknown;
+  module?: {
+    type?: unknown;
+    key?: unknown;
+  };
   apiBaseUrl?: unknown;
   installationId?: unknown;
   installation?: {
@@ -40,6 +44,27 @@ type ForgeFitPayload = jose.JWTPayload & {
   principal?: unknown;
   icLabel?: unknown;
 };
+
+const BACKEND_FIT_CONTEXT_KEYS = new Set(['cloudId']);
+
+/**
+ * Forge documents a FIT from a backend function (scheduled trigger, event,
+ * resolver calling invokeRemote) as carrying only `context.cloudId`, with
+ * `app.module.type` `core:endpoint` and no `principal` (UI modules only).
+ * A `context` object alone therefore does not mean a frontend caller.
+ */
+export function fitInvocationSource(
+  payload: Pick<ForgeFitPayload, 'app' | 'context' | 'principal'>,
+): 'backend' | 'frontend' {
+  if (payload.principal != null) return 'frontend';
+  const moduleType = payload.app?.module?.type;
+  if (moduleType != null && moduleType !== 'core:endpoint') return 'frontend';
+  const context = payload.context;
+  if (context == null) return 'backend';
+  return Object.keys(context).every((key) => BACKEND_FIT_CONTEXT_KEYS.has(key))
+    ? 'backend'
+    : 'frontend';
+}
 
 export type VerifiedForgeFit = jose.JWTVerifyResult<ForgeFitPayload> & {
   apiBaseUrl: string;
@@ -245,7 +270,7 @@ async function authenticateForgeRequest(jwt: string, env: any): Promise<ForgeReq
     installationId: payload.installationId,
     environmentId: payload.environmentId,
     environmentType: payload.environmentType,
-    invocationSource: payload.payload.context == null ? 'backend' : 'frontend',
+    invocationSource: fitInvocationSource(payload.payload),
   };
 }
 

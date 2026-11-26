@@ -1,5 +1,6 @@
 import { getAtlassianInstanceClientDomain, getForgeInstallationClientDomain } from '../../utils/dbUtils';
 import {
+  fitInvocationSource,
   validateContextToken,
   type ForgeRequestContext,
   type VerifiedForgeFit,
@@ -225,7 +226,7 @@ export async function authenticateMetricsRequest(
       installationId: fit.installationId,
       environmentId: fit.environmentId,
       environmentType: fit.environmentType,
-      invocationSource: fit.payload.context == null ? 'backend' : 'frontend',
+      invocationSource: fitInvocationSource(fit.payload),
     };
   }
 

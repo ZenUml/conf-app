@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateKeyPair, SignJWT } from 'jose';
 import { inspect } from 'node:util';
 import authenticate, {
+  fitInvocationSource,
   normalizeAllowedForgeAppAris,
   validateContextToken,
 } from './authenticate';
@@ -153,5 +154,31 @@ describe('authenticate', () => {
     expect(consoleError).toHaveBeenCalledWith(
       'ALLOWED_FORGE_APP_IDS environment variable is not set',
     );
+  });
+});
+
+// Forge docs (remote/essentials): a FIT from a backend function "will contain
+// only context.cloudId for Jira and Confluence apps", app.module.type is
+// core:endpoint, and principal is set for UI modules only.
+describe('fitInvocationSource', () => {
+  const app = { id: APP_ARI };
+
+  it('reads a scheduled-trigger invokeRemote FIT (context.cloudId only) as backend', () => {
+    expect(fitInvocationSource({
+      app: { ...app, module: { type: 'core:endpoint', key: 'connect' } },
+      context: { cloudId: CLOUD_ID },
+    })).toBe('backend');
+  });
+
+  it('reads a FIT without context as backend', () => {
+    expect(fitInvocationSource({ app })).toBe('backend');
+  });
+
+  it.each([
+    ['a principal', { app, context: { cloudId: CLOUD_ID }, principal: 'account-1' }],
+    ['a UI module type', { app: { ...app, module: { type: 'xen:macro' } }, context: { cloudId: CLOUD_ID } }],
+    ['UI context fields (anonymous viewer)', { app, context: { cloudId: CLOUD_ID, siteUrl: 'https://example.atlassian.net', extension: {} } }],
+  ])('reads a FIT with %s as frontend', (_name, payload) => {
+    expect(fitInvocationSource(payload as Parameters<typeof fitInvocationSource>[0])).toBe('frontend');
   });
 });

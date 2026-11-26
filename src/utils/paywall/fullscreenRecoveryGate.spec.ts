@@ -35,4 +35,13 @@ describe('recovery policy at the viewer boundary', () => {
     expect(getFullscreenRecovery).toHaveBeenLastCalledWith('SPACE', 'edit');
     expect(vi.mocked(mountRoot).mock.calls[0][2]).toMatchObject({ feature: 'edit' });
   });
+  it('opens Plan and usage on the gated space, naming the edit feature and the page to return to', async () => {
+    const { getContext, navigateToAppPage } = await import('@/model/globals/forgeGlobal');
+    vi.mocked(getContext).mockResolvedValueOnce({ extension: { content: { id: '123' } } } as never);
+    vi.mocked(navigateToAppPage).mockResolvedValue(true);
+    vi.mocked(getFullscreenRecovery).mockResolvedValue({ ...snapshot, policyVersion: 'edit-contact-v1' });
+    await mountFullscreenRecovery({ feature: 'edit', content: {}, spaceKey: 'VARW' });
+    await (vi.mocked(mountRoot).mock.calls[0][2] as { planUsage: (id?: string, s?: string[]) => Promise<void> }).planUsage(undefined, ['fix_or_update']);
+    expect(navigateToAppPage).toHaveBeenCalledWith('zenuml-plan-usage?source=fullscreen_recovery&space_key=VARW&feature=edit&page_id=123&scenes=fix_or_update');
+  });
 });

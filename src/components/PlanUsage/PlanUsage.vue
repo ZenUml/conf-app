@@ -4,34 +4,63 @@
       <h1>Plan and usage</h1>
       <p class="domain">{{ domain }}</p>
 
-      <section v-if="fullscreenSource" class="fullscreen-context" data-testid="plan-usage-fullscreen-context">
-        <p class="section-title">Your Fullscreen use</p>
-        <h2>Review Fullscreen options</h2>
-        <p v-if="fullscreenScenarios">You selected: {{ fullscreenScenarios }}.</p>
-        <p v-else>Review the plan and usage details below for your site.</p>
-        <p v-if="fullscreenLoading" role="status">Checking your Fullscreen request…</p>
+      <section v-if="fullscreenSource" class="gate-space" data-testid="plan-usage-fullscreen-context">
+        <p class="eyebrow">Where you were stopped</p>
+        <h2 data-testid="plan-usage-gate-space-title">
+          <template v-if="fullscreenSource.spaceKey">{{ fullscreenSource.spaceKey }}<template v-if="gateSpaceCount !== null"> has {{ gateSpaceCount.toLocaleString() }} diagrams</template></template>
+          <template v-else>Your space</template>
+        </h2>
+        <p class="gate-lead">{{ gateLead }}</p>
+        <p v-if="fullscreenScenarios" class="muted">You selected: {{ fullscreenScenarios }}.</p>
+        <p v-if="fullscreenLoading" role="status">Checking your request…</p>
         <div v-else-if="fullscreenError" role="alert">
-          We could not check your Fullscreen request right now.
+          We could not check your request right now.
           <button type="button" class="btn btn-secondary" @click="loadFullscreenSnapshot">Retry</button>
         </div>
         <template v-else-if="fullscreenSnapshot">
-          <p v-if="fullscreenSnapshot.state === 'pending_activation'">Your request {{ fullscreenSnapshot.request?.id }} is saved. Your 7 days begin when the diagram first opens successfully in Fullscreen.</p>
-          <p v-else-if="fullscreenSnapshot.state === 'active'">Your temporary Fullscreen access ends {{ fullscreenExpiry }}.</p>
-          <p v-else-if="fullscreenSnapshot.state === 'expired'">Your temporary Fullscreen access ended {{ fullscreenExpiry }}. You can continue the same request with support.</p>
-          <p v-else-if="fullscreenSnapshot.state === 'disabled'">This space does not need temporary Fullscreen access. Return to the diagram to open Fullscreen.</p>
-          <div class="actions">
-            <button v-if="fullscreenSnapshot.state !== 'disabled' && (fullscreenSnapshot.state === 'not_requested' || fullscreenSnapshot.request)" type="button" class="btn btn-primary" data-testid="plan-usage-fullscreen-request" @click="openFullscreenRequest">
-              {{ fullscreenSnapshot.request ? 'View your Fullscreen request' : 'Contact support about Fullscreen' }}
-            </button>
-            <button v-if="diagramReturnPathValue" type="button" class="btn btn-secondary" data-testid="plan-usage-return-diagram" @click="returnToDiagram">Return to diagram</button>
-          </div>
+          <p v-if="fullscreenSnapshot.state === 'pending_activation'" class="gate-status">Your request {{ fullscreenSnapshot.request?.id }} is saved. Your 7 days begin {{ gateFeature === 'edit' ? 'with your first successful save' : 'when the diagram first opens successfully in Fullscreen' }}.</p>
+          <p v-else-if="fullscreenSnapshot.state === 'active'" class="gate-status">Your temporary {{ gateFeatureLabel }} access ends {{ fullscreenExpiry }}.</p>
+          <p v-else-if="fullscreenSnapshot.state === 'expired'" class="gate-status">Your temporary {{ gateFeatureLabel }} access ended {{ fullscreenExpiry }}. You can continue the same request with support.</p>
+          <p v-else-if="fullscreenSnapshot.state === 'disabled'" class="gate-status">This space does not need temporary {{ gateFeatureLabel }} access. Return to the diagram to continue.</p>
         </template>
+
+        <div v-if="gateUnlockShown || gateRequestShown" class="gate-options">
+          <div v-if="gateSpacePaid" class="gate-option">
+            <div><strong>Covered by a paid license</strong><p class="muted">This space already has a paid ZenUML license.</p></div>
+          </div>
+          <div v-else-if="gateUnlockShown && fullscreenSource.spaceKey" class="gate-option" data-testid="plan-usage-gate-unlock">
+            <div>
+              <strong>Unlock {{ fullscreenSource.spaceKey }} for everyone</strong>
+              <p class="muted">No diagram limit in this space. Pay by card, no Confluence admin needed.</p>
+            </div>
+            <div class="gate-option-action">
+              <span v-if="showBundleOffer" class="space-price">{{ BLACK_FRIDAY_PRICE }} first year<small>Then {{ BUNDLE_RENEWAL_PRICE }}</small></span>
+              <span v-else class="space-price">${{ ENTERPRISE_BUNDLE_ANNUAL_COST }}/yr<small>plus tax where applicable</small></span>
+              <span v-if="checkoutOpened[fullscreenSource.spaceKey]" class="checkout-opened"><span class="checkout-opened-dot" aria-hidden="true"></span>Checkout opened in a new tab</span>
+              <button type="button" class="btn btn-primary" data-testid="plan-usage-gate-unlock-button" @click="purchaseGateSpace">
+                {{ checkoutOpened[fullscreenSource.spaceKey] ? 'Open again' : 'Unlock this space' }}
+              </button>
+            </div>
+          </div>
+          <div v-if="gateRequestShown && fullscreenSnapshot" class="gate-option">
+            <div>
+              <strong>{{ fullscreenSnapshot.request ? 'Your temporary access request' : 'Request temporary access' }}</strong>
+              <p class="muted">{{ fullscreenSnapshot.request ? 'See where your request stands.' : gateTrialNote }}</p>
+            </div>
+            <button type="button" class="btn btn-secondary" data-testid="plan-usage-fullscreen-request" @click="openFullscreenRequest">
+              {{ fullscreenSnapshot.request ? 'View your request' : 'Request temporary access' }}
+            </button>
+          </div>
+        </div>
+        <button v-if="diagramReturnPathValue" type="button" class="link-btn" data-testid="plan-usage-return-diagram" @click="returnToDiagram">Return to diagram</button>
         <p v-if="!diagramReturnPathValue || returnUnavailable" class="muted" data-testid="plan-usage-return-help">To return to the diagram, open the Confluence page where you started.</p>
       </section>
 
       <div v-if="loading" class="muted">Loading usage…</div>
       <div v-else-if="loadError" class="error">Could not load usage data. Try reloading.</div>
-      <template v-else>
+      <div v-else class="usage-body" :class="{ 'usage-body--gate': fullscreenSource }">
+        <component :is="fullscreenSource ? 'details' : 'div'" class="site-overview" data-testid="plan-usage-site-overview" @toggle="onAllSpacesToggle">
+        <summary v-if="fullscreenSource" class="site-overview-summary">All spaces on this site<template v-if="overLimitSpaces.length"> · {{ overLimitSpaces.length }} over the Lite limit</template></summary>
         <section class="stats">
           <div class="stat">
             <div class="stat-value">{{ totalMacros.toLocaleString() }}</div>
@@ -62,12 +91,12 @@
                   <div class="space-purchase-content">
                   <template v-if="canPurchase(s.spaceKey) && checkoutOpened[s.spaceKey]">
                     <span class="checkout-opened" data-testid="plan-usage-checkout-opened"><span class="checkout-opened-dot" aria-hidden="true"></span>Checkout opened in a new tab</span>
-                    <button type="button" class="btn btn-secondary" :aria-label="`Open checkout again: ${s.spaceKey}`" @click="purchaseSpace(s)">Open again</button>
+                    <button type="button" class="btn btn-secondary" :aria-label="`Open checkout again: ${s.spaceKey}`" @click="purchaseSpace(s, 'space_table')">Open again</button>
                   </template>
                   <template v-else-if="canPurchase(s.spaceKey)">
                     <span v-if="showBundleOffer" class="space-price">{{ BLACK_FRIDAY_PRICE }} first year<small>Then {{ BUNDLE_RENEWAL_PRICE }}</small></span>
                     <span v-else class="space-price">${{ ENTERPRISE_BUNDLE_ANNUAL_COST }}/yr/space</span>
-                    <button type="button" class="btn btn-secondary" :aria-label="`Unlock this space: ${s.spaceKey}`" @click="purchaseSpace(s)">Unlock this space</button>
+                    <button type="button" class="btn btn-secondary" :aria-label="`Unlock this space: ${s.spaceKey}`" @click="purchaseSpace(s, 'space_table')">Unlock this space</button>
                   </template>
                   <span v-else class="license-state">{{ paidLoading ? 'Checking license…' : paidStatuses[s.spaceKey]?.isPaid === true ? 'Covered by a paid license' : 'License status unavailable' }}</span>
                   </div>
@@ -77,10 +106,11 @@
           </table>
         </template>
         <p v-else class="muted">No spaces are currently over the Lite limit.</p>
+        </component>
 
         <section class="upgrade-block">
-          <h2 class="section-title">{{ fullscreenSource ? 'Explore a plan for your Fullscreen use' : 'Upgrade to Full' }}</h2>
-          <p v-if="fullscreenSource" class="upgrade-copy">
+          <h2 class="section-title">{{ fullscreenUse ? 'Explore a plan for your Fullscreen use' : 'Upgrade to Full' }}</h2>
+          <p v-if="fullscreenUse" class="upgrade-copy">
             Review the Full plan on Atlassian Marketplace and ask your team to confirm whether it fits this use.
           </p>
           <p v-else class="upgrade-copy">
@@ -96,7 +126,7 @@
             </button>
           </div>
         </section>
-      </template>
+      </div>
     </template>
 
     <DiagramLocations
@@ -108,7 +138,7 @@
 
     <div v-else-if="view === 'fullscreen_request' && fullscreenSnapshot" class="fullscreen-request-view">
       <button type="button" class="back-link" @click="view = 'usage'">← Plan and usage</button>
-      <FullscreenRecoveryGate :snapshot="fullscreenSnapshot" :initial-scenarios="fullscreenSource?.scenarios"
+      <FullscreenRecoveryGate :snapshot="fullscreenSnapshot" :feature="gateFeature" :initial-scenarios="fullscreenSource?.scenarios"
         :context="{ contentId: fullscreenSource?.pageId, spaceKey: fullscreenSource?.spaceKey }" surface="dashboard"
         :initial-view="fullscreenRequestInitialView" open-label="Return to diagram"
         @update:snapshot="fullscreenSnapshot = $event" @open-fullscreen="returnToDiagram"
@@ -119,8 +149,8 @@
     <template v-else>
       <button type="button" class="back-link" data-testid="request-full-back" @click="view = 'usage'">← Plan and usage</button>
 
-      <h1>{{ fullscreenSource ? 'Review Full for your Fullscreen use' : 'Request Full' }}</h1>
-      <p v-if="fullscreenSource" class="request-intro">
+      <h1>{{ fullscreenUse ? 'Review Full for your Fullscreen use' : 'Request Full' }}</h1>
+      <p v-if="fullscreenUse" class="request-intro">
         Copy the reason below if your team wants to evaluate Full for this use. The Marketplace listing explains the current plan and purchase steps.
       </p>
       <p v-else class="request-intro">
@@ -161,8 +191,9 @@ import type { AnalyticsEventName } from '@/utils/analytics/catalog'
 import DiagramLocations from '@/components/PlanUsage/DiagramLocations.vue'
 import FullscreenRecoveryGate from '@/components/FullscreenRecovery/FullscreenRecoveryGate.vue'
 import { getFullscreenRecovery } from '@/apis/fullscreenRecovery'
-import { fullLocalDate, scenarioLabels } from '@/components/FullscreenRecovery/recoveryPresentation'
+import { fullLocalDate, scenarioLabel } from '@/components/FullscreenRecovery/recoveryPresentation'
 import { diagramReturnPath, parseFullscreenSource } from './fullscreenSource'
+import { RECOVERY_FEATURE_DEFINITIONS } from '../../../shared/fullscreenRecovery'
 import type { RecoverySnapshot } from '../../../shared/fullscreenRecovery'
 import type { SpaceSummary } from '@/utils/planUsage/diagramLocations'
 
@@ -179,8 +210,12 @@ const fullscreenRequestInitialView = ref<'request' | undefined>()
 const diagramReturnPathValue = computed(() => fullscreenSource.value ? diagramReturnPath(fullscreenSource.value) : null)
 const fullscreenScenarios = computed(() => {
   const scenarios = fullscreenSnapshot.value?.request?.scenarios ?? fullscreenSource.value?.scenarios ?? []
-  return scenarios.map(code => scenarioLabels[code]).filter(Boolean).join(', ')
+  return scenarios.map(code => scenarioLabel(gateFeature.value, code)).filter(Boolean).join(', ')
 })
+const gateFeature = computed(() => fullscreenSource.value?.feature ?? 'fullscreen')
+/** Fullscreen-specific copy below the first screen; an edit gate keeps the ordinary site copy. */
+const fullscreenUse = computed(() => fullscreenSource.value?.feature === 'fullscreen')
+const gateFeatureLabel = computed(() => gateFeature.value === 'edit' ? 'editing' : 'Fullscreen')
 const fullscreenExpiry = computed(() => fullLocalDate(fullscreenSnapshot.value?.grant?.expiresAt) || 'an unavailable date')
 
 const domain = ref('')
@@ -196,12 +231,36 @@ const isStale = ref<boolean | null>(null)
 const paidStatuses = ref<Record<string, PaidStatus>>({})
 const paidLoading = ref(true)
 const paidLookupFailed = ref(false)
+const gateSpaceCount = computed(() => {
+  const key = fullscreenSource.value?.spaceKey
+  return spaces.value.find(s => s.spaceKey === key)?.macroCount ?? overLimitSpaces.value.find(s => s.spaceKey === key)?.macroCount ?? null
+})
+const gateSpacePaid = computed(() => !paidLoading.value && paidStatuses.value[fullscreenSource.value?.spaceKey ?? '']?.isPaid === true)
+const gateUnlockShown = computed(() => {
+  const key = fullscreenSource.value?.spaceKey
+  return !!key && (gateSpacePaid.value || canPurchase(key))
+})
+const gateRequestShown = computed(() => {
+  const snapshot = fullscreenSnapshot.value
+  return !!fullscreenSource.value?.spaceKey && !!snapshot && snapshot.state !== 'disabled' && (snapshot.state === 'not_requested' || !!snapshot.request)
+})
+const gateLead = computed(() => {
+  const limit = (fullscreenSnapshot.value?.limit ?? macrosLimit.value).toLocaleString()
+  return gateFeature.value === 'edit'
+    ? `Lite includes ${limit} diagrams per space. Past that, diagram changes in this space need a paid license or temporary access.`
+    : `Lite includes ${limit} diagrams per space. Past that, Fullscreen in this space needs a paid license or temporary access.`
+})
+const gateTrialNote = computed(() => gateFeature.value === 'edit'
+  ? 'Free for 7 days, for you only. Your 7 days start with your first save.'
+  : 'Free for 7 days, for you only. Your 7 days start when Fullscreen first opens.')
 const canPurchase = (spaceKey: string) => !paidLoading.value && paidStatuses.value[spaceKey]?.isPaid === false && paidStatuses.value[spaceKey]?.decisionKnown === true
 
 async function loadPaidStatuses() {
   try {
-    if (overLimitSpaces.value.length) {
-      paidStatuses.value = await getSpaceStatuses(overLimitSpaces.value.map(s => s.spaceKey))
+    const gateKey = fullscreenSource.value?.spaceKey
+    const keys = [...new Set([...overLimitSpaces.value.map(s => s.spaceKey), ...(gateKey ? [gateKey] : [])])]
+    if (keys.length) {
+      paidStatuses.value = await getSpaceStatuses(keys)
       paidLookupFailed.value = overLimitSpaces.value.every(s => {
         const status = paidStatuses.value[s.spaceKey]
         return !status || (status.isPaid !== true && status.decisionKnown !== true)
@@ -217,13 +276,23 @@ const checkoutOpened = ref<Record<string, boolean>>({})
 const blackFriday = useBundleBlackFriday()
 const showBundleOffer = computed(() => blackFriday.value && overLimitSpaces.value.some(s => canPurchase(s.spaceKey)))
 
-async function purchaseSpace(space: { spaceKey: string; macroCount: number }) {
+async function purchaseSpace(space: { spaceKey: string; macroCount: number }, placement: 'gate_space_card' | 'space_table') {
   if (!canPurchase(space.spaceKey)) return
   const checkout = enterpriseBundleCheckout(domain.value, space.spaceKey, { surface: 'plan_usage' })
-  trackAnalyticsEvent('paywall_bundle_cta_clicked', { feature_area: 'upgrade', surface: 'dashboard', space_key: space.spaceKey, macro_count: space.macroCount, macro_limit: macrosLimit.value, bundle_price_usd: blackFriday.value ? BLACK_FRIDAY_PRICE_USD : ENTERPRISE_BUNDLE_ANNUAL_COST, ...(blackFriday.value ? { bundle_offer: BLACK_FRIDAY_OFFER } : {}), client_reference_id: checkout.clientReferenceId, checkout_click_id: checkout.clickId })
+  trackAnalyticsEvent('paywall_bundle_cta_clicked', { feature_area: 'upgrade', surface: 'dashboard', space_key: space.spaceKey, macro_count: space.macroCount, macro_limit: macrosLimit.value, bundle_price_usd: blackFriday.value ? BLACK_FRIDAY_PRICE_USD : ENTERPRISE_BUNDLE_ANNUAL_COST, ...(blackFriday.value ? { bundle_offer: BLACK_FRIDAY_OFFER } : {}), client_reference_id: checkout.clientReferenceId, checkout_click_id: checkout.clickId, ui_component: placement })
   const url = blackFriday.value ? bundleOfferCheckoutUrl(checkout.url) : checkout.url
   const outcome = await openBundleCheckout(url, { surface: 'dashboard', checkoutSurface: 'plan_usage' })
   if (outcome === 'opened') checkoutOpened.value = { ...checkoutOpened.value, [space.spaceKey]: true }
+}
+
+function purchaseGateSpace() {
+  const spaceKey = fullscreenSource.value?.spaceKey
+  if (spaceKey) void purchaseSpace({ spaceKey, macroCount: gateSpaceCount.value ?? 0 }, 'gate_space_card')
+}
+
+function onAllSpacesToggle(event: Event) {
+  if (!fullscreenSource.value || !(event.target as HTMLDetailsElement).open) return
+  trackAnalyticsEvent('plan_usage_all_spaces_shown', { feature_area: 'upgrade', surface: 'dashboard', feature: gateFeature.value, space_key: fullscreenSource.value.spaceKey, space_count: overLimitSpaces.value.length })
 }
 
 const copyState = ref<'default' | 'copied'>('default')
@@ -231,7 +300,7 @@ const copyState = ref<'default' | 'copied'>('default')
 const upgradeUrl = computed(() => `${BASE_UPGRADE_URL}?domain=${domain.value}`)
 
 const reasonText = computed(() => {
-  if (fullscreenSource.value) {
+  if (fullscreenUse.value) {
     const use = fullscreenScenarios.value || 'Viewing diagrams in Fullscreen'
     return [
       `Our team uses ZenUML diagrams in Confluence. Our Fullscreen use: ${use}.`,
@@ -256,10 +325,10 @@ async function loadFullscreenSnapshot() {
   fullscreenError.value = false
   try {
     if (!fullscreenSource.value.spaceKey) {
-      fullscreenSnapshot.value = { state: 'disabled', serverNow: new Date().toISOString(), policyVersion: 'fullscreen-contact-v1' }
+      fullscreenSnapshot.value = { state: 'disabled', serverNow: new Date().toISOString(), policyVersion: RECOVERY_FEATURE_DEFINITIONS[gateFeature.value].policyVersion }
       return
     }
-    const snapshot = await getFullscreenRecovery(fullscreenSource.value.spaceKey)
+    const snapshot = await getFullscreenRecovery(fullscreenSource.value.spaceKey, gateFeature.value)
     if (snapshot.state === 'unavailable') throw new Error('recovery unavailable')
     fullscreenSnapshot.value = snapshot
   } catch {
@@ -389,6 +458,7 @@ function trackAnalyticsPlanUsage(eventName: AnalyticsEventName) {
     feature_area: 'upgrade',
     surface: 'dashboard',
     ...(eventName === 'plan_usage_viewed' ? { purchasable_space_count: overLimitSpaces.value.filter(s => canPurchase(s.spaceKey)).length } : {}),
+    ...(eventName === 'plan_usage_viewed' && fullscreenSource.value ? { feature: gateFeature.value, space_key: fullscreenSource.value.spaceKey } : {}),
     macro_usage_pct: macrosLimit.value ? Math.round((totalMacros.value / macrosLimit.value) * 100) : undefined,
   })
 }
@@ -421,10 +491,25 @@ h1 { font-size: 24px; font-weight: 600; line-height: 32px; margin: 0; }
 .domain { font-size: 12px; line-height: 16px; color: var(--pu-text-low); margin: 0 0 24px; }
 .muted { color: var(--pu-text-low); margin: 0; }
 .error { color: var(--pu-warning); margin: 0; }
-.fullscreen-context { border-top: 1px solid #E5E7EB; border-bottom: 1px solid #E5E7EB; padding: 20px 0; margin-bottom: 24px; }
-.fullscreen-context h2 { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
-.fullscreen-context p { margin: 0 0 12px; }
-.fullscreen-context .actions { margin-top: 16px; }
+.gate-space { border-top: 0.5px solid var(--pu-hairline); padding: 20px 0 24px; margin-bottom: 8px; }
+.gate-space .eyebrow { font-size: 12px; line-height: 16px; color: var(--pu-text-low); margin: 0 0 4px; }
+.gate-space h2 { font-size: 20px; font-weight: 600; line-height: 28px; margin: 0 0 8px; }
+.gate-space p { margin: 0 0 8px; }
+.gate-lead { color: var(--pu-text-high); max-width: 600px; }
+.gate-status { font-weight: 500; }
+.gate-options { border: 0.5px solid var(--pu-control-border); border-radius: 8px; margin: 16px 0 12px; }
+.gate-option { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; }
+.gate-option + .gate-option { border-top: 0.5px solid var(--pu-hairline); }
+.gate-option strong { font-weight: 600; }
+.gate-option p { margin: 2px 0 0; font-size: 12px; line-height: 16px; }
+.gate-option-action { display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+.gate-option .btn { white-space: nowrap; flex-shrink: 0; }
+/* A gate visitor sees the Full option before the folded site-wide list. */
+.usage-body { display: flex; flex-direction: column; }
+.usage-body--gate .upgrade-block { order: -1; }
+.usage-body--gate .upgrade-block .section-title { margin-top: 0; }
+.site-overview-summary { cursor: pointer; font-weight: 600; padding: 16px 0; border-top: 0.5px solid var(--pu-hairline); margin-top: 24px; }
+details.site-overview[open] .site-overview-summary { margin-bottom: 8px; }
 .fullscreen-request-view { padding-top: 8px; }
 .fullscreen-request-view .back-link { margin-bottom: 20px; }
 .fullscreen-request-view :deep(.recovery) { width: 100%; }

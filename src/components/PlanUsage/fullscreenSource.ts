@@ -1,7 +1,9 @@
-import { FULLSCREEN_RECOVERY_SCENARIOS } from '../../../shared/fullscreenRecovery'
-import type { RecoveryScenario } from '../../../shared/fullscreenRecovery'
+import { RECOVERY_FEATURE_DEFINITIONS, resolveRecoveryFeature } from '../../../shared/fullscreenRecovery'
+import type { RecoveryFeature, RecoveryScenario } from '../../../shared/fullscreenRecovery'
 
+/** The recovery gate (Fullscreen or edit) that opened Plan and usage, and the space it stopped. */
 export interface FullscreenSource {
+  feature: RecoveryFeature
   scenarios: RecoveryScenario[]
   pageId?: string
   spaceKey?: string
@@ -13,11 +15,13 @@ export function parseFullscreenSource(location: unknown): FullscreenSource | nul
   let url: URL
   try { url = new URL(location) } catch { return null }
   if (url.searchParams.get('source') !== 'fullscreen_recovery') return null
-  const allowed = new Set<string>(FULLSCREEN_RECOVERY_SCENARIOS)
+  const feature = resolveRecoveryFeature(url.searchParams.get('feature') ?? undefined)
+  if (!feature) return null
+  const allowed = new Set<string>(RECOVERY_FEATURE_DEFINITIONS[feature].scenarios)
   const scenarios = [...new Set((url.searchParams.get('scenes') || '').split(',').filter(code => allowed.has(code)))] as RecoveryScenario[]
   const pageId = url.searchParams.get('page_id')
   const spaceKey = url.searchParams.get('space_key')
-  return { scenarios, ...(spaceKey && spaceKey.length <= 128 ? { spaceKey } : {}), ...(pageId && /^\d+$/.test(pageId) ? { pageId } : {}) }
+  return { feature, scenarios, ...(spaceKey && spaceKey.length <= 128 ? { spaceKey } : {}), ...(pageId && /^\d+$/.test(pageId) ? { pageId } : {}) }
 }
 
 export function diagramReturnPath(source: FullscreenSource): string | null {

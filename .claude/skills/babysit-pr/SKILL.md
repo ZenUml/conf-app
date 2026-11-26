@@ -79,7 +79,7 @@ Categorize the failure:
 | Category | Indicators |
 |----------|-----------|
 | **Unit test failure** | Failures in `pnpm test:unit`, vitest output |
-| **Lint failure** | ESLint errors |
+| **Lint failure** | oxlint errors (`pnpm lint`) |
 | **Build failure** | Vite build errors, missing imports, TypeScript errors |
 | **Staging deploy failure** | Cloudflare Pages publish errors, wrangler errors |
 | **E2E test failure** | Playwright failures against staging Confluence — timeouts, element not found, assertion errors |

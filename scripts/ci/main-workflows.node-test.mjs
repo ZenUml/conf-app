@@ -26,7 +26,8 @@ test('main child plans consume the verified producer and complete variant invent
       assert.equal(inputs.planned, true);
       assert.equal(inputs['selection-scope'], 'main');
       assert.equal(inputs.suite, suite);
-      assert.equal(inputs['source-run-id'], '${{ inputs.parent-run-id }}');
+      // Called inside the staging run: artifacts come from this same run.
+      assert.equal(inputs['source-run-id'], undefined);
       assert.equal(inputs.ref, '${{ inputs.source-sha }}');
     }
     assert.equal(child.jobs.render.with['shard-matrix'], '[1]');
@@ -74,4 +75,34 @@ test('root outcome reports the verified failed draft gate without adding a root 
   const upload = draft.jobs.parent.steps.find(step => step.with?.name === 'daily-gate');
   assert.equal(upload.with.path, 'daily-gate.json');
   assert.equal(upload.with['if-no-files-found'], 'error');
+});
+
+test('phase parents keep full commit history but skip old file bodies', () => {
+  for (const phase of ['main-staging-validation', 'main-draft-preparation']) {
+    const checkout = workflow(phase).jobs.parent.steps.find(step => step.uses === 'actions/checkout@v5');
+    assert.equal(checkout.with['fetch-depth'], 0);
+    assert.equal(checkout.with.filter, 'blob:none');
+  }
+});
+
+test('main regression runner budget: Lite, Full and Diagramly use 4 runners x 2 workers, AsyncAPI keeps its layout', () => {
+  const e2e = workflow('e2e-test');
+  assert.equal(e2e.on.workflow_call.inputs.workers.default, '1');
+  const runSteps = e2e.jobs.test.steps.filter(step => ['Execute planned tests', 'Run tests'].includes(step.name));
+  assert.equal(runSteps.length, 2);
+  for (const step of runSteps) assert.equal(step.env.E2E_WORKERS, '${{ inputs.workers }}');
+  for (const variant of ['lite', 'full', 'diagramly']) {
+    const inputs = workflow(`staging-${variant}-e2e`).jobs.regression.with;
+    assert.equal(inputs['shard-matrix'], '[1, 2, 3, 4]');
+    assert.equal(inputs.workers, '2');
+  }
+  for (const variant of ['asyncapi']) {
+    const inputs = workflow(`staging-${variant}-e2e`).jobs.regression.with;
+    assert.equal('workers' in inputs, false);
+  }
+  for (const variant of ['lite', 'full', 'diagramly', 'asyncapi']) {
+    assert.equal('workers' in workflow(`staging-${variant}-e2e`).jobs.render.with, false);
+  }
+  const config = readFileSync(new URL('../../tests/e2e-tests/playwright.config.ts', import.meta.url), 'utf8');
+  assert.match(config, /workers: process\.env\.CI \? Math\.max\(1, Number\(process\.env\.E2E_WORKERS\) \|\| 1\) : undefined/);
 });

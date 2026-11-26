@@ -45,8 +45,11 @@ function wheel(element: Element, init: WheelEventInit): WheelEvent {
 
 const VALID_XML = '<mxGraphModel><root></root></mxGraphModel>';
 
+// File-wide: a wrapper left mounted by one test keeps emitting macro_viewed
+// into the next test's analytics spy.
+enableAutoUnmount(afterEach);
+
 describe('ForgeGraphViewer render-failure telemetry', () => {
-  enableAutoUnmount(afterEach);
 
   beforeEach(() => {
     vi.clearAllMocks();

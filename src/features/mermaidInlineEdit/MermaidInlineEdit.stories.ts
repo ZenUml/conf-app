@@ -1,5 +1,6 @@
 import { setup, type Meta, type StoryObj } from '@storybook/vue3-vite'
 import type { App } from 'vue'
+import { EditorView } from '@codemirror/view'
 import { expect, userEvent, waitFor } from 'storybook/test'
 import Workspace from '@/components/Workspace.vue'
 import store from '@/model/store2'
@@ -29,6 +30,16 @@ const SMALL = `sequenceDiagram
   Bob->>C: Hello<br/>two lines
   C-->>A: Fine
   Bo->>A: Ping`
+
+const REPEATED_MESSAGES = `sequenceDiagram
+  Alice->>Bob: Repeat
+
+  Alice->>Bob: Repeat`
+
+const REPEATED_NODES = `flowchart LR
+  A[Repeat]
+  B[Repeat]
+  A --> B`
 
 function large(): string {
   const names = ['Alice', 'Bob', 'Carol', 'Dave', 'Erin', 'Frank', 'Grace', 'Heidi', 'Ivan', 'Judy']
@@ -91,6 +102,28 @@ const preview = () => document.querySelector('#workspace-right') as HTMLElement
 const code = () => (store.state as any).diagram.mermaidCode as string
 const layer = () => document.querySelector('[data-testid="mermaid-inline-edit-layer"]') as HTMLElement | null
 const hint = () => document.querySelector('[data-testid="mermaid-inline-edit-hint"]') as HTMLElement | null
+const sourceRing = () => preview().querySelector<HTMLElement>('[data-testid="mermaid-source-selection-ring"]')
+const sourceHint = () => preview().querySelector<HTMLElement>('[data-testid="mermaid-source-selection-hint"]')
+
+function sourceEditor(canvasElement: HTMLElement): EditorView {
+  const editor = canvasElement.querySelector<HTMLElement>('.cm-editor')
+  const view = editor && EditorView.findFromDOM(editor)
+  if (!view) throw new Error('CodeMirror source editor not found')
+  return view
+}
+
+function assertSourceRingOn(target: Element, other: Element) {
+  const outline = sourceRing()?.getBoundingClientRect()
+  if (!outline) throw new Error('Source selection ring not found')
+  const x = (outline.left + outline.right) / 2
+  const y = (outline.top + outline.bottom) / 2
+  const contains = (element: Element) => {
+    const bounds = element.getBoundingClientRect()
+    return x > bounds.left && x < bounds.right && y > bounds.top && y < bounds.bottom
+  }
+  expect(contains(target)).toBe(true)
+  expect(contains(other)).toBe(false)
+}
 
 /** Wait until the preview is editable (map computed for the code on screen). */
 async function editable(roledescription = 'sequence') {
@@ -194,6 +227,98 @@ type Story = StoryObj<typeof Workspace>
 
 /** No play function: try it by hand. */
 export const TryByHand: Story = { decorators: decorate(SMALL) }
+
+export const SourceCaretMessages: Story = {
+  decorators: decorate(REPEATED_MESSAGES),
+  play: async ({ canvasElement }) => {
+    await editable()
+    const view = sourceEditor(canvasElement)
+    const second = REPEATED_MESSAGES.lastIndexOf('Repeat')
+    view.focus()
+    view.dispatch({ selection: { anchor: second + 2 } })
+    await waitFor(() => assertSourceRingOn(messageText(1), messageText(0)))
+    expect(sourceHint()).toBeNull()
+    expect(view.state.selection.main.empty).toBe(true)
+
+    await userEvent.keyboard('{ArrowUp}')
+    await waitFor(() => expect(sourceRing()).toBeNull())
+    await userEvent.keyboard('{ArrowUp}')
+    await waitFor(() => assertSourceRingOn(messageText(0), messageText(1)))
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}')
+    await waitFor(() => assertSourceRingOn(messageText(1), messageText(0)))
+
+    document.execCommand('insertText', false, 'x')
+    await waitFor(() => {
+      expect(messageText(1).textContent).toBe('Rexpeat')
+      assertSourceRingOn(messageText(1), messageText(0))
+    })
+    expect(view.hasFocus).toBe(true)
+    expect(sourceHint()).toBeNull()
+  },
+}
+
+export const SourceCaretFlowchart: Story = {
+  decorators: decorate(REPEATED_NODES),
+  play: async ({ canvasElement }) => {
+    await editable('flowchart-v2')
+    const view = sourceEditor(canvasElement)
+    const second = REPEATED_NODES.lastIndexOf('Repeat')
+    view.focus()
+    view.dispatch({ selection: { anchor: second + 2 } })
+    await waitFor(() => assertSourceRingOn(flowNode('B'), flowNode('A')))
+    expect(sourceHint()).toBeNull()
+    expect(view.state.selection.main.empty).toBe(true)
+
+    await userEvent.keyboard('{ArrowUp}')
+    await waitFor(() => assertSourceRingOn(flowNode('A'), flowNode('B')))
+    expect(view.hasFocus).toBe(true)
+  },
+}
+
+export const SourceSelectionHint: Story = {
+  decorators: decorate(REPEATED_MESSAGES),
+  play: async ({ canvasElement }) => {
+    await editable()
+    const view = sourceEditor(canvasElement)
+    const assertSecondMessageHighlighted = () => assertSourceRingOn(messageText(1), messageText(0))
+
+    const first = REPEATED_MESSAGES.indexOf('Repeat')
+    const second = REPEATED_MESSAGES.lastIndexOf('Repeat')
+    const select = (anchor: number, head: number) => view.dispatch({ selection: { anchor, head } })
+    view.focus()
+    select(second, second + 'Repeat'.length)
+    await waitFor(() => {
+      expect(sourceHint()).toBeVisible()
+      expect(sourceHint()?.textContent).toBe('You can also double-click here to edit.')
+      assertSecondMessageHighlighted()
+    })
+    expect(view.hasFocus).toBe(true)
+    expect(view.state.selection.main).toMatchObject({ from: second, to: second + 'Repeat'.length })
+
+    document.execCommand('insertText', false, 'Updated')
+    await waitFor(() => {
+      expect(code()).toBe(REPEATED_MESSAGES.slice(0, second) + 'Updated')
+      expect(messageText(0).textContent).toBe('Repeat')
+      expect(messageText(1).textContent).toBe('Updated')
+      assertSecondMessageHighlighted()
+    })
+    expect(view.hasFocus).toBe(true)
+
+    select(first, second + 'Updated'.length)
+    await waitFor(() => {
+      expect(sourceRing()).toBeNull()
+      expect(sourceHint()).toBeNull()
+    })
+    select(second, second + 'Updated'.length)
+    await waitFor(() => expect(sourceHint()).toBeVisible())
+    await userEvent.dblClick(messageText(1))
+    await waitFor(() => {
+      expect(layer()?.textContent).toBe('Updated')
+      expect(sourceRing()).toBeNull()
+      expect(sourceHint()).toBeNull()
+    })
+  },
+}
 
 /** 10 participants, 50 messages: live re-layout on a larger diagram. */
 export const LargeDiagram: Story = { decorators: decorate(large()) }

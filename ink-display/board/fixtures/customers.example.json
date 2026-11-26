@@ -1,0 +1,5 @@
+[
+  {"site": "northwind-demo.atlassian.net", "name": "Northwind", "status": "auto", "note": "Ask the licence owner about renewal"},
+  {"site": "contoso-demo.atlassian.net", "name": "Contoso", "status": "due Wed", "note": "Send the quote, 120 views this week"},
+  {"site": "fabrikam-demo.atlassian.net", "name": "Fabrikam", "status": "auto", "note": "Trial: check they created a diagram"}
+]

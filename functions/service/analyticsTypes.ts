@@ -70,6 +70,7 @@ export const CANONICAL_EVENT_NAME_LIST = [
   "agent_link_identity_resolved",
   "agent_link_identity_unresolved",
   "agent_link_oauth_authorized",
+  "agent_link_oauth_failed",
   "agent_link_oauth_refresh_failed",
   "agent_link_oauth_token_refresh_completed",
   "agent_link_oauth_revoked",

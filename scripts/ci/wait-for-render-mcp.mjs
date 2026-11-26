@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 // Retry only deployment health readiness. The protocol/render smoke runs once.
+//
+// One matching answer is not readiness. After `wrangler deploy`, Cloudflare
+// serves the previous and the new Worker version side by side for a short time
+// (run 44832521286: old, new, then old again 170 ms later, which failed the
+// smoke). Readiness therefore needs `stableCount` matching answers in a row.
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
 export async function waitForRenderMcp({
-  url, sha, timeoutMs = 120_000, intervalMs = 5000, requestTimeoutMs = 5000,
+  url, sha, timeoutMs = 120_000, intervalMs = 5000, requestTimeoutMs = 5000, stableCount = 3, stableIntervalMs = 1000,
   fetchImpl = fetch, now = Date.now,
   sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
 }) {
@@ -14,6 +19,9 @@ export async function waitForRenderMcp({
   assert.ok(timeoutMs > 0 && timeoutMs <= 120_000, 'Readiness budget must be at most 120 seconds');
   assert.ok(intervalMs > 0 && intervalMs <= 5000, 'Health polling interval must be at most 5 seconds');
   assert.ok(requestTimeoutMs > 0 && requestTimeoutMs <= 5000, 'Health request timeout must be at most 5 seconds');
+  assert.ok(Number.isInteger(stableCount) && stableCount >= 1 && stableCount <= 10, 'Stable answer count must be between 1 and 10');
+  assert.ok(stableIntervalMs > 0 && stableIntervalMs <= intervalMs, 'Stable polling interval must not exceed the health polling interval');
+  let streak = 0;
   const started = now();
   const evidence = { ok: false, url, expectedCommit: sha, startedAt: new Date(started).toISOString(), elapsedMs: 0, attempts: [] };
   const finish = () => { evidence.elapsedMs = now() - started; return evidence; };
@@ -44,7 +52,7 @@ export async function waitForRenderMcp({
           attempt.commit = typeof health?.commit === 'string' ? health.commit : null;
           attempt.dirty = typeof health?.dirty === 'boolean' ? health.dirty : null;
           ready = health?.commit === sha && health?.dirty === false;
-          attempt.reason = ready ? 'ready' : 'health commit or clean-source marker does not match';
+          attempt.reason = ready ? `ready (${streak + 1} of ${stableCount} in a row)` : 'health commit or clean-source marker does not match';
         } catch {
           attempt.reason = 'invalid health JSON';
         }
@@ -54,13 +62,14 @@ export async function waitForRenderMcp({
         ? 'health request timeout' : 'health network error';
     }
     if (redirect) fail(`Health readiness rejected ${attempt.reason}; redirects are not accepted`);
-    if (ready && now() - started < timeoutMs) {
+    streak = ready ? streak + 1 : 0;
+    if (streak >= stableCount && now() - started < timeoutMs) {
       evidence.ok = true;
       return finish();
     }
     const remaining = timeoutMs - (now() - started);
     if (remaining <= 0) break;
-    await sleep(Math.min(intervalMs, remaining));
+    await sleep(Math.min(ready ? stableIntervalMs : intervalMs, remaining));
   }
   fail(`Health readiness timed out after ${timeoutMs}ms; last result: ${evidence.attempts.at(-1)?.reason ?? 'no response'}`);
 }
@@ -81,7 +90,7 @@ async function main() {
   try {
     assert.equal(args.length, 1, 'Provide exactly one health endpoint URL');
     evidence = await waitForRenderMcp({ url: args[0], sha });
-    console.log(`Render MCP health ready for commit ${sha} after ${evidence.elapsedMs}ms (${evidence.attempts.length} request(s))`);
+    console.log(`Render MCP health ready for commit ${sha} after ${evidence.elapsedMs}ms (${evidence.attempts.length} request(s), last 3 in a row matched)`);
   } catch (error) {
     evidence = error.evidence ?? { ok: false, url: args[0], expectedCommit: sha, error: error.message };
     process.exitCode = 1;

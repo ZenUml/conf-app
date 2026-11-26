@@ -1,0 +1,558 @@
+{
+ "tokens": {
+  "cells": [
+   {
+    "name": "ALPHA",
+    "percent": "86%",
+    "countdown": "6d 5h",
+    "reset": "Fri 00:00",
+    "chart": [
+     null,
+     50,
+     49,
+     48,
+     48,
+     48,
+     48,
+     48,
+     48,
+     48,
+     48,
+     48,
+     48,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "max": 50
+   },
+   {
+    "name": "BETA",
+    "percent": "97%",
+    "countdown": "6d 15h",
+    "reset": "Fri 09:58",
+    "chart": [
+     50,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "max": 50
+   },
+   {
+    "name": "GAMMA",
+    "percent": "32%",
+    "countdown": "14h 2m",
+    "reset": "Sat 08:20",
+    "chart": [
+     50,
+     50,
+     49,
+     49,
+     48,
+     48,
+     48,
+     47,
+     47,
+     46,
+     46,
+     46,
+     45,
+     45,
+     44,
+     44,
+     44,
+     43,
+     43,
+     42,
+     42,
+     42,
+     41,
+     41,
+     40,
+     40,
+     40,
+     39,
+     39,
+     38,
+     38,
+     35,
+     34,
+     34,
+     33,
+     33,
+     33,
+     32,
+     32,
+     31,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ],
+    "max": 50
+   }
+  ]
+ },
+ "customers": {
+  "rows": [
+   {
+    "product": "LITE",
+    "name": "Northwind Traders",
+    "place": "Americas / US",
+    "seats": "1,010",
+    "status": "23d overdue",
+    "note": "Find licence owner, 304 views"
+   },
+   {
+    "product": "LITE",
+    "name": "Contoso",
+    "seats": "931",
+    "status": "23d overdue",
+    "note": "Full upgrade check, 387 views"
+   },
+   {
+    "product": "BOTH",
+    "name": "Fabrikam",
+    "seats": "652",
+    "status": "due Wed",
+    "note": "Full expired 10/14, still 300 views"
+   },
+   {
+    "product": "LITE",
+    "name": "tailspin",
+    "seats": "258",
+    "status": "replied today",
+    "note": "Bundle renewal, card confirmed, reply due"
+   },
+   {
+    "product": "BOTH",
+    "name": "wingtip-labs",
+    "seats": "191",
+    "status": "trial ends 3 Dec",
+    "note": "909 views, 19 creates this week"
+   },
+   {
+    "product": "LITE",
+    "name": "litware",
+    "seats": "101",
+    "status": "due Mon",
+    "note": "Emailed 11/02, no reply, 129 views"
+   },
+   {
+    "product": "LITE",
+    "name": "adatum",
+    "seats": "77",
+    "status": "8d ago",
+    "note": "Back 3 Nov, 8 new diagrams, snapshots failing"
+   },
+   {
+    "product": "FULL",
+    "name": "Proseware / Lucerne",
+    "seats": "52",
+    "status": "renews Sun",
+    "note": "Payment method not set"
+   },
+   {
+    "product": "BOTH",
+    "name": "humongous-ag",
+    "seats": "36",
+    "status": "trial ends 5 Dec",
+    "note": "No creates since 17 Oct"
+   },
+   {
+    "product": "FULL",
+    "name": "graphic-design",
+    "seats": "",
+    "status": "trial ends Sun",
+    "note": "Emailed 10/28, no reply, 22 views"
+   }
+  ]
+ },
+ "sites": {
+  "funnel": {
+   "now": [
+    7,
+    6,
+    5,
+    3,
+    0
+   ],
+   "before": [
+    5,
+    2,
+    2,
+    0,
+    0
+   ]
+  },
+  "rows": [
+   {
+    "product": "LITE",
+    "name": "coho-winery",
+    "place": "EMEA / DE",
+    "seats": "1,918",
+    "recent": true,
+    "steps": [
+     true,
+     true,
+     true,
+     true,
+     false
+    ]
+   },
+   {
+    "product": "BOTH",
+    "name": "wingtip-labs",
+    "seats": "191",
+    "recent": true,
+    "steps": [
+     true,
+     true,
+     true,
+     true,
+     false
+    ]
+   },
+   {
+    "product": "LITE",
+    "name": "litware",
+    "seats": "101",
+    "recent": true,
+    "steps": [
+     true,
+     true,
+     true,
+     true,
+     false
+    ]
+   },
+   {
+    "product": "LITE",
+    "name": "blue-yonder-group",
+    "seats": "85",
+    "recent": true,
+    "steps": [
+     true,
+     true,
+     true,
+     true,
+     false
+    ]
+   },
+   {
+    "product": "BOTH",
+    "name": "humongous-ag",
+    "seats": "36",
+    "recent": false,
+    "steps": [
+     true,
+     true,
+     true,
+     false,
+     false
+    ]
+   },
+   {
+    "product": "LITE",
+    "name": "relecloud",
+    "seats": "9",
+    "recent": false,
+    "steps": [
+     true,
+     true,
+     false,
+     false,
+     false
+    ]
+   },
+   {
+    "product": "LITE",
+    "name": "team-swe",
+    "seats": "6",
+    "recent": false,
+    "steps": [
+     true,
+     true,
+     true,
+     true,
+     false
+    ]
+   }
+  ]
+ },
+ "revenue": {
+  "d30": "$2,316", "ytd": "$31,077",
+  "d90": "$9,494",
+  "rows": [
+   {
+    "product": "FULL",
+    "name": "acme-0",
+    "amount": "-$5.00",
+    "date": "8 Nov",
+    "type": "Refund",
+    "seats": "40 users"
+   },
+   {
+    "product": "FULL",
+    "name": "acme-1",
+    "amount": "$23.20",
+    "date": "8 Nov",
+    "type": "Renewal",
+    "seats": "40 users"
+   },
+   {
+    "product": "FULL",
+    "name": "acme-2",
+    "amount": "$23.20",
+    "date": "8 Nov",
+    "type": "Renewal",
+    "seats": "40 users"
+   },
+   {
+    "product": "FULL",
+    "name": "acme-3",
+    "amount": "$23.20",
+    "date": "8 Nov",
+    "type": "Renewal",
+    "seats": "40 users"
+   },
+   {
+    "product": "FULL",
+    "name": "acme-4",
+    "amount": "$23.20",
+    "date": "8 Nov",
+    "type": "Renewal",
+    "seats": "40 users"
+   },
+   {
+    "product": "FULL",
+    "name": "acme-5",
+    "amount": "$23.20",
+    "date": "8 Nov",
+    "type": "Renewal",
+    "seats": "40 users"
+   },
+   {
+    "product": "FULL",
+    "name": "acme-6",
+    "amount": "$23.20",
+    "date": "8 Nov",
+    "type": "Renewal",
+    "seats": "40 users"
+   },
+   {
+    "product": "FULL",
+    "name": "acme-7",
+    "amount": "$23.20",
+    "date": "8 Nov",
+    "type": "Renewal",
+    "seats": "40 users"
+   },
+   {
+    "product": "FULL",
+    "name": "acme-8",
+    "amount": "$23.20",
+    "date": "8 Nov",
+    "type": "Renewal",
+    "seats": "40 users"
+   },
+   {
+    "product": "FULL",
+    "name": "acme-9",
+    "amount": "$23.20",
+    "date": "8 Nov",
+    "type": "Renewal",
+    "seats": "40 users"
+   }
+  ]
+ },
+ "gcp": {
+  "today": "$21",
+  "yesterday": "$44",
+  "month_label": "NOV",
+  "month": "$180",
+  "credit": "$1,772",
+  "credit_total": "$2K",
+  "daily": [
+   {
+    "day": "24",
+    "cost": 0.01
+   },
+   {
+    "day": "25",
+    "cost": 0.01
+   },
+   {
+    "day": "26",
+    "cost": 0.01
+   },
+   {
+    "day": "27",
+    "cost": 0.19
+   },
+   {
+    "day": "28",
+    "cost": 0.5
+   },
+   {
+    "day": "29",
+    "cost": 0.16
+   },
+   {
+    "day": "30",
+    "cost": 3.32
+   },
+   {
+    "day": "31",
+    "cost": 30.99
+   },
+   {
+    "day": "1",
+    "cost": 14.12
+   },
+   {
+    "day": "2",
+    "cost": 74.89
+   },
+   {
+    "day": "3",
+    "cost": 21.71
+   },
+   {
+    "day": "4",
+    "cost": 13.67
+   },
+   {
+    "day": "5",
+    "cost": 43.64
+   },
+   {
+    "day": "6",
+    "cost": 20.91
+   }
+  ],
+  "servers": [
+   {
+    "name": "ci-large-central",
+    "machine": "c4n-standard-48",
+    "disk": "500 GB",
+    "status": "off 11m, spot",
+    "rate": "0.83",
+    "up": false
+   },
+   {
+    "name": "e2e-dev",
+    "machine": "c4d-highcpu-8",
+    "disk": "100 GB",
+    "status": "off 4h",
+    "rate": "0.36",
+    "up": false
+   },
+   {
+    "name": "bench-20261105",
+    "machine": "c4n-standard-48",
+    "disk": "500 GB",
+    "status": "off 15h",
+    "rate": "2.78",
+    "up": false
+   },
+   {
+    "name": "e2e-dev2",
+    "machine": "c4d-highcpu-8",
+    "disk": "100 GB",
+    "status": "off 1d",
+    "rate": "0.36",
+    "up": false
+   },
+   {
+    "name": "e2e-dev3",
+    "machine": "c4d-highcpu-8",
+    "disk": "100 GB",
+    "status": "off 3d",
+    "rate": "0.36",
+    "up": false
+   }
+  ]
+ }
+}

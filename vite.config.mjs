@@ -7,6 +7,7 @@ import copy from 'rollup-plugin-copy'
 import { visualizer } from 'rollup-plugin-visualizer'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import { fileURLToPath } from 'url';
+import { zenumlCoreClosureGuard } from './scripts/build/zenumlCoreClosureGuard.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -161,7 +162,17 @@ export default defineConfig(({ command }) => ({
   },
   build: {
     rollupOptions: {
-      input: getHtmlFiles('./', { isBuild: command === 'build' })
+      input: getHtmlFiles('./', { isBuild: command === 'build' }),
+      treeshake: {
+        // @zenuml/codemirror-extensions' index re-exports its linter, whose
+        // module body runs `new ZenUml(div)` and so imports all of
+        // @zenuml/core statically. We use our own lazy linter
+        // (src/components/Editor/zenumlLinter.ts); marking that module
+        // side-effect free lets Rollup drop it, keeping the 3.5 MB core out
+        // of every editor's static imports. zenumlCoreClosureGuard (below)
+        // fails the build if this path stops matching.
+        moduleSideEffects: (id) => !/@zenuml[/+]codemirror-extensions.*[/]extensions[/]zenuml-linter\.js$/.test(id),
+      },
     },
 
     // @asyncapi/parser's transitive deps (qs, avsc, readable-stream, …)
@@ -193,7 +204,12 @@ export default defineConfig(({ command }) => ({
       // server, so joint-debug starts that server with FORGE_TUNNEL=1 to retain
       // the real bridge. `vite build` (command === 'build', every
       // `pnpm build:*` / production bundle) is untouched.
-      ...(command === 'serve' && process.env.FORGE_TUNNEL !== '1'
+      // BRIDGE_STUB=1 opts a `vite build` into the stub too, so a production
+      // bundle can boot outside Confluence for local diagnosis, e.g.
+      // `BRIDGE_STUB=1 PRODUCT_TYPE=lite npx vite build --outDir /tmp/d` then
+      // serve it and open index.html?sandbox=graph-view&outputType=display.
+      // Never set it for a bundle that is deployed.
+      ...(((command === 'serve' && process.env.FORGE_TUNNEL !== '1') || process.env.BRIDGE_STUB === '1')
         ? { '@forge/bridge': resolve(__dirname, './src/stubs/forge-bridge.ts') }
         : {}),
       // AsyncAPI variant: @asyncapi/parser pulls in Node's `fs` for its
@@ -304,6 +320,7 @@ export default defineConfig(({ command }) => ({
   // If a refactor renames these entry chunks the family silently drops out of
   // the manifest — the renderer-prefetch unit test on family presence guards
   // a built dist (see docs/features/renderer-prefetch.md).
+  zenumlCoreClosureGuard(),
   {
     name: 'prefetch-manifest',
     apply: 'build',
@@ -400,9 +417,14 @@ export default defineConfig(({ command }) => ({
   },
   ],
   test: {
-    environment: 'jsdom',
+    environment: './tests/setup/persistent-jsdom-environment.ts',
     globals: true,
-    setupFiles: ['./tests/test-setup.ts'],
+    // One module graph and one jsdom per worker; see "Unit test cleanup rules"
+    // in AGENTS.md. Random order exposes leaks between files and tests.
+    // Vitest prints the seed; reproduce a failure with `--sequence.seed=<seed>`.
+    isolate: false,
+    sequence: { shuffle: { files: true, tests: true } },
+    setupFiles: ['./tests/setup/shared-graph-reset.ts', './tests/test-setup.ts'],
     coverage: {
       provider: 'v8',
     },

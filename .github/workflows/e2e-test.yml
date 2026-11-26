@@ -75,6 +75,14 @@ on:
           caller's run, under its deploy jobs, instead of after them. Empty
           (the default, and what release.yml / smoke-test.yml pass) keeps the
           bootstrap inside this workflow.
+      backend-url:
+        type: string
+        default: ''
+        required: false
+        description: >-
+          Backend origin of a dedicated slot, exported to the tests as
+          E2E_BACKEND_BASE_URL. Empty keeps the staging backend the tests
+          already assume.
       grep:
         type: string
         default: ''
@@ -83,6 +91,27 @@ on:
           Playwright `--grep` filter applied on top of the suite's project list.
           The production release smoke passes '@smoke' to run only the tests
           tagged as the smoke tier (ADR-0006). Empty = the whole suite.
+      workers:
+        type: string
+        default: '1'
+        required: false
+        description: >-
+          Playwright workers per shard (exported as E2E_WORKERS, read by
+          playwright.config.ts). The org runs on the free plan, which caps
+          concurrent jobs at 20; on main the four variants' shards plus the
+          dispatch waiters hit that cap and Lite's shards (the critical path)
+          queued 56-122 s in 5 of 6 runs (2026-11-22). Two workers on half the
+          shards keep the same test concurrency on half the runners.
+      runner:
+        type: string
+        default: ubuntu-24.04
+        required: false
+        description: >-
+          Runner label for the test shards. `gcp-conf` is the self-hosted pool on
+          the GCP VM conf-ci-c4n48 (docs/ops/gcp-runner-pool.md): it is not bound
+          by the free plan's 20 concurrent hosted jobs. On the pool each shard
+          runs in the Playwright container. Pass it only from trusted callers
+          (schedule, main): PR code must never run on the persistent VM.
       shard-matrix:
         type: string
         default: '[1, 2, 3, 4, 5]'
@@ -332,7 +361,11 @@ jobs:
     # `needs` would skip this job with it. A failed bootstrap still stops the
     # shards: nothing they could do without a session is worth a runner.
     if: ${{ !cancelled() && (needs.auth.result == 'success' || needs.auth.result == 'skipped') && (!inputs.planned || (needs.plan.result == 'success' && needs.plan.outputs.count != '0')) }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner }}
+    container: ${{ fromJSON(inputs.runner == 'ubuntu-24.04' && 'null' || '{"image":"mcr.microsoft.com/playwright:v1.59.1-noble"}') }}
+    defaults:
+      run:
+        shell: bash
     # Reap a wedged shard before a human would (a test stuck at the 300s test
     # timeout x3 retries = ~15 min), while leaving room for the SLOWEST legit
     # shard to finish AND for a wedge to fail named-with-trace.
@@ -368,6 +401,11 @@ jobs:
       # job boundary.
       - name: Start shard timing
         run: echo "RUNNER_STARTED_AT_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
+      # In the pool's container the job runs as root on a workspace owned by
+      # the runner user; git refuses it without this (verify-plan.mjs calls git).
+      - name: Trust the workspace (pool)
+        if: inputs.runner != 'ubuntu-24.04'
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.sha }}
@@ -400,14 +438,16 @@ jobs:
         run: cd tests/e2e-tests && pnpm install --ignore-workspace
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
+      # The pool's Playwright image already holds the browsers.
       - name: Cache Playwright browsers
+        if: inputs.runner == 'ubuntu-24.04'
         uses: actions/cache@v5
         id: pw-cache
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-pw-${{ hashFiles('tests/e2e-tests/pnpm-lock.yaml') }}
       - name: Install Playwright browsers
-        if: steps.pw-cache.outputs.cache-hit != 'true'
+        if: inputs.runner == 'ubuntu-24.04' && steps.pw-cache.outputs.cache-hit != 'true'
         run: cd tests/e2e-tests && pnpm exec playwright install --with-deps chromium
       - name: Download shared auth state
         # From the `auth` job — or from the caller's own e2e-auth.yml run when
@@ -432,6 +472,7 @@ jobs:
         if: inputs.planned
         env:
           APP: ${{ inputs.app }}
+          E2E_BACKEND_BASE_URL: ${{ inputs.backend-url }}
           CI: true
           ZENUML_STAGE_USERNAME: ${{ secrets.username }}
           ZENUML_STAGE_PASSWORD: ${{ secrets.password }}
@@ -439,6 +480,7 @@ jobs:
           TEST_EVIDENCE_PATH: test-evidence.json
           PLAN_SHARD: ${{ matrix.shard }}
           RETRIES: ${{ inputs.retries }}
+          E2E_WORKERS: ${{ inputs.workers }}
         run: |
           RUNNER_SETUP_DURATION_MS=$(( $(date +%s%3N) - RUNNER_STARTED_AT_MS ))
           export RUNNER_SETUP_DURATION_MS
@@ -536,7 +578,9 @@ jobs:
             --shard=${{ matrix.shard }}/${{ strategy.job-total }} $RETRY_FLAG $GREP_FLAG $TEST_TARGET
         env:
           APP: ${{ inputs.app }}
+          E2E_BACKEND_BASE_URL: ${{ inputs.backend-url }}
           GREP: ${{ inputs.grep }}
+          E2E_WORKERS: ${{ inputs.workers }}
           CI: true
           ZENUML_STAGE_USERNAME: ${{ secrets.username }}
           ZENUML_STAGE_PASSWORD: ${{ secrets.password }}

@@ -342,6 +342,16 @@ export type McpViewPlantUmlRenderer = "local" | "failed";
 // What the host did when the MCP Apps view asked for fullscreen or to leave it
 // (agent_link_app_view_fullscreen_requested).
 export type McpViewFullscreenOutcome = "entered" | "exited" | "declined" | "failed";
+// What the MCP Apps view's keep-it buttons did (agent_link_app_view_action_used, #1271).
+export type McpViewAction = "copy_source" | "download";
+// `svg` for a drawing (sequence, mermaid, plantuml, graph); `source` for a
+// document (openapi, asyncapi, markdown), whose source is the useful file.
+export type McpViewDownloadFormat = "svg" | "source";
+// `done`: the clipboard accepted the text, or the browser was handed the file.
+// The sandbox may still refuse to save it without telling the frame, so a
+// download `done` is "started", not "saved". `failed`: copy refused, or the
+// image could not be produced.
+export type McpViewActionOutcome = "done" | "failed";
 
 // Why the local PlantUML engine produced no diagram (ADR-0010). A syntax error
 // is NOT a failure: the engine draws it like the server did, and the existing
@@ -919,7 +929,9 @@ export type AnalyticsEventName =
   // time) and `advocacy_message_copied` (asks SOMEONE ELSE to act).
   // Also fires on a Plan and usage row click: surface=dashboard, space_key,
   // macro_count, macro_limit, bundle_price_usd and client_reference_id identify
-  // the selected space and its checkout attribution.
+  // the selected space and its checkout attribution. bundle_offer identifies a
+  // seasonal price on the existing CTA and handoff events. The campaign adds
+  // no event sends, sampling changes, or replay sources.
   | "paywall_bundle_cta_clicked"
   // Bundle checkout path (spec 2026-11-20-bundle-checkout-path-design.md).
   // The Bundle CTA opens our own handoff page on the backend host, because
@@ -1039,7 +1051,9 @@ export type AnalyticsEventName =
   // two features. `feature` ('fullscreen' | 'edit') tells them apart; for `edit`,
   // `surface` is 'editor' and activation (first successful save) is reported with the
   // same `_activation_completed` / `_activation_failed` events. `fullscreen_view_ready`
-  // is Fullscreen-only (the editor has no equivalent moment).
+  // is Fullscreen-only (the editor has no equivalent moment). For `edit`, `edit_target`
+  // says whether the gated editor opened an existing diagram (`block_edit`) or a new
+  // one (`block_create`); both share one 7-day grant.
   // Contact recovery: intent, durable request, successful view and support outcomes
   // stay separate. Never put email addresses or free-form customer text in events.
   | "fullscreen_recovery_gate_shown"
@@ -1748,6 +1762,12 @@ export type AnalyticsEventName =
   // transient failures (5xx, network) are not reported. There is no
   // user-initiated disconnect yet, so `reason: 'user'` is not emitted.
   | "agent_link_oauth_authorized"
+  // `_failed`: an MCP sign-in that did not finish, with `reason`: the
+  // Atlassian leg's failure (atlassian_denied | state_mismatch | missing_code
+  // | exchange_failed | me_failed | config, from oauth/callback.ts) or
+  // 'consent_declined' (Cancel on our consent screen, oauth/consent.ts).
+  // Callback failures carry no user (the account is not known yet).
+  | "agent_link_oauth_failed"
   | "agent_link_oauth_refresh_failed"
   // OUR MCP authorization-server refresh endpoint (oauth/authServer.ts), not
   // the upstream Atlassian grant refresh above. One event per inbound refresh
@@ -1787,6 +1807,9 @@ export type AnalyticsEventName =
   // listed `fullscreen` in its availableDisplayModes (so the view showed its
   // fullscreen button). Never carries the source, a title or any free text,
   // and no user or site: the endpoint accepts these enums and nothing else.
+  // `mcp_mode: 'local'` on this, _fullscreen_requested and _zoomed = the
+  // result came from the local @zenuml/render-mcp server (0.1.3+); absent =
+  // a remote server (render or headless).
   | "agent_link_app_view_rendered"
   // The MCP Apps view's fullscreen button was pressed, and what the host did
   // with `ui/request-display-mode` (POST /mcp/view-event, like _rendered).
@@ -1805,6 +1828,14 @@ export type AnalyticsEventName =
   // gesture counts once, as in the Confluence viewer) and `fullscreen_active` (whether the view was in fullscreen).
   // Enums only, like _rendered.
   | "agent_link_app_view_zoomed"
+  // A press of the view's Copy or Download button (POST /mcp/view-event, like
+  // _rendered; #1271). Carries `macro_type`, `mcp_mode`, `view_action`
+  // (copy_source | download), `download_format` (download only: svg for a
+  // drawing, source for a document) and `action_outcome` (done | failed; a
+  // download `done` means the browser was handed the file, which a host's
+  // sandbox can still block silently). Denominator: _rendered with
+  // `render_outcome: rendered`. Enums only, like _rendered.
+  | "agent_link_app_view_action_used"
   // One per MCP initialize. Carries what the CLIENT advertised, which is the
   // only way to tell "the host never offered MCP Apps" apart from "it offered
   // them and did not render" — the view-fetch events cover the second case
@@ -1900,7 +1931,9 @@ export type AnalyticsEventName =
   // It carries the tool in `mcp_tool`, the target site in `cloud_id` (absent
   // for list_sites / get_status, which take none), how the call ended in
   // `mcp_tool_outcome`, the closed-vocabulary error code (if any) in `reason`,
-  // why the guard refused in `guardrail_reason`, the host in `oauth_client_id` /
+  // why the guard refused in `guardrail_reason` (with `guardrail_kept_pct`,
+  // `guardrail_error_kind`, `guardrail_dsl_kind`, `input_len`, `output_len`
+  // saying how), the host in `oauth_client_id` /
   // `oauth_client_name`, the site in `client_domain`, and server-side latency in
   // `duration_ms`. A `reason: 'upstream'` failure also names the step that
   // failed in `failure_step`, the HTTP status Confluence/Atlassian answered in
@@ -2041,11 +2074,18 @@ export type AnalyticsEventName =
   // editor_inline_edit_* event once flowchart inline edit ships, absent on events
   // sent before it). Flowchart labels use inline_edit_kind 'node_label' /
   // 'edge_label'. Never diagram text or ids. docs/features/mermaid-inline-edit.md.
+  // First visible source-selection hint per editor mount (surface=editor, macro_type=Mermaid).
+  | "editor_source_selection_hint_shown"
   | "editor_inline_edit_started"
   | "editor_inline_edit_succeeded"
   | "editor_inline_edit_rejected"
   | "editor_inline_edit_cancelled"
   | "editor_inline_edit_unavailable"
+  // Mermaid inline-edit introduction (#1312): fires when the blocking modal
+  // actually opens for an account and diagram type, before playback ends.
+  // feature_area 'macro', surface 'editor', macro_type 'mermaid',
+  // inline_edit_diagram, inline_edit_intro_reduced_motion. No diagram text.
+  | "mermaid_inline_edit_intro_shown"
   // Onboarding funnel — "second diagram" prompt (registered ahead of its
   // producer: this task only registers the event names + properties so the
   // catalog/types are ready; no call site exists yet in this codebase. A
@@ -2220,10 +2260,56 @@ export type AgentLinkRenderOutcome = "rendered" | "failed" | "timeout";
 // never-emitted; the type survives because it still widens the shared `reason`
 // union in types.ts. 'parse_error' = the DSL didn't parse in the
 // real parser (ZenUML/Mermaid/best-effort PlantUML — see charter §4-C);
-// 'data_loss' = it parsed but the semantic round-trip diff showed the output
-// dropping content present in the input (participant/message count collapse);
+// 'data_loss' = the replacement kept under 80% of the current content's
+// non-whitespace length (updateDiagramGuard.ts DATA_LOSS_MIN_RATIO; the page
+// guard uses the same test) — a length check, not a semantic diff;
 // 'other' = any other pre-persist guardrail rejection not covered above.
 export type AgentLinkGuardrailRejectReason = "parse_error" | "data_loss" | "other";
+
+// What kind of parse error a `guardrail_reason: 'parse_error'` refusal was
+// (guardrail_error_kind). Derived from the first parser error's text, which
+// itself never leaves the backend. 'unknown_diagram' = Mermaid found no
+// diagram type it knows (the shape of the 2026-11 false refusals on Mermaid
+// `zenuml` blocks); 'unexpected_end' = the source ends mid-construct (got
+// 'EOF', a missing @end, an unclosed brace) — the truncation signature;
+// 'syntax' = any other grammar error.
+export type AgentLinkGuardrailErrorKind = "unknown_diagram" | "unexpected_end" | "syntax";
+
+// The diagram keyword at the top of a refused Mermaid source
+// (guardrail_dsl_kind), from Mermaid's own keyword list. 'other' = a first
+// word not on that list (never the word itself); 'empty' = no keyword at all.
+export type AgentLinkGuardrailDslKind =
+  | "flowchart"
+  | "graph"
+  | "sequenceDiagram"
+  | "classDiagram"
+  | "stateDiagram"
+  | "stateDiagram-v2"
+  | "erDiagram"
+  | "journey"
+  | "gantt"
+  | "pie"
+  | "quadrantChart"
+  | "requirementDiagram"
+  | "gitGraph"
+  | "C4Context"
+  | "C4Container"
+  | "C4Component"
+  | "C4Dynamic"
+  | "C4Deployment"
+  | "mindmap"
+  | "timeline"
+  | "zenuml"
+  | "sankey-beta"
+  | "xychart-beta"
+  | "block-beta"
+  | "packet-beta"
+  | "architecture-beta"
+  | "kanban"
+  | "radar-beta"
+  | "treemap-beta"
+  | "other"
+  | "empty";
 
 // Why an agent_link session moved to/from 'suspended' (agent_link_session_suspended
 // / agent_link_session_resumed — charter §7.2). 'fullscreen_closed' = the
@@ -2356,7 +2442,12 @@ export type AgentLinkMcpButtonReveal = "always" | "hover";
 // 'render' = the public render-only endpoint (POST /mcp/render), which
 // needs no sign-in and no Atlassian site. Its events carry no user id, so they
 // all share Mixpanel's unknown_user_account_id; split them by `mcp_mode`.
-export type AgentLinkMcpMode = "headless" | "relay" | "render";
+// 'local' = the @zenuml/render-mcp stdio server on the user's own machine
+// (tools/render-mcp-local). It sends no events itself; only the MCP Apps view's
+// agent_link_app_view_rendered / _zoomed / _fullscreen_requested carry it, when
+// the tool result says it came from that server. Absent on those three = a
+// remote server (render or headless), or a local package older than 0.1.3.
+export type AgentLinkMcpMode = "headless" | "relay" | "render" | "local";
 
 // Whether render_diagram's source parsed (agent_link_mcp_tool_called with
 // `mcp_mode: 'render'`). 'valid' = the dialect's parser accepted it;

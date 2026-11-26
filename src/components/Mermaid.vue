@@ -4,9 +4,9 @@
       <div class="text-4xl mb-3">🌿</div>
       <div class="text-sm font-semibold text-emerald-700 mb-1">Start with Mermaid</div>
       <div class="text-xs text-gray-400 mb-4">Type or paste Mermaid syntax in the editor</div>
-      <pre class="text-left text-xs font-mono bg-gray-900 text-emerald-300 rounded-lg px-5 py-4 leading-relaxed">sequenceDiagram
-    Alice-&gt;&gt;John: Hello John!
-    John--&gt;&gt;Alice: Hi Alice!</pre>
+      <pre class="text-left text-xs font-mono bg-gray-900 text-emerald-300 rounded-lg px-5 py-4 leading-relaxed">flowchart TD
+    Start([Start]) --&gt; Step[Do something]
+    Step --&gt; Done([Done])</pre>
     </div>
     <DiagramViewport
       v-else
@@ -36,7 +36,7 @@ import { awaitSvgTextLayout } from '@/utils/renderGate/documentLayout';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue';
 import { attachMermaidHighlights } from '../../tools/mermaid-highlights/src/mermaid-highlights.mjs';
-import { MERMAID_INLINE_EDIT_SURFACE } from '@/features/mermaidInlineEdit/ui/surface';
+import { MERMAID_INLINE_EDIT_SURFACE, reportInlineIntroRender } from '@/features/mermaidInlineEdit/ui/surface';
 
 // A wait for a measurable layout that outlasts this reports one
 // viewer_render_deferred, so a hidden macro is told apart from a broken one (#706).
@@ -51,7 +51,10 @@ export default {
   },
   emits: ['highlight-ready', 'highlight-used'],
   // True only under Workspace.vue (the editor preview). See ui/surface.ts.
-  inject: { inlineEditSurface: { from: MERMAID_INLINE_EDIT_SURFACE, default: false } },
+  inject: {
+    inlineEditSurface: { from: MERMAID_INLINE_EDIT_SURFACE, default: false },
+    reportInlineIntroRender: { from: reportInlineIntroRender, default: null },
+  },
   data() {
     return {
       svg: null,
@@ -241,7 +244,9 @@ export default {
       }
       // Latest request wins. This also prevents a queued result from writing
       // into a component that changed diagram type or was unmounted.
-      if (!svg || generation !== this.renderGeneration || this.mermaidCode !== code) {
+      if (generation !== this.renderGeneration || this.mermaidCode !== code) return false;
+      if (!svg) {
+        this.inlineEdit?.onRenderFailed(code);
         return false;
       }
       this.currentFlowchartModel = typeof svg === 'string' ? null : svg.flowchartModel;
@@ -257,6 +262,9 @@ export default {
       this.installHighlights();
       this.inlineEditRenderedCode = code;
       this.inlineEdit?.onRendered(code);
+      if (this.inlineEditAllowed) {
+        this.reportInlineIntroRender?.(code, this.$el.querySelector('.mermaid-diagram svg[aria-roledescription]'));
+      }
       reportDiagramReady(this.$el, 'mermaid');
       return true;
     },

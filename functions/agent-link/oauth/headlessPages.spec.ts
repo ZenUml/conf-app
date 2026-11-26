@@ -253,7 +253,10 @@ describe('update_page', () => {
     const { ctx, calls } = await contextFor(site);
     await expect(
       callHeadlessTool('update_page', { cloudId: CLOUD, pageId: 'page-1', body: '<p>Just my new bit.</p>' }, ctx),
-    ).rejects.toMatchObject({ code: 'guardrail_rejected' });
+    ).rejects.toMatchObject({
+      code: 'guardrail_rejected',
+      detail: { reason: 'data_loss', kept_pct: expect.any(Number) },
+    });
     expect(calls).toHaveLength(0);
     expect(site.pages.get('page-1')!.body).toBe(CURRENT_BODY);
   });

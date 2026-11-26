@@ -1,7 +1,7 @@
 // src/utils/analytics/trackAnalyticsEvent.spec.ts
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import mixpanel from "mixpanel-browser";
+import mixpanel from "./mixpanelClient";
 import { getClientDomain, getSpaceKey } from "@/utils/ContextParameters/ContextParameters";
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import {
@@ -19,7 +19,8 @@ import { normalizeProductType } from "./productType";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
 import { EVENT_SAMPLE_RATES } from "./eventSampling";
 
-vi.mock("mixpanel-browser", () => ({
+vi.mock("./mixpanelClient", () => ({
+  MIXPANEL_RECORDER_SRC: "https://app.test/assets/mixpanel-recorder.min.js",
   default: {
     init: vi.fn(),
     identify: vi.fn(),
@@ -246,6 +247,14 @@ describe("trackAnalyticsEvent", () => {
     expect(mixpanel.init).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ record_sessions_percent: 100 }));
     expect(mixpanel.register).toHaveBeenCalledWith(expect.objectContaining({
       session_replay_percent: 100, session_replay_source: 'feedback_dialog',
+    }));
+  });
+
+  it('points the async replay recorder at our bundled copy', async () => {
+    vi.mocked(forgeGlobal).forgeContext = { localId: 'modal-fb', extension: { modal: { macroMode: 'feedback' } } } as any;
+    await _awaitableTrackAnalyticsEvent('feedback_report_opened', { surface: 'modal' });
+    expect(mixpanel.init).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      recorder_src: 'https://app.test/assets/mixpanel-recorder.min.js',
     }));
   });
 
@@ -1296,6 +1305,10 @@ describe("trackAnalyticsEvent", () => {
           .mocked(mixpanel.track)
           .mock.calls.some(([name]) => name === "analytics_init_degraded"),
       ).toBe(false);
+      // jsdom queues a 0 ms storage-event timer when the account id is cached
+      // for the first time in a file; flush it so only a product timer can
+      // remain. Whether an earlier test cached the id used to decide this test.
+      await vi.advanceTimersByTimeAsync(0);
       // No dangling timer keeps the iframe or the test alive.
       expect(vi.getTimerCount()).toBe(0);
     });

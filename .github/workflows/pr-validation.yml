@@ -10,10 +10,16 @@ on:
         type: string
         required: true
 
-# Only jobs that need staging belong here: this lock holds back the whole run.
+# Only jobs that need the PR slot belong here: this lock holds back the whole run.
 # Unit tests, the AsyncAPI build and the Viewer preview are in pr-checks.yml.
+#
+# PR runs have their own slot, so they no longer wait behind main and the daily
+# regression (which keep `conf-app-staging`):
+#   Forge environment `pr`  ->  lite-dev.atlassian.net  ->  conf-stg-lite-pr.zenuml.com
+#   (Pages project conf-stg-lite, preview branch `pr`; D1, KV and R2 are shared
+#   with staging). One slot means PR runs still queue behind one another.
 concurrency:
-  group: conf-app-staging
+  group: conf-app-pr-slot
   cancel-in-progress: false
   queue: max
 
@@ -24,10 +30,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     outputs:
-      run: ${{ steps.gate.outputs.run == 'true' && steps.current.outputs.current != 'false' }}
+      run: ${{ steps.gate.outputs.run == 'true' && steps.current.outputs.current != 'false' && steps.covered.outputs.covered-by == '' }}
+      covered-by: ${{ steps.covered.outputs.covered-by }}
       candidate: ${{ steps.gate.outputs.candidate }}
       head-sha: ${{ steps.gate.outputs.head-sha }}
       pr-number: ${{ steps.gate.outputs.pr-number }}
@@ -63,9 +71,9 @@ jobs:
           echo "run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
       # This job starts once the run holds the staging lock, which can be many
       # minutes after the push. A run that a newer push overtook must not spend
-      # the shared slot on a commit nobody will merge. `concurrency` cannot do
-      # this for us: the group is repo-wide, so cancel-in-progress would cancel
-      # other PRs, main and the daily regression too.
+      # the PR slot on a commit nobody will merge. `concurrency` cannot do
+      # this for us: the group covers every PR, so cancel-in-progress would cancel
+      # other PRs' runs too.
       - id: current
         name: Skip if a newer push overtook this run
         env:
@@ -73,6 +81,24 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr-number }}
           EXPECTED_SHA: ${{ steps.gate.outputs.head-sha }}
         run: node scripts/ci/pr-head-current.mjs
+      # One commit often gets several runs (push, `test:run`, Ready for Review).
+      # They queue on the one PR slot; without this each would deploy and run E2E
+      # again for the same commit and the same test decision. A manual dispatch
+      # or a re-run always validates again.
+      - id: covered
+        name: Skip if an earlier run already validated this commit
+        if: ${{ steps.gate.outputs.run == 'true' && steps.current.outputs.current != 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr-number }}
+          EXPECTED_SHA: ${{ steps.gate.outputs.head-sha }}
+        run: node scripts/ci/pr-run-covered.mjs
+      - name: Report the covering run
+        if: ${{ steps.covered.outputs.covered-by != '' }}
+        env:
+          COVERED_BY: ${{ steps.covered.outputs.covered-by }}
+        run: |
+          echo "Skipped. Run [$COVERED_BY]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$COVERED_BY) already passed E2E for this commit under the current test decision." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Record parent candidate provenance
         env:
@@ -107,8 +133,8 @@ jobs:
     name: "E2E auth: Lite"
     uses: ./.github/workflows/e2e-auth.yml
     with:
-      app: zenuml-lite@stg
-      artifact-name: auth-state-pre-lite-stg
+      app: zenuml-lite@dev
+      artifact-name: auth-state-pre-lite-dev
     # Creds via `secrets:` (GitHub masks them as ***), not `with:` (echoed in logs).
     secrets:
       username: ${{ vars.ZENUML_STAGE_USERNAME }}
@@ -160,21 +186,32 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # The deploy waits for the decision (about 20 s). Without a current decision no
+  # E2E follows, so a deploy would hold the PR slot for minutes for nothing.
   staging-lite:
-    if: needs.gate.outputs.run == 'true'
-    needs: gate
+    if: ${{ needs.select.result == 'success' && needs.gate.outputs.run == 'true' }}
+    needs: [gate, select]
     name: "Deploy: Lite"
     uses: ./.github/workflows/staging-deploy.yml
     with:
       ref: ${{ needs.gate.outputs.candidate }}
       variant: lite
       license: lite
+      # Same Pages project and GitHub environment as staging (candidate mode
+      # and the secrets depend on both); the slot differs in the four below.
       project: conf-stg-lite
       environment: staging-lite
+      pages-branch: pr
+      forge-environment: pr
+      forge-site: lite-dev.atlassian.net
+      backend-url: https://conf-stg-lite-pr.zenuml.com
     secrets: inherit
 
   pr-e2e-validation:
-    name: "E2E validation"
+    # An expression, not a plain string: GitHub shows a skipped job's expression
+    # name unevaluated, so a skipped duplicate run cannot replace the passed
+    # "E2E validation" check of the run that covers it.
+    name: ${{ needs.gate.outputs.run == 'true' && 'E2E validation' || 'E2E validation (not run)' }}
     if: ${{ !cancelled() && (github.event_name == 'pull_request' || inputs.pr-number != '') && needs.gate.outputs.run == 'true' && needs.staging-lite.result == 'success' && needs.select.result == 'success' && needs.e2e-auth-lite.result == 'success' }}
     needs: [gate, staging-lite, select, e2e-auth-lite]
     runs-on: ubuntu-latest
@@ -206,6 +243,10 @@ jobs:
           CHILD_WORKFLOW: pr-agent-e2e-validation.yml
           CHILD_TITLE: PR E2E
           CHILD_KIND: pr
+          # The child runs from the default branch; these select the PR slot.
+          CHILD_APP: zenuml-lite@dev
+          CHILD_AUTH_ARTIFACT: auth-state-pre-lite-dev
+          CHILD_BACKEND_URL: https://conf-stg-lite-pr.zenuml.com
           DISPATCH_REF: ${{ github.event.repository.default_branch }}
           SOURCE_SHA: ${{ needs.gate.outputs.candidate }}
           PR_NUMBER: ${{ needs.gate.outputs.pr-number }}

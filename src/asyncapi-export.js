@@ -44,11 +44,13 @@ export const handler = async (payload) => {
       await trackExportEvent('macro_export_failed', {
         ...joinKeyProps(ctx),
         failure_reason: 'missing_custom_content_id',
+        failure_kind: 'no_content_id',
       });
       return createErrorDocument('Diagram content not available for export');
     }
 
-    const specDoc = await buildAsyncApiSpecDocument(customContentId);
+    const lookup = {};
+    const specDoc = await buildAsyncApiSpecDocument(customContentId, lookup);
     if (specDoc) {
       await trackExportEvent('macro_export_succeeded', {
         ...joinKeyProps(ctx),
@@ -60,6 +62,8 @@ export const handler = async (payload) => {
     await trackExportEvent('macro_export_failed', {
       ...joinKeyProps(ctx),
       failure_reason: 'asyncapi_spec_unavailable',
+      failure_kind: lookup.httpStatus ? 'spec_lookup_http_error' : 'spec_unusable',
+      ...(lookup.httpStatus ? { http_status: lookup.httpStatus } : {}),
     });
     return createErrorDocument(
       'AsyncAPI specification not available for export. It may have been deleted, or stored under a different custom-content type.',
@@ -70,6 +74,7 @@ export const handler = async (payload) => {
     await trackExportEvent('macro_export_failed', {
       ...joinKeyProps(ctx),
       failure_reason: `unexpected_error:${errorName}`,
+      failure_kind: 'exception',
       error_name: errorName,
       error_message: String(error?.message ?? error ?? '').slice(0, 200),
     });
@@ -83,12 +88,13 @@ export const handler = async (payload) => {
  * can't be loaded or doesn't hold an AsyncAPI spec, so the caller can render a
  * clear error instead. Ported from AsyncAPI-Conf-V2/src/backend/export.js.
  */
-async function buildAsyncApiSpecDocument(customContentId) {
+async function buildAsyncApiSpecDocument(customContentId, lookup = {}) {
   const response = await api
     .asApp()
     .requestConfluence(route`/wiki/api/v2/custom-content/${customContentId}?body-format=raw`);
   if (!response.ok) {
     console.debug(`AsyncAPI export: custom-content lookup ${response.status}`);
+    lookup.httpStatus = response.status;
     return null;
   }
 

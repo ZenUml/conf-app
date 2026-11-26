@@ -103,6 +103,11 @@ import type {
   HighlightDismissCause,
 } from "./catalog";
 
+export type ExportFailureKind =
+  | "no_content_id" | "attachment_missing" | "attachment_no_file_id"
+  | "attachments_api_error" | "auth_denied" | "no_user_credential" | "exception"
+  | "spec_lookup_http_error" | "spec_unusable";
+
 export type AnalyticsProperties = {
   /** Fullscreen contact recovery. Identifiers are opaque; no email or free text. */
   feature?: 'fullscreen' | 'edit';
@@ -774,6 +779,10 @@ export type AnalyticsProperties = {
   // ('page_read_failed', 'page_write_failed'). Absent for the others, which
   // never made a request that returned one.
   http_status?: number;
+  // macro_export_failed (backend, src/export.js and src/asyncapi-export.js):
+  // bounded grouping of the failure; the value set is EXPORT_FAILURE_KINDS.
+  // Adds a property to an existing event, so no event volume changes.
+  failure_kind?: ExportFailureKind;
   // Diagram locations (Plan and usage, plan_usage_locations_*). Counts and
   // outcomes only: no page ids, page titles, search text or space keys, which
   // are customer content. `page_index` counts fetched batches from 0.

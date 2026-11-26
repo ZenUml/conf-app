@@ -1762,6 +1762,12 @@ export type AnalyticsEventName =
   // transient failures (5xx, network) are not reported. There is no
   // user-initiated disconnect yet, so `reason: 'user'` is not emitted.
   | "agent_link_oauth_authorized"
+  // `_failed`: an MCP sign-in that did not finish, with `reason`: the
+  // Atlassian leg's failure (atlassian_denied | state_mismatch | missing_code
+  // | exchange_failed | me_failed | config, from oauth/callback.ts) or
+  // 'consent_declined' (Cancel on our consent screen, oauth/consent.ts).
+  // Callback failures carry no user (the account is not known yet).
+  | "agent_link_oauth_failed"
   | "agent_link_oauth_refresh_failed"
   // OUR MCP authorization-server refresh endpoint (oauth/authServer.ts), not
   // the upstream Atlassian grant refresh above. One event per inbound refresh

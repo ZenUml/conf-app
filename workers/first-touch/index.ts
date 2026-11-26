@@ -7,7 +7,7 @@
 // Rules: .claude/skills/customer-followup/references/contact-policy.md. One email per site, ever: a site is
 // skipped when the ledger has it or Gmail has any thread with the contact or the site.
 // The ledger is KV_FEATURE_FLAGS keys `first-touch:site:<host>`; a summary goes to REPORT_TO when anything
-// was sent, drafted or failed.
+// was sent or drafted. Failures are alerted by a Cloudflare monitor on the heartbeat log (see the handler).
 //
 // Deploy:  npx wrangler deploy -c workers/first-touch/wrangler.toml
 // Secrets: MARKETPLACE_EMAIL, MARKETPLACE_TOKEN (FORGE_EMAIL / FORGE_API_TOKEN),
@@ -172,17 +172,14 @@ function report(r: Awaited<ReturnType<typeof run>>): Email | null {
 export default {
   async scheduled(_c: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil((async () => {
-      const gmail = new Gmail(env);
-      try {
-        const r = await run(env);
-        console.log(JSON.stringify({ window: r.window, lines: r.lines.map((l) => ({ site: l.c.site, app: l.c.app, result: l.result })), waiting: r.waiting }));
-        const e = report(r);
-        if (e && env.DRY_RUN !== "1") await gmail.send(env.REPORT_TO, e);
-      } catch (err) {
-        console.error("first-touch failed", err);
-        if (env.DRY_RUN !== "1") await gmail.send(env.REPORT_TO, { subject: "First-touch 扫描失败", text: String(err) }).catch(() => {});
-        throw err;
-      }
+      const r = await run(env);
+      console.log(JSON.stringify({ window: r.window, lines: r.lines.map((l) => ({ site: l.c.site, app: l.c.app, result: l.result })), waiting: r.waiting }));
+      const e = report(r);
+      if (e && env.DRY_RUN !== "1") await new Gmail(env).send(env.REPORT_TO, e);
+      // Heartbeat. The Cloudflare monitor "conf-first-touch heartbeat" emails the owner when no such line
+      // appears for 25 hours, which covers a thrown error, a revoked Gmail token and a cron that never fired.
+      // A failure email from this Worker would go through the same Gmail token, so there is none.
+      console.log(JSON.stringify({ event: "first_touch_run_ok", window: r.window }));
     })());
   },
 } satisfies ExportedHandler<Env>;

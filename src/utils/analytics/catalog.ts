@@ -1580,6 +1580,9 @@ export type AnalyticsEventName =
   // text, page id, or tenant vocabulary on any of these.
   | "related_diagrams_lookup_succeeded"
   | "related_diagrams_lookup_failed"
+  // The footer did not ask: the viewer is anonymous, so Forge sends no user token and the
+  // backend could only answer 403 no_user_credential. `lookup_skip_reason` says why.
+  | "related_diagrams_lookup_skipped"
   | "related_token_indicators_shown"
   | "related_diagram_popover_opened"
   | "related_diagram_link_clicked"

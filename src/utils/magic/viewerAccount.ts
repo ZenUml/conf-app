@@ -52,6 +52,15 @@ async function fetchCurrentUserViaBridge(): Promise<unknown> {
   return response.json();
 }
 
+/**
+ * No account in the Forge context means nobody is signed in. Forge sends such a viewer no
+ * user token, so a remote call that needs one cannot work. A guest does have an account,
+ * and since Forge started sending guests a token (2026-11) needs no special case here.
+ */
+export function isAnonymousViewer(accountId: string | null | undefined): boolean {
+  return !accountId;
+}
+
 export async function viewerAccountKind(input: {
   accountId?: string;
   clientDomain: string;
@@ -59,8 +68,8 @@ export async function viewerAccountKind(input: {
   fetchCurrentUser?: () => Promise<unknown>;
 }): Promise<ViewerAccountKind> {
   const { accountId, clientDomain, now = Date.now(), fetchCurrentUser = fetchCurrentUserViaBridge } = input;
-  // No account in the Forge context means nobody is signed in: no request, no cache.
-  if (!accountId) return 'anonymous';
+  // Nobody is signed in: no request, no cache.
+  if (isAnonymousViewer(accountId)) return 'anonymous';
   const key = cacheKey(clientDomain, accountId);
   const cached = readCached(key, now);
   if (cached) return cached;

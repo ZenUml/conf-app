@@ -176,6 +176,8 @@ function configureStory(withLookup: boolean) {
   forgeGlobal.isLite = true
   forgeGlobal.zenumlRemoteBaseUrl = 'https://storybook.invalid'
   forgeGlobal.forgeContext = {
+    // signed in: the footer sends no lookup for an anonymous viewer
+    accountId: 'storybook-user',
     siteUrl: 'https://example.atlassian.net',
     extension: { content: { id: 'storybook-page' }, space: { key: 'OP' } },
   }

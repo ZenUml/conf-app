@@ -160,7 +160,7 @@ describe("trackRenderTime", () => {
       expect(viewedProps()).not.toHaveProperty("license_active");
     });
 
-    it("omits the property on Lite, where Forge reports false for a free app", () => {
+    it("omits the property on Lite, even if Forge supplies a boolean", () => {
       vi.stubEnv("PRODUCT_TYPE", "lite");
       forgeGlobal.forgeContext = { ...originalContext, license: { active: false } };
       expect(viewedProps()).not.toHaveProperty("license_active");

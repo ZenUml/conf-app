@@ -32,3 +32,17 @@ test('selects the modal Insert action when a search result also contains Insert'
 
   await expect(page.getByRole('dialog', { name: 'Browse' })).toBeHidden();
 });
+
+test('opens Insert elements when a template panel covers the editor body', { tag: ['@test:sequence', '@variant:lite', '@variant:full', '@variant:diagramly', '@editor', '@sequence'] }, async ({ page }) => {
+  await page.setContent(`
+    <div role="textbox" aria-label="Main content area" contenteditable="true" style="width: 400px; height: 200px"></div>
+    <button id="template" style="position: absolute; top: 0; left: 0; width: 400px; height: 200px" onclick="this.dataset.clicked = 'true'">Rovo template</button>
+    <button aria-label="Insert elements" onclick="document.querySelector('#browser').hidden = false">Insert elements</button>
+    <section id="browser" role="dialog" aria-label="Browse" hidden><input role="combobox" /></section>
+  `);
+
+  await new ConfluenceEditorPage(page).clickInsertElements();
+
+  await expect(page.getByRole('dialog', { name: 'Browse' }).getByRole('combobox')).toBeVisible();
+  await expect(page.locator('#template')).not.toHaveAttribute('data-clicked', 'true');
+});

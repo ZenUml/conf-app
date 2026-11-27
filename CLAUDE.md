@@ -56,6 +56,8 @@ The **validate-branch** skill defines the execution order and distinguishes loca
 
 Every created or updated PR must put **PR review support materials** at the top of its description: comparable BEFORE/AFTER evidence, reviewer-accessible screenshots or behavior outputs, test/CI results tied to the tested commit, and explicit unverified or blocked checks. Use `.claude/skills/pr-review-support-materials/SKILL.md` when validating, submitting, or marking a PR ready. Local-only artifact paths are not sufficient review evidence.
 
+Every PR description must also have a **Persisted data changes** section: each change to data stored in Confluence (custom content, page body/macro parameters, content properties, attachments) or Cloudflare (D1 tables/migrations, KV keys, R2 objects) — what changes, whether existing data needs migration or backfill, and whether a revert is safe. Write "None" when nothing persisted changes. BEFORE/AFTER screenshots are required only for UI changes; omit that part for non-UI PRs.
+
 ### Confluence app UI design targets desktop
 
 For the Confluence app, design for the desktop surface. Do not create narrow/mobile layouts or separate narrow-screen artboards unless the user explicitly requests them.

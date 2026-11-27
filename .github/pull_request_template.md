@@ -1,3 +1,27 @@
+## Before / After screenshots (UI changes only)
+
+<!--
+Required only if this PR changes something a user can see in the Confluence app.
+If it doesn't, delete this section.
+Add BEFORE and AFTER screenshots of each changed screen, captured with the same steps and data.
+Use image URLs reviewers can open (e.g. the `pr-evidence` branch), not local paths.
+-->
+
+| Screen / step | BEFORE | AFTER |
+|---|---|---|
+|  |  |  |
+
+## Persisted data changes
+
+<!--
+List every change to what is written to, read from, or the shape of stored data:
+- Confluence: custom content (body, type, properties), page body / macro parameters, content properties, attachments
+- Cloudflare D1: tables, columns, migrations, rows written or deleted
+- Cloudflare KV / R2: keys, prefixes, value shape, TTLs
+For each: what changes, whether existing data needs migration or backfill, and whether a revert is safe.
+If nothing persisted changes, write "None".
+-->
+
 ## Summary
 
 <!-- 1–3 bullets describing what changed and why. -->

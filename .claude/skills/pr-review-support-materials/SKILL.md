@@ -22,6 +22,15 @@ Before validation, identify the user-visible behavior and the same reproducible 
 
 Run the applicable validation workflow; for Confluence UI the order remains Storybook → Forge Tunnel → CI-deployed Staging. This skill never bypasses a blocked stage. Distinguish unit/component tests, integration checks, Storybook browser interactions, CI E2E, and manual live UI verification. State the tested variant, data source (fixture or live), commands, outcomes/counts, and limitations. Separate your observed evidence from inherited claims.
 
+## 2b. Call out persisted data changes
+
+Always add a `### Persisted data changes` subsection, even for UI-only PRs. From the diff, list each change to what is written, read, deleted, or the shape of stored data:
+
+- **Confluence:** custom content (body, type, properties), page body or macro parameters, content properties, attachments.
+- **Cloudflare:** D1 tables, columns, migrations, rows written or deleted; KV keys, prefixes, value shape, TTLs; R2 objects.
+
+For each, state what changes, whether existing data needs migration or backfill, whether older app versions can still read it, and whether a revert is safe. Write "None" when nothing persisted changes; do not omit the subsection.
+
 ## 3. Publish evidence reviewers can open
 
 Use the repository's evidence convention: `pr-evidence` branch, directory `pr-<number>/` (examples: #951 and #816), or an existing durable artifact destination. Inspect the ref and directory separately: `/tree/pr-evidence/pr-951` means branch `pr-evidence`, directory `pr-951`. Reuse that branch without force-pushing; keep screenshots/logs off the product branch unless this repository already requires otherwise. Pin links to the evidence commit SHA so later uploads do not silently replace proof.
@@ -50,6 +59,10 @@ BEFORE: <baseline SHA>. AFTER: <tested SHA>. <UI source, fixture/live, viewport 
 | Unit/component | <counts, command, SHA> | <log> |
 | Storybook / integration | <actual observed result or N/A> | <capture/probe> |
 | CI E2E | <status and exact tested SHA> | <run/job link> |
+
+### Persisted data changes
+
+<Store → what changes, migration/backfill, revert safety; or "None".>
 
 Not verified / blocked: <specific stages, reason, what is needed to finish>.
 Evidence bundle: <immutable README link>.

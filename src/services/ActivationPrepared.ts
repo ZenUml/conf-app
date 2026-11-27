@@ -1,5 +1,6 @@
 import { callRemote } from '@/utils/requestUtil';
 import { Diagram, DiagramType, DataSource } from '@/model/Diagram/Diagram';
+import { RemoteCallError } from '@/utils/remoteCallError';
 
 // Client for the byline activation "prepared diagram" backend cache
 // (functions/activation-prepared.ts). cloudId is derived server-side from the
@@ -13,9 +14,9 @@ export interface PreparedDiagramPayload {
   curatedAt?: string;
 }
 
-// callRemote throws on non-2xx; a 404 (cache miss) surfaces as a thrown
-// "HTTP 404: ..." Error, which we translate to `undefined` so the caller can
-// fire activation_cache_miss rather than crash.
+// callRemote throws a RemoteCallError on non-2xx; a 404 (cache miss) is
+// translated to `undefined` so the caller can fire activation_cache_miss rather
+// than crash. Any other error, typed or not, is a real failure.
 export async function fetchPreparedDiagram(
   pageId: string,
 ): Promise<PreparedDiagramPayload | undefined> {
@@ -28,7 +29,7 @@ export async function fetchPreparedDiagram(
     if (!body || !body.diagramType || !body.diagramSource) return undefined;
     return body as PreparedDiagramPayload;
   } catch (e) {
-    if (e instanceof Error && /HTTP 404/.test(e.message)) return undefined;
+    if (e instanceof RemoteCallError && e.status === 404) return undefined;
     throw e;
   }
 }

@@ -31,7 +31,7 @@ setup((app: App) => {
  * `stubResponses` supplies per-story data. Note these lookups only work inside
  * the full Storybook UI, not `iframe.html` opened directly: `forgeRequest`
  * (src/utils/requestUtil.ts) branches on `window.self === window.top` and takes
- * its MockAp path when the story is the top frame, leaving the names blank.
+ * its standalone fixture path when the story is the top frame, leaving the names blank.
  */
 const CREATOR = 'acct-creator'
 const UPDATER = 'acct-updater'

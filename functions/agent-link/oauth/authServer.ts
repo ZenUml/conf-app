@@ -617,6 +617,7 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
         }
         if (known?.legacy && legacy?.usedAtMs !== undefined) {
           await deps.refreshLedger.revoke(known.chainId, now);
+          // Legacy KV lineage: a used KV row still revokes (ADR 0008, 2026-10-28 amendment covers D1 only).
           await completeRefresh({ outcome: 'rejected', reason: 'reused' });
           return oauthError(400, 'invalid_grant', 'this sign-in was revoked; sign in again');
         }
@@ -648,15 +649,17 @@ export async function handleToken(request: Request, deps: AsDeps): Promise<Respo
             scope: pair.scope,
           }, { status: 200, headers: JSON_HEADERS });
         }
-        if (result.status === 'client_mismatch' || result.status === 'reused') {
+        if (result.status === 'client_mismatch') {
           try {
-            await deps.onChainRevoked?.({ reason: result.status === 'client_mismatch' ? 'client_mismatch' : 'refresh_reused',
+            await deps.onChainRevoked?.({ reason: 'client_mismatch',
               userId: result.record!.userId, clientId: result.record!.clientId });
           } catch { /* telemetry never changes token response */ }
         }
         await completeRefresh({ outcome: 'rejected', reason: result.status,
           userId: 'record' in result ? result.record?.userId : undefined, reuseAgeMs: result.reuseAgeMs });
-        return oauthError(400, 'invalid_grant', 'the refresh token is invalid or this sign-in was revoked; sign in again');
+        return oauthError(400, 'invalid_grant', result.status === 'stale'
+          ? 'the refresh token was already rotated by another process; sign in again in this process (other sessions stay signed in)'
+          : 'the refresh token is invalid or this sign-in was revoked; sign in again');
       } catch {
         await completeRefresh({ outcome: 'unavailable', reason: 'storage_unavailable' });
         return oauthError(503, 'temporarily_unavailable', 'refresh service is temporarily unavailable');

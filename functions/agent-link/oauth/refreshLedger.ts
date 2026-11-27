@@ -40,7 +40,7 @@ export interface RefreshPair {
 }
 export type RotateResult =
   | { status: 'rotated' | 'retried'; pair: RefreshPair; reuseAgeMs?: number }
-  | { status: 'unknown' | 'revoked' | 'expired' | 'client_mismatch' | 'resource_mismatch' | 'reused' | 'advanced'; record?: RefreshTokenRecord & { chainId: string }; reuseAgeMs?: number };
+  | { status: 'unknown' | 'revoked' | 'expired' | 'client_mismatch' | 'resource_mismatch' | 'stale' | 'advanced'; record?: RefreshTokenRecord & { chainId: string }; reuseAgeMs?: number };
 
 function b64(bytes: Uint8Array): string {
   let binary = '';
@@ -140,7 +140,7 @@ export function createRefreshLedger(db: RefreshDb, secret: string, issuer: strin
     if (parent.revokedAtMs !== null) return { status: 'revoked', record };
     if (clientId !== parent.clientId) { await revoke(parent.chainId, nowMs); return { status: 'client_mismatch', record }; }
     if (resource !== parent.resource) return { status: 'resource_mismatch', record };
-    if (parent.usedAtMs !== null) return retryOrRevoke(parent, record, nowMs);
+    if (parent.usedAtMs !== null) return retryOrReject(parent, record, nowMs);
     if (parent.expiresAtMs <= nowMs) return { status: 'expired', record };
 
     const refreshToken = randomToken();
@@ -171,15 +171,20 @@ export function createRefreshLedger(db: RefreshDb, secret: string, issuer: strin
     if (results[0].meta.changes === 1 && results[1].meta.changes === 1) return { status: 'rotated', pair };
     const winner = await read(hash);
     if (!winner) throw new Error('D1 refresh parent disappeared');
-    return retryOrRevoke(winner, record, nowMs);
+    return retryOrReject(winner, record, nowMs);
   }
 
-  async function retryOrRevoke(parent: Row, record: RefreshPair['record'], nowMs: number): Promise<RotateResult> {
+  // A used token from the same client after the retry window is rejected, but
+  // the chain is NOT revoked. Agent clients run many processes on one sign-in;
+  // one that slept for hours presents the token another process already
+  // rotated. Revoking there signed the user out of every live process
+  // (4 field cases, 2026-10-14..26). A token under another client still
+  // revokes the chain in rotate().
+  async function retryOrReject(parent: Row, record: RefreshPair['record'], nowMs: number): Promise<RotateResult> {
     if (parent.revokedAtMs !== null) return { status: 'revoked', record };
     const age = nowMs - (parent.usedAtMs ?? nowMs);
     if (age >= RETRY_MS || !parent.receiptCiphertext || !parent.receiptIv || !parent.receiptExpiresAtMs || nowMs >= parent.receiptExpiresAtMs) {
-      await revoke(parent.chainId, nowMs);
-      return { status: 'reused', record, reuseAgeMs: age };
+      return { status: 'stale', record, reuseAgeMs: age };
     }
     if (!parent.successorHash) throw new Error('D1 refresh successor missing');
     const successor = await read(parent.successorHash);

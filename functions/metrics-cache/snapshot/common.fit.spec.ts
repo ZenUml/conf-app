@@ -26,7 +26,7 @@ vi.mock('../../utils/authenticate', async (importOriginal) => {
   };
 });
 
-const { authenticateMetricsRequest } = await import('./common');
+const { authenticateMetricsRequest, errorResponse } = await import('./common');
 
 describe('snapshot claim from a scheduled trigger', () => {
   it('accepts a backend FIT whose context carries only cloudId', async () => {
@@ -46,5 +46,45 @@ describe('snapshot claim from a scheduled trigger', () => {
 
     await expect(authenticateMetricsRequest(request, env as never, { backendOnly: true }))
       .resolves.toMatchObject({ clientDomain: 'tenant', productType: 'lite' });
+  });
+});
+
+describe('snapshot 403 diagnostics', () => {
+  it('logs which check rejected the call and the FIT shape, without secrets', async () => {
+    const request = new Request('https://example.test/metrics-cache/snapshot/claim', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer fit',
+        'x-forge-oauth-system': 'opaque-system-token',
+        'x-forge-oauth-user': 'opaque-user-token',
+      },
+    });
+    const env = { ALLOWED_FORGE_APP_IDS: APP_ID, DB: {} };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const error = await authenticateMetricsRequest(request, env as never, { backendOnly: true })
+        .catch((caught: unknown) => caught);
+      const response = errorResponse(error);
+
+      expect(response.status).toBe(403);
+      expect(warn).toHaveBeenCalledWith('[macro-count:snapshot] rejected', {
+        status: 403,
+        reason: 'Snapshot writes require a backend Forge invocation',
+        detail: {
+          invocationSource: 'backend',
+          hasSystemToken: true,
+          hasUserToken: true,
+          fitContextKeys: ['cloudId'],
+          fitModuleType: 'core:endpoint',
+          fitHasPrincipal: false,
+        },
+      });
+      const logged = JSON.stringify(warn.mock.calls);
+      for (const secret of ['opaque-system-token', 'opaque-user-token', 'cloud-1']) {
+        expect(logged).not.toContain(secret);
+      }
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

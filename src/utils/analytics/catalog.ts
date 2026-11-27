@@ -345,7 +345,9 @@ export type McpViewFullscreenOutcome = "entered" | "exited" | "declined" | "fail
 // What the MCP Apps view's keep-it buttons did (agent_link_app_view_action_used, #1271).
 // `save_confluence` sends "save this to Confluence" into the chat (ui/message);
 // the agent does the save, so `done` means the host took the message.
-export type McpViewAction = "copy_source" | "download" | "save_confluence";
+// `open_diagramly` opens the diagram in Diagramly.ai with ui/open-link (the
+// host confirms first); `done` means the host opened the link.
+export type McpViewAction = "copy_source" | "download" | "save_confluence" | "open_diagramly";
 // `svg` for a drawing (sequence, mermaid, plantuml, graph); `source` for a
 // document (openapi, asyncapi, markdown), whose source is the useful file.
 export type McpViewDownloadFormat = "svg" | "source";
@@ -1834,7 +1836,10 @@ export type AnalyticsEventName =
   | "agent_link_app_view_zoomed"
   // A press of the view's Copy or Download button (POST /mcp/view-event, like
   // _rendered; #1271). Carries `macro_type`, `mcp_mode`, `view_action`
-  // (copy_source | download | save_confluence; save_confluence posts a
+  // (copy_source | download | save_confluence | open_diagramly;
+  // open_diagramly opens diagramly.ai/import with ui/open-link and is `done`
+  // when the host opened it, `failed` when it refused, the user cancelled, or
+  // the diagram is too large for the link; save_confluence posts a
   // request into the chat with ui/message, and the agent saves it, so its
   // `done` means the host accepted the message, not that a diagram was
   // saved), `download_format` (download only: svg for a

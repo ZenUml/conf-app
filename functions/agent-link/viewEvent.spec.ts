@@ -133,6 +133,12 @@ describe('parseViewEvent — action', () => {
     });
   });
 
+  it('reads an Open in Diagramly.ai press, with no format', () => {
+    expect(parseViewEvent('{"kind":"action","macro_type":"sequence","view_action":"open_diagramly","action_outcome":"failed"}')).toEqual({
+      event: 'agent_link_app_view_action_used', macro_type: 'sequence', view_action: 'open_diagramly', action_outcome: 'failed',
+    });
+  });
+
   it('reads a Save to Confluence press, with no format', () => {
     expect(parseViewEvent('{"kind":"action","macro_type":"mermaid","view_action":"save_confluence","action_outcome":"done"}')).toEqual({
       event: 'agent_link_app_view_action_used', macro_type: 'mermaid', view_action: 'save_confluence', action_outcome: 'done',

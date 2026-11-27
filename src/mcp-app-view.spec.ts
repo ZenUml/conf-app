@@ -3,6 +3,8 @@ import {
   applyHostContext,
   currentUserZoom,
   downloadName,
+  diagramlyImportUrl,
+  diagramlyOrigin,
   extractDiagram,
   fitScale,
   confluenceConnectorUrl,
@@ -20,6 +22,7 @@ import {
   zoom,
 } from './mcp-app-view';
 import { compress } from '@/utils/compress';
+import { inflateRaw } from 'pako';
 
 const drawio = vi.hoisted(() => ({
   ensureDrawioViewerLoaded: vi.fn(async (_base?: string) => {}),
@@ -942,10 +945,23 @@ describe('Copy and Download', () => {
   let saved: Array<{ name: string; blob: Blob }> = [];
   const blobs = new Map<string, Blob>();
   const button = (id: string) => document.getElementById(id) as HTMLButtonElement | null;
+  // Every tooltip a button showed. A result flashes for 1.5 s and then reverts,
+  // and a slow CI runner can read the title after that (#1306), so record them.
+  let titles: Array<{ id: string; title: string }> = [];
+  let titleWatch: MutationObserver | null = null;
+  const titlesShown = (id: string) => titles.filter((t) => t.id === id).map((t) => t.title);
 
   beforeEach(() => {
     resetViewState();
     document.body.innerHTML = '<div id="app"></div>';
+    titles = [];
+    titleWatch = new MutationObserver((records) => {
+      for (const r of records) {
+        const el = r.target as HTMLElement;
+        if (el.id) titles.push({ id: el.id, title: el.getAttribute('title') ?? '' });
+      }
+    });
+    titleWatch.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['title'] });
     beacon.mockClear();
     writeText.mockReset();
     writeText.mockResolvedValue(undefined);
@@ -963,6 +979,7 @@ describe('Copy and Download', () => {
   });
 
   afterEach(() => {
+    titleWatch?.disconnect();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -983,7 +1000,7 @@ describe('Copy and Download', () => {
     await vi.waitFor(() => expect(actions()).toHaveLength(1));
     expect(writeText).toHaveBeenCalledWith(dsl);
     expect(actions()[0]).toEqual({ kind: 'action', macro_type: 'mermaid', view_action: 'copy_source', action_outcome: 'done' });
-    expect(button('zen-mcp-copy')?.title).toBe('Copied');
+    await vi.waitFor(() => expect(titlesShown('zen-mcp-copy')).toContain('Copied'));
   });
 
   it('reports a refused copy as failed when the copy command fails too', async () => {
@@ -995,7 +1012,7 @@ describe('Copy and Download', () => {
     await vi.waitFor(() => expect(actions()).toHaveLength(1));
     expect(document.execCommand).toHaveBeenCalledWith('copy');
     expect(actions()[0].action_outcome).toBe('failed');
-    expect(button('zen-mcp-copy')?.title).toBe('Copy source failed');
+    await vi.waitFor(() => expect(titlesShown('zen-mcp-copy')).toContain('Copy source failed'));
   });
 
   it('downloads a Mermaid drawing as the SVG it drew, named after the title', async () => {
@@ -1088,7 +1105,7 @@ describe('Copy and Download', () => {
       onHostMessage({ data: { jsonrpc: '2.0', id: request.id, result: { isError: true } } } as MessageEvent);
       await vi.waitFor(() => expect(actions()).toHaveLength(1));
       expect(actions()[0].action_outcome).toBe('failed');
-      expect(button('zen-mcp-download')?.title).toBe('Download SVG failed');
+      await vi.waitFor(() => expect(titlesShown('zen-mcp-download')).toContain('Download SVG failed'));
     });
   });
 
@@ -1126,7 +1143,7 @@ describe('Copy and Download', () => {
       onHostMessage({ data: { jsonrpc: '2.0', id: request.id, result: { isError: false } } } as MessageEvent);
       await vi.waitFor(() => expect(actions()).toHaveLength(1));
       expect(actions()[0]).toEqual({ kind: 'action', macro_type: 'mermaid', view_action: 'save_confluence', action_outcome: 'done' });
-      expect(button('zen-mcp-save')?.title).toBe('Sent to the chat');
+      await vi.waitFor(() => expect(titlesShown('zen-mcp-save')).toContain('Sent to the chat'));
     });
 
     it('reports a message the host refused as failed', async () => {
@@ -1149,6 +1166,57 @@ describe('Copy and Download', () => {
       connect(caps, context);
       await drawn(result);
       expect(button('zen-mcp-save')).toBeNull();
+    });
+  });
+
+  describe('Open in Diagramly.ai', () => {
+    let posted: Array<Record<string, unknown>>;
+
+    function connect(hostCapabilities: Record<string, unknown>): void {
+      posted = [];
+      vi.spyOn(window, 'postMessage').mockImplementation(((msg: unknown) => {
+        posted.push(msg as Record<string, unknown>);
+      }) as typeof window.postMessage);
+      start();
+      const id = posted.find((m) => m.method === 'ui/initialize')!.id;
+      onHostMessage({ data: { jsonrpc: '2.0', id, result: { protocolVersion: UI_PROTOCOL_VERSION, hostCapabilities } } } as MessageEvent);
+    }
+
+    async function drawn(result: Record<string, unknown>): Promise<void> {
+      deliver(result);
+      await vi.waitFor(() => expect(button('zen-mcp-download')).not.toBeNull());
+    }
+
+    it('opens the import link through the host', async () => {
+      connect({ openLinks: {} });
+      await drawn({ diagramType: 'mermaid', dsl: 'graph TD;A-->B;', title: 'Login flow' });
+      button('zen-mcp-diagramly')!.click();
+      await vi.waitFor(() => expect(posted.find((m) => m.method === 'ui/open-link')).toBeDefined());
+      const request = posted.find((m) => m.method === 'ui/open-link')!;
+      const url = (request.params as { url: string }).url;
+      expect(url).toMatch(/^https:\/\/[a-z.]*diagramly\.ai\/import#v1\./);
+      onHostMessage({ data: { jsonrpc: '2.0', id: request.id, result: { isError: false } } } as MessageEvent);
+      await vi.waitFor(() => expect(actions()).toHaveLength(1));
+      expect(actions()[0]).toEqual({ kind: 'action', macro_type: 'mermaid', view_action: 'open_diagramly', action_outcome: 'done' });
+    });
+
+    it('reports a cancelled or refused link as failed', async () => {
+      connect({ openLinks: {} });
+      await drawn({ diagramType: 'sequence', dsl: 'A.b()' });
+      button('zen-mcp-diagramly')!.click();
+      await vi.waitFor(() => expect(posted.find((m) => m.method === 'ui/open-link')).toBeDefined());
+      onHostMessage({ data: { jsonrpc: '2.0', id: posted.find((m) => m.method === 'ui/open-link')!.id, error: { code: -32000, message: 'Link opening denied by user' } } } as MessageEvent);
+      await vi.waitFor(() => expect(actions()).toHaveLength(1));
+      expect(actions()[0].action_outcome).toBe('failed');
+    });
+
+    it.each([
+      ['the host cannot open links', {}, { diagramType: 'mermaid', dsl: 'graph TD;A-->B;' }],
+      ['Diagramly.ai has no engine for the type', { openLinks: {} }, { diagramType: 'OpenAPI', source: 'openapi: 3.0.0\ninfo: {title: x, version: "1"}\npaths: {}\n' }],
+    ])('offers no button when %s', async (_label, caps, result) => {
+      connect(caps);
+      await drawn(result);
+      expect(button('zen-mcp-diagramly')).toBeNull();
     });
   });
 
@@ -1207,5 +1275,52 @@ describe('confluenceConnectorUrl', () => {
     expect(confluenceConnectorUrl('https://zenuml.com/mcp-app/assets/view.js')).toBe('https://conf-lite.zenuml.com/agent-link/mcp');
     expect(confluenceConnectorUrl('https://conf-lite.zenuml.com/mcp-app/assets/view.js')).toBe('https://conf-lite.zenuml.com/agent-link/mcp');
     expect(confluenceConnectorUrl('https://conf-stg-lite.zenuml.com/mcp-app/assets/view.js')).toBe('https://conf-stg-lite.zenuml.com/agent-link/mcp');
+  });
+});
+
+describe('diagramlyImportUrl', () => {
+  function decode(url: string): Record<string, unknown> {
+    const fragment = url.split('#')[1];
+    expect(fragment.startsWith('v1.')).toBe(true);
+    const b64 = fragment.slice(3).replace(/-/g, '+').replace(/_/g, '/');
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(inflateRaw(bytes)));
+  }
+
+  it('carries the source, type and title in the fragment, under Diagramly.ai names', async () => {
+    const url = await diagramlyImportUrl({ diagramType: 'Sequence', dsl: 'A.b() // é ✓', title: ' Login ' }, 'https://diagramly.ai');
+    expect(url!.startsWith('https://diagramly.ai/import#v1.')).toBe(true);
+    expect(url).not.toContain('A.b()');
+    expect(decode(url!)).toEqual({ v: 1, type: 'zenuml', source: 'A.b() // é ✓', title: 'Login', ref: 'render_mcp' });
+  });
+
+  it('maps Graph to drawio and unpacks legacy compressed XML', async () => {
+    const xml = '<mxfile><diagram>x</diagram></mxfile>';
+    const url = await diagramlyImportUrl({ diagramType: 'graph', dsl: compress(xml) }, 'https://diagramly.ai');
+    expect(decode(url!)).toMatchObject({ type: 'drawio', source: xml });
+  });
+
+  it('gives no link for a document type, or one too large', async () => {
+    expect(await diagramlyImportUrl({ diagramType: 'openapi', dsl: 'x' }, 'https://diagramly.ai')).toBeNull();
+    // Pseudo-random text, which deflate cannot shrink much.
+    let noisy = '';
+    let seed = 1;
+    for (let i = 0; i < 200_000; i++) {
+      // xorshift32: stays in 32-bit integers, unlike an LCG product in a double.
+      seed ^= seed << 13;
+      seed ^= seed >>> 17;
+      seed ^= seed << 5;
+      noisy += String.fromCharCode(33 + ((seed >>> 0) % 90));
+    }
+    expect(await diagramlyImportUrl({ diagramType: 'mermaid', dsl: noisy }, 'https://diagramly.ai')).toBeNull();
+  });
+});
+
+describe('diagramlyOrigin', () => {
+  it('sends production views to diagramly.ai and the rest to staging', () => {
+    expect(diagramlyOrigin('https://zenuml.com/mcp-app/assets/view.js')).toBe('https://diagramly.ai');
+    expect(diagramlyOrigin('https://conf-lite.zenuml.com/mcp-app/assets/view.js')).toBe('https://diagramly.ai');
+    expect(diagramlyOrigin('https://conf-stg-lite.zenuml.com/mcp-app/assets/view.js')).toBe('https://staging.diagramly.ai');
+    expect(diagramlyOrigin('http://localhost:5173/x.js')).toBe('https://staging.diagramly.ai');
   });
 });

@@ -935,6 +935,26 @@ describe('zooming a drawing', () => {
     expect(e.defaultPrevented).toBe(false);
   });
 
+  it('keeps the middle in place by scrolling #app, not the page, in fullscreen', async () => {
+    await drawMermaid();
+    applyHostContext({ displayMode: 'fullscreen' });
+    const app = document.getElementById('app')!;
+    const page = document.scrollingElement ?? document.documentElement;
+    restore.push(() => {
+      delete (app as unknown as Record<string, unknown>).scrollHeight;
+      delete (app as unknown as Record<string, unknown>).clientHeight;
+    });
+    // #app's content grows with the zoom; it shows 500px of it.
+    Object.defineProperty(app, 'scrollHeight', { configurable: true, get: () => 1000 * currentUserZoom() });
+    Object.defineProperty(app, 'clientHeight', { configurable: true, get: () => 500 });
+    app.scrollTop = 0; // the middle of the view is a quarter of the way down
+    page.scrollTop = 0;
+    expect(zoom('zoom_in')).toBe(true);
+    // Same quarter-way middle at 1.2x: 0.25 * 1200 - 250 = 50.
+    expect(app.scrollTop).toBeCloseTo(50, 5);
+    expect(page.scrollTop).toBe(0);
+  });
+
   it('starts a new diagram, and a change of display mode, fitted', async () => {
     await drawMermaid();
     zoom('zoom_in');

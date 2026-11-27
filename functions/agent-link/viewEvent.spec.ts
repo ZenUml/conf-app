@@ -133,12 +133,19 @@ describe('parseViewEvent — action', () => {
     });
   });
 
+  it('reads a Save to Confluence press, with no format', () => {
+    expect(parseViewEvent('{"kind":"action","macro_type":"mermaid","view_action":"save_confluence","action_outcome":"done"}')).toEqual({
+      event: 'agent_link_app_view_action_used', macro_type: 'mermaid', view_action: 'save_confluence', action_outcome: 'done',
+    });
+  });
+
   it.each([
     ['an unknown action', '{"kind":"action","macro_type":"mermaid","view_action":"share","action_outcome":"done"}'],
     ['an unknown outcome', '{"kind":"action","macro_type":"mermaid","view_action":"copy_source","action_outcome":"maybe"}'],
     ['a download with no format', '{"kind":"action","macro_type":"mermaid","view_action":"download","action_outcome":"done"}'],
     ['a download in an unknown format', '{"kind":"action","macro_type":"mermaid","view_action":"download","download_format":"pdf","action_outcome":"done"}'],
     ['a copy with a format', '{"kind":"action","macro_type":"mermaid","view_action":"copy_source","download_format":"svg","action_outcome":"done"}'],
+    ['a save with a format', '{"kind":"action","macro_type":"mermaid","view_action":"save_confluence","download_format":"svg","action_outcome":"done"}'],
   ])('refuses %s', (_label, text) => {
     expect(parseViewEvent(text)).toBeNull();
   });

@@ -32,3 +32,27 @@ Branch: `feat/m1-first-seen-ping`. Spec: onboarding-redesign spec §4 M1 (scratc
   + D1 `AtlassianInstance` read-back on lite-dev).
 - `accountId` resolved/null ratio on cold banner loads (24h lite-dev observation) — a null read
   skips the marker write by design; if nulls dominate, the census undercounts.
+
+---
+
+# W1+W2 paywall rhythm — deviations from the pitch doc
+
+Branch: `feat/paywall-rhythm-enhanced`. Pitch: claude.ai/code/artifact/431c117e (2026-08-10).
+Scope: W1 (counter 15→3, tiered beats, last-continue commitment prompt) + W2 (modal
+first-beat investment mirror, pre-CTA framing). W3 (bridge) and W4 (extension flow)
+are separate follow-up branches per the pitch's implementation order.
+
+1. **Stored-counter migration: clamp to `min(stored, 3)` on read.** Mid-burn users (e.g.
+   6/15 remaining) drop to 3 immediately. Simplest rule that never grants MORE than
+   before and avoids a dual-regime window where pre-release browsers keep burning 15.
+2. **W2 mirror ships space-level only** (`mirror_level: 'space'`, macro count from the
+   existing client-side metric). Personal/team tiers need `/api/user-diagram-stats`
+   (D1 `CustomContentVersion.authorId` + `AnalyticsEventFact`) — deferred, not worth
+   blocking the copy-level changes.
+3. **Post-continue reassurance beat = exhausted-state copy + tooltip softening,** not an
+   editor-side toast. The modal unmounts on continue; a toast is a new surface with its
+   own lifecycle.
+4. **E2E helper `dismissPaywallGate` resets `paywallContinueAttempts:*` before dismissing.**
+   At 3 attempts, any spec driving 4+ editor mounts in one browser context exhausts the
+   counter mid-test and the Continue button disappears (advisor-flagged CI risk).
+   Test-env insulation only; product behavior untouched.

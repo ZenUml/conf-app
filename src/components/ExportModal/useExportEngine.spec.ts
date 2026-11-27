@@ -786,3 +786,56 @@ describe('useExportEngine — PlantUML server PNG', () => {
     expect(captureBlob).toHaveBeenCalled();
   });
 });
+
+// A Graph image on a host the Forge CSP blocks made every Export PNG fail with
+// "image error event" (2026-11, reproduced with the real captureBlob). The
+// dialog now blanks such an image and says how many it blanked.
+describe('useExportEngine — images that cannot be loaded', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    document.body.innerHTML = '';
+    vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue({ width: 600, height: 400 }));
+    class StubImage {
+      onload: (() => void) | null = null;
+      onerror: ((e: unknown) => void) | null = null;
+      set src(_v: string) { setTimeout(() => this.onload?.(), 0); }
+    }
+    vi.stubGlobal('Image', StubImage);
+    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:stub'), revokeObjectURL: vi.fn() });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      fillStyle: '', fillRect: vi.fn(), drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (cb: BlobCallback) {
+      cb(new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' }));
+    } as HTMLCanvasElement['toBlob']);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('asks captureBlob to blank unloadable images and returns how many it blanked', async () => {
+    vi.mocked(captureBlob).mockImplementation(async (_node, opts) => {
+      opts?.onSkippedImages?.(2);
+      return new Blob([new Uint8Array([1])], { type: 'image/png' });
+    });
+
+    const { exportDiagram } = useExportEngine();
+    const result = await exportDiagram(baseOptions(), 'Login flow', document.createElement('div'));
+
+    expect(captureBlob).toHaveBeenCalledWith(expect.any(HTMLElement), expect.objectContaining({ skipUnloadableImages: true }));
+    expect(result).toEqual({ ok: true, skippedImageCount: 2 });
+  });
+
+  it('returns a plain ok when nothing was blanked', async () => {
+    vi.mocked(captureBlob).mockResolvedValue(new Blob([new Uint8Array([1])], { type: 'image/png' }));
+
+    const { exportDiagramToClipboard } = useExportEngine();
+    vi.stubGlobal('ClipboardItem', class { constructor(public items: unknown) {} });
+    vi.stubGlobal('navigator', { clipboard: { write: vi.fn().mockResolvedValue(undefined) } });
+    const result = await exportDiagramToClipboard(baseOptions(), document.createElement('div'));
+
+    expect(result).toEqual({ ok: true });
+  });
+});

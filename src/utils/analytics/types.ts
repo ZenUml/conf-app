@@ -1015,7 +1015,11 @@ export type AnalyticsProperties = {
   has_watermark?: boolean;
   has_rectangle?: boolean;
   annotation_count?: number;
-  annotation_type?: 'note' | 'arrow' | 'callout' | 'rectangle' | 'watermark';
+  // export_png_succeeded: images in the diagram that could not be fetched and
+  // were exported as transparent blanks instead of failing the export (a
+  // Graph image on a host the Forge CSP blocks). Absent or 0 = none skipped.
+  skipped_image_count?: number;
+  annotation_type?:'note' | 'arrow' | 'callout' | 'rectangle' | 'watermark';
   annotation_change?: 'move' | 'resize' | 'text' | 'style';
   // export_annotation_tool_clicked (ExportPreview.vue). Which annotation tool
   // the user reached for. Fired on activation only, not on turning a tool back

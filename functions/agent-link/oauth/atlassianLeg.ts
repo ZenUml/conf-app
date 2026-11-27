@@ -35,6 +35,7 @@ import {
   listAccessibleSites,
   type FetchLike,
 } from './atlassianClient';
+import { readCookie, setCookie } from './cookies';
 import { grantKey, saveGrant } from './tokenStore';
 
 export const STATE_COOKIE = 'agent_link_oauth_state';
@@ -60,19 +61,7 @@ export interface LegDeps {
 }
 
 function stateCookie(value: string, requestUrl: URL, maxAge: number): string {
-  const secure = requestUrl.protocol === 'https:' ? '; Secure' : '';
-  // Lax, not Strict: the callback is a top-level navigation *from* Atlassian,
-  // which Strict would strip the cookie from.
-  return `${STATE_COOKIE}=${value}; Path=/agent-link/oauth; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
-}
-
-function readCookie(header: string | null, name: string): string | null {
-  if (!header) return null;
-  for (const part of header.split(';')) {
-    const [k, ...rest] = part.trim().split('=');
-    if (k === name) return rest.join('=');
-  }
-  return null;
+  return setCookie(STATE_COOKIE, value, { path: '/agent-link/oauth', maxAge, requestUrl });
 }
 
 /**

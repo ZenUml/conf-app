@@ -842,7 +842,9 @@ export type AnalyticsEventName =
   // and any backend timing/attempt/config metadata returned by job-status.
   // backend_duration_ms covers the whole Diagramly worker interval, while
   // backend_llm_duration_ms sums only its LLM calls across repair attempts.
-  // failed additionally carries failure_phase; never attach diagram code,
+  // failed additionally carries failure_phase, backend_failure_kind (+
+  // backend_syntax_error_kind) for a FAILED job and start_http_status for a
+  // failed start — enums/numbers only; never attach diagram code,
   // error source text, or a job id to these events.
   | "ai_repair_requested"
   | "ai_repair_succeeded"
@@ -933,7 +935,9 @@ export type AnalyticsEventName =
   // time) and `advocacy_message_copied` (asks SOMEONE ELSE to act).
   // Also fires on a Plan and usage row click: surface=dashboard, space_key,
   // macro_count, macro_limit, bundle_price_usd and client_reference_id identify
-  // the selected space and its checkout attribution.
+  // the selected space and its checkout attribution. bundle_offer identifies a
+  // seasonal price on the existing CTA and handoff events. The campaign adds
+  // no event sends, sampling changes, or replay sources.
   | "paywall_bundle_cta_clicked"
   // Bundle checkout path (spec 2026-11-20-bundle-checkout-path-design.md).
   // The Bundle CTA opens our own handoff page on the backend host, because
@@ -1053,7 +1057,9 @@ export type AnalyticsEventName =
   // two features. `feature` ('fullscreen' | 'edit') tells them apart; for `edit`,
   // `surface` is 'editor' and activation (first successful save) is reported with the
   // same `_activation_completed` / `_activation_failed` events. `fullscreen_view_ready`
-  // is Fullscreen-only (the editor has no equivalent moment).
+  // is Fullscreen-only (the editor has no equivalent moment). For `edit`, `edit_target`
+  // says whether the gated editor opened an existing diagram (`block_edit`) or a new
+  // one (`block_create`); both share one 7-day grant.
   // Contact recovery: intent, durable request, successful view and support outcomes
   // stay separate. Never put email addresses or free-form customer text in events.
   | "fullscreen_recovery_gate_shown"
@@ -1762,6 +1768,12 @@ export type AnalyticsEventName =
   // transient failures (5xx, network) are not reported. There is no
   // user-initiated disconnect yet, so `reason: 'user'` is not emitted.
   | "agent_link_oauth_authorized"
+  // `_failed`: an MCP sign-in that did not finish, with `reason`: the
+  // Atlassian leg's failure (atlassian_denied | state_mismatch | missing_code
+  // | exchange_failed | me_failed | config, from oauth/callback.ts) or
+  // 'consent_declined' (Cancel on our consent screen, oauth/consent.ts).
+  // Callback failures carry no user (the account is not known yet).
+  | "agent_link_oauth_failed"
   | "agent_link_oauth_refresh_failed"
   // OUR MCP authorization-server refresh endpoint (oauth/authServer.ts), not
   // the upstream Atlassian grant refresh above. One event per inbound refresh
@@ -1957,7 +1969,18 @@ export type AnalyticsEventName =
   // limiter could not decide (D1 missing or failing) and let the call through,
   // `reason: 'rate_limit_unavailable'` rides the successful call. Our own smoke
   // checks identify themselves with the `x-zenuml-internal-probe` header and
-  // carry `internal_probe: true`.
+  // carry `internal_probe: true`. For a ZenUML source, `render_issues` lists
+  // the recognised mistakes (AgentLinkRenderIssue; omitted when none) and
+  // `render_warnings_returned` says whether lint warnings went back with a
+  // source that parsed, so first-attempt pass rate and the mistake mix are
+  // readable without a new event. `render_fix_suggested` says whether a
+  // rewritten source (checked to parse with no warnings) went back too.
+  // `render_attempt` is the call's position in the agent's chain of
+  // revisions (1 when none was passed or it did not decode),
+  // `render_revision_state` says which (AgentLinkRenderRevisionState),
+  // `render_fix_applied` is true when the source equals the previous
+  // result's suggested rewrite, and `render_next_actions` lists what the
+  // result told the agent to do (AgentLinkRenderNextAction).
   | "activation_nudge_clicked"
   | "activation_served"
   // Should be ~impossible by construction (the pipeline stamps the property only
@@ -2074,11 +2097,18 @@ export type AnalyticsEventName =
   // editor_inline_edit_* event once flowchart inline edit ships, absent on events
   // sent before it). Flowchart labels use inline_edit_kind 'node_label' /
   // 'edge_label'. Never diagram text or ids. docs/features/mermaid-inline-edit.md.
+  // First visible source-selection hint per editor mount (surface=editor, macro_type=Mermaid).
+  | "editor_source_selection_hint_shown"
   | "editor_inline_edit_started"
   | "editor_inline_edit_succeeded"
   | "editor_inline_edit_rejected"
   | "editor_inline_edit_cancelled"
   | "editor_inline_edit_unavailable"
+  // Mermaid inline-edit introduction (#1312): fires when the blocking modal
+  // actually opens for an account and diagram type, before playback ends.
+  // feature_area 'macro', surface 'editor', macro_type 'mermaid',
+  // inline_edit_diagram, inline_edit_intro_reduced_motion. No diagram text.
+  | "mermaid_inline_edit_intro_shown"
   // Onboarding funnel — "second diagram" prompt (registered ahead of its
   // producer: this task only registers the event names + properties so the
   // catalog/types are ready; no call site exists yet in this codebase. A
@@ -2453,6 +2483,44 @@ export type AgentLinkRenderValidation = "valid" | "invalid" | "unvalidated";
 // the source. 'detected' with render_validation 'invalid' is the case worth
 // watching: it can mean detection picked the wrong language.
 export type AgentLinkRenderTypeSource = "given" | "detected";
+
+// What render_diagram recognised in a ZenUML ("sequence") source
+// (agent_link_mcp_tool_called, `render_issues`). Lint warnings on a source
+// that parsed but draws the wrong diagram: 'group_with_messages' = a message
+// inside `group Name { }` (the group ends at its name and draws empty);
+// 'block_in_async_message' = a one-line `A->B: text { ... }` whose block is
+// read as message text. Parse failures with a targeted hint:
+// 'group_after_message' = `group` after the first message;
+// 'block_after_async_message' = a multi-line `{ }` block after `A->B: text`.
+// 'unrecognised' = a failed parse that matched none of these, so the mistake
+// mix has a complete denominator. A list rather than one code, because one
+// source can carry several mistakes at once.
+// render_diagram's attempt chain (agent_link_mcp_tool_called, `mcp_mode:
+// 'render'`, `render_revision_state`). Each result carries a `revision` token
+// the agent may pass back on its next call; the server keeps nothing.
+// 'none' = no revision passed (a first attempt); 'valid' = a readable token
+// from an earlier result; 'invalid' = a token that did not decode, treated
+// as a first attempt.
+export type AgentLinkRenderRevisionState = "none" | "valid" | "invalid";
+
+// What render_diagram told the agent to do next (`render_next_actions`).
+// 'apply_suggested_source' = call again with the checked rewrite;
+// 'fix_and_retry' = fix the listed problems, no rewrite offered;
+// 'confirm_with_user' = the rewrite guessed which participants belong in a
+// group, so ask before relying on it; 'offer_to_save' = the diagram drew
+// cleanly; offer to keep it in Confluence if a tool for that is connected.
+export type AgentLinkRenderNextAction =
+  | "apply_suggested_source"
+  | "fix_and_retry"
+  | "confirm_with_user"
+  | "offer_to_save";
+
+export type AgentLinkRenderIssue =
+  | "group_with_messages"
+  | "block_in_async_message"
+  | "group_after_message"
+  | "block_after_async_message"
+  | "unrecognised";
 
 // How one headless `tools/call` ended (agent_link_mcp_tool_called).
 // 'success' = the tool returned a result; 'tool_error' = the tool refused with

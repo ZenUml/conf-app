@@ -15,6 +15,7 @@ import { getCodeFromDiagram, getStoreUpdateAction } from "@/model/Diagram/Diagra
 import {EditorState, Compartment} from '@codemirror/state';
 import {baseExtensionsFactory, mermaidExtensions, zenumlExtensions, plantUmlExtensions} from "./extensions";
 import {diagramPasteExtension} from "./diagramPaste";
+import {mermaidSourceSelection} from "./mermaidSourceSelection";
 import {createDiagramPasteHandler} from "./handleDiagramPaste";
 import {computed, onMounted, ref, watch, onBeforeUnmount, onBeforeMount} from "vue";
 import {useStore} from "vuex";
@@ -78,7 +79,11 @@ watch(code, (newCode) => {
 }, { immediate: true });
 
 const handleDiagramPaste = createDiagramPasteHandler(store);
-const mermaidWithPaste = [...mermaidExtensions, diagramPasteExtension('mermaid', handleDiagramPaste)];
+const mermaidWithPaste = [
+  ...mermaidExtensions,
+  diagramPasteExtension('mermaid', handleDiagramPaste),
+  mermaidSourceSelection,
+];
 const zenumlWithPaste = [...zenumlExtensions, diagramPasteExtension('sequence', handleDiagramPaste)];
 
 const diagramSpecificExtensions = computed(() => {

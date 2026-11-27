@@ -24,13 +24,19 @@
 // What the server adds over a plain echo is the parse check (parseDsl.ts): the
 // agent gets ZenUML and Mermaid errors with line and column, and a structural
 // check for PlantUML and OpenAPI, instead of a picture that silently failed.
+// For ZenUML it also names known mistakes (zenumlDslGuide.ts): `warnings` on a
+// source that parsed but draws the wrong diagram, and `hints` that put a
+// specific fix before the parser's errors on one that did not.
 
 import {
   INSTRUCTIONS,
   RENDER_TOOL,
+  chainSummaryFor,
+  issueCodes,
   RenderParamsError,
   renderDiagram,
-  summaryFor,
+  withChain,
+  type RenderResult,
 } from './renderTool';
 import { getGuideByUri, listGuideResources } from './dslGuides';
 import {
@@ -93,6 +99,17 @@ export function rpcError(status: number, id: JsonRpcId, code: number, message: s
   const body: Record<string, unknown> = { code, message };
   if (data !== undefined) body.data = data;
   return json({ jsonrpc: '2.0', id, error: body }, { status, headers: JSON_HEADERS });
+}
+
+/** render_issues / render_warnings_returned, for ZenUML sources only. */
+function zenumlIssueProps(r: RenderResult): Record<string, unknown> {
+  if (r.diagramType !== 'sequence') return {};
+  const codes = issueCodes(r);
+  return {
+    render_warnings_returned: Boolean(r.warnings?.length),
+    render_fix_suggested: Boolean(r.suggestedSource),
+    ...(codes.length ? { render_issues: codes } : {}),
+  };
 }
 
 type ToolOutcome = 'success' | 'tool_error' | 'unknown_tool' | 'exception' | 'rate_limited';
@@ -234,18 +251,24 @@ export async function handleRenderRpc(
       }
       const rateUnavailable = 'unavailable' in rate ? { reason: 'rate_limit_unavailable' } : {};
       try {
-        const value = await renderDiagram((params.arguments ?? {}) as Record<string, unknown>);
+        const args = (params.arguments ?? {}) as Record<string, unknown>;
+        const { result: value, chain } = await withChain(await renderDiagram(args), args.revision);
         await trackCall('success', {
           macro_type: value.diagramType,
           render_validation: value.unvalidated ? 'unvalidated' : value.valid ? 'valid' : 'invalid',
           render_type_source: value.detected ? 'detected' : 'given',
+          ...zenumlIssueProps(value),
+          render_attempt: value.attempt,
+          render_revision_state: chain.revisionState,
+          ...(chain.fixApplied !== undefined ? { render_fix_applied: chain.fixApplied } : {}),
+          render_next_actions: (value.nextActions ?? []).map((a) => a.action),
           ...rateUnavailable,
         });
         // The view reads structuredContent (extractDiagram in
         // src/mcp-app-view.ts matches `diagramType` + `source`); the model
         // reads the text, which is a summary rather than its own source back.
         return rpcResult(id, {
-          content: [{ type: 'text', text: summaryFor(value) }],
+          content: [{ type: 'text', text: chainSummaryFor(value, chain) }],
           structuredContent: value,
         });
       } catch (e) {

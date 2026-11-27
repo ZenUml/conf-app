@@ -68,6 +68,9 @@ import type {
   AgentLinkMcpToolOutcome,
   AgentLinkRenderValidation,
   AgentLinkRenderTypeSource,
+  AgentLinkRenderIssue,
+  AgentLinkRenderRevisionState,
+  AgentLinkRenderNextAction,
   ActivationPath,
   GalleryOpenTrigger,
   CodePanelToggleTrigger,
@@ -103,6 +106,29 @@ import type {
   HighlightDismissCause,
 } from "./catalog";
 
+/** Bounded class of a FAILED AI Repair job; see src/components/aiRepairFailureKind.ts. */
+export type RepairBackendFailureKind =
+  | 'syntax_error'
+  | 'no_change'
+  | 'empty_output'
+  | 'reply_not_diagram'
+  | 'time_budget'
+  | 'exception'
+  | 'missing_output'
+  | 'unknown';
+
+/** Which parser rejected an AI Repair candidate (backend_failure_kind=syntax_error). */
+export type RepairSyntaxErrorKind =
+  | 'parse_error'
+  | 'lexical_error'
+  | 'no_diagram_type'
+  | 'gantt_build'
+  | 'zenuml_parse'
+  | 'openapi_structure'
+  | 'plantuml_syntax'
+  | 'plantuml_frame'
+  | 'other';
+
 export type AnalyticsProperties = {
   /** Fullscreen contact recovery. Identifiers are opaque; no email or free text. */
   feature?: 'fullscreen' | 'edit';
@@ -110,6 +136,8 @@ export type AnalyticsProperties = {
   attempt_id?: string;
   recovery_request_id?: string;
   recovery_grant_id?: string;
+  /** `edit` only: the gated editor opens an existing diagram or creates a new one (one shared grant). */
+  edit_target?: 'existing_diagram' | 'new_diagram';
   recovery_state?: 'disabled' | 'not_requested' | 'pending_activation' | 'active' | 'expired' | 'unavailable';
   recovery_action?: 'contact_support' | 'plan_usage' | 'return_inline' | 'continue_request' | 'dismiss_notice';
   recovery_outcome?: 'created' | 'reused' | 'activated' | 'already_active' | 'extended' | 'already_applied';
@@ -297,6 +325,13 @@ export type AnalyticsProperties = {
   backend_duration_ms?: number;
   backend_llm_duration_ms?: number;
   repair_attempts?: number;
+  /** ai_repair_failed only: bounded class of a FAILED Diagramly job, derived
+   * from fixed server strings by aiRepairFailureKind.ts. Never the error text. */
+  backend_failure_kind?: RepairBackendFailureKind;
+  /** ai_repair_failed only, with backend_failure_kind=syntax_error: which parser rejected it. */
+  backend_syntax_error_kind?: RepairSyntaxErrorKind;
+  /** ai_repair_failed only, failure_phase=start: HTTP status of the start call. */
+  start_http_status?: number;
   ai_model?: string;
   reasoning_disabled?: boolean;
   failure_phase?:
@@ -462,15 +497,17 @@ export type AnalyticsProperties = {
   preview_source_changed_in_window?: boolean;
   preview_window_completed?: boolean;
   preview_ms_since_editor_open?: number;
-  // editor_inline_edit_* only (Mermaid inline edit). Bounded values:
+  // editor_inline_edit_* and editor_source_selection_hint_shown identify the Mermaid label kind. Bounded values:
   // never the edited text, the actor or node id, or the message index.
   inline_edit_kind?: InlineEditKind;
   /**
-   * All editor_inline_edit_* events: the diagram type being edited. Optional
+   * Diagram type being edited or demonstrated in the introduction. Optional
    * because events sent before flowchart inline edit carry none (read absent
    * as 'sequence').
    */
   inline_edit_diagram?: InlineEditDiagram;
+  /** mermaid_inline_edit_intro_shown: the example starts in its final state. */
+  inline_edit_intro_reduced_motion?: boolean;
   /** editor_inline_edit_unavailable: why it is read-only (absent on events sent before 2026-11-21). */
   inline_edit_unavailable_reason?: InlineEditUnavailableReason;
   /** editor_inline_edit_rejected: the EditRejection reason. */
@@ -639,6 +676,8 @@ export type AnalyticsProperties = {
   // Advertised annual price on the bundle CTA at click time (USD, per space).
   // Recorded on the event so a later price change stays comparable.
   bundle_price_usd?: number;
+  /** Seasonal offer advertised on the CTA or forwarded to Stripe. */
+  bundle_offer?: 'black_friday_2026';
   /** Confirmed unpaid rows offering a one-space checkout on Plan and usage. */
   purchasable_space_count?: number;
   /** Per-space Lite limit at the time of a checkout action. */
@@ -1322,6 +1361,19 @@ export type AnalyticsProperties = {
   // the source parse.
   render_validation?: AgentLinkRenderValidation;
   render_type_source?: AgentLinkRenderTypeSource;
+  // ZenUML sources only: recognised mistakes (lint warnings on a parsed
+  // source, targeted hints on a failed one), and whether warnings were sent.
+  render_issues?: AgentLinkRenderIssue[];
+  render_warnings_returned?: boolean;
+  // True when render_diagram also returned a rewritten source that parses
+  // with no warnings (today: the two `group` mistakes).
+  render_fix_suggested?: boolean;
+  // Attempt chain via the `revision` token render_diagram returns; the server
+  // stores nothing (see AgentLinkRenderRevisionState).
+  render_attempt?: number;
+  render_revision_state?: AgentLinkRenderRevisionState;
+  render_fix_applied?: boolean;
+  render_next_actions?: AgentLinkRenderNextAction[];
   // Starter-template gallery (#334). `template_id` identifies which curated
   // template was applied (editor_template_applied only) — flat across the
   // whole catalog (e.g. "mmd-auth-flow"), not scoped per macro_type, so it is

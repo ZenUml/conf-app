@@ -6,6 +6,7 @@ import {
   assertCounts,
   authenticateMetricsRequest,
   claimKey,
+  errorResponse,
   isSnapshotEnrolled,
   latestPointerKey,
   normalizeCounts,
@@ -88,6 +89,35 @@ describe('snapshot authenticated context', () => {
       forgeContext: forgeContext as ForgeRequestContext,
     })).rejects.toMatchObject({ status: 403 } satisfies Partial<HttpError>);
     expect(testEnv._db.prepare).not.toHaveBeenCalled();
+  });
+
+  it('logs the middleware FIT shape when a pre-verified call is rejected', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = await authenticateMetricsRequest(request(), env(), {
+      backendOnly: true,
+      forgeContext: {
+        ...backendContext,
+        invocationSource: 'frontend',
+        fitShape: {
+          moduleType: 'core:scheduledTrigger',
+          contextKeys: ['cloudId'],
+          hasPrincipal: false,
+        },
+      },
+    }).catch((caught: unknown) => caught);
+    errorResponse(error);
+
+    expect(warn).toHaveBeenCalledWith('[macro-count:snapshot] rejected', expect.objectContaining({
+      status: 403,
+      reason: 'Snapshot writes require a backend Forge invocation',
+      detail: expect.objectContaining({
+        invocationSource: 'frontend',
+        fitModuleType: 'core:scheduledTrigger',
+        fitContextKeys: ['cloudId'],
+        fitHasPrincipal: false,
+      }),
+    }));
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('cloud-1');
   });
 
   it('rejects spoofed compatibility identity hints', async () => {

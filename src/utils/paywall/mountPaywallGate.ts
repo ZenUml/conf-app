@@ -241,14 +241,19 @@ export async function tryPageEditorPaywall(opts: {
     ? 'page_editor'
     : await resolveCreateActionType();
 
-  // Edit request gate (site at `block_edit`): the server says whether it applies and, on lookup,
-  // what this user's request is. Existing diagrams only; any failure leaves the editor open.
+  // Edit request gate: the server says whether it applies and, on lookup, what this user's
+  // request is. Editing an existing diagram is gated from `block_edit`, creating one from
+  // `block_create`; one `edit` grant covers both. Any failure leaves the editor open.
+  const requestGateApplies = opts.customContentId
+    ? customerSuccess.editRequestGateApplies?.value === true
+    : customerSuccess.createRequestGateApplies?.value === true;
   let editRecovery: 'handled' | 'disabled' | 'unavailable' = 'disabled';
-  if (opts.customContentId && !editBlocked && globals.apWrapper.isLite()
-    && customerSuccess.editRequestGateApplies?.value === true && customerSuccess.spaceKey.value) {
+  if (!editBlocked && !createBlocked && globals.apWrapper.isLite()
+    && requestGateApplies && customerSuccess.spaceKey.value) {
     try {
       editRecovery = await mountFullscreenRecovery({
-        feature: 'edit', doc: opts.doc, spaceKey: customerSuccess.spaceKey.value,
+        feature: 'edit', editTarget: opts.customContentId ? 'existing_diagram' : 'new_diagram',
+        doc: opts.doc, spaceKey: customerSuccess.spaceKey.value,
         content: opts.content, contentProps: opts.contentProps, onOpen: opts.onContinueEditing,
       });
     } catch { editRecovery = 'unavailable'; }

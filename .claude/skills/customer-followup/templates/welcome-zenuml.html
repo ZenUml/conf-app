@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<title>ZenUML is ready on your Confluence</title>
+<!--
+  First-install welcome email: ZenUML for Confluence, Lite and Full. Replaces the 2026-08-28 Lite draft.
+  One email per install, to the Marketplace contact (standing authorisation, contact-policy.md 2026-11-25).
+  Recipient: the licence technicalContact, also when it sits at a reseller (owner, 2026-11-25); hence the forward line.
+  Rendered and sent by ../scripts/send_welcome.py.
+  Not for Diagramly or AsyncAPI installs: their insert path differs and they have no globalPage. They need their own template.
+
+  From:      Peng Xiao <support@zenuml.com>   (replies reach the support inbox; matches the other customer mail from that account)
+  Subject:   ZenUML is ready on {{site_name}}
+  Preheader: Your first diagram takes about a minute: type /zenuml on any page.
+
+  Merge fields: {{first_name}} (fallback "there"), {{site_name}} (e.g. example), {{site_url}} (e.g. https://example.atlassian.net),
+                plus the per-app fields below (pick the row by the install's appId).
+
+  Per-app fields (manifest.yml macro title + LITE_TITLE_SUFFIX, globalPage title, production appId/environmentId from ForgeInstallation):
+  | field            | Lite (8ad26115-211f-4216-971b-0540f606303d)                       | Full (d9e4002b-120b-426b-834b-402a4a5adce7)                       |
+  | {{product_name}} | ZenUML for Confluence Lite                                         | ZenUML for Confluence                                             |
+  | {{macro_title}}  | Diagram (Mermaid, PlantUML & ZenUML) Lite                          | Diagram (Mermaid, PlantUML & ZenUML)                              |
+  | {{apps_menu}}    | ZenUML Lite                                                        | ZenUML                                                            |
+  | {{team_page_url}}| {{site_url}}/wiki/apps/8ad26115-211f-4216-971b-0540f606303d/b28ee919-d73b-4f43-b7fd-45a3a881ec46/zenuml-dashboard |
+  |                  | {{site_url}}/wiki/apps/d9e4002b-120b-426b-834b-402a4a5adce7/bd98a544-377a-4832-a72f-eb8d80b19dde/zenuml-dashboard |
+  The macro title matters on sites with both apps: /zenuml then lists two near-identical entries, and the email names this install's one.
+
+  Changes from the 2026-08-28 draft, and why:
+  - One primary button (K15t: one "Let's go"), not a six-type catalogue. Installers who draw do it within the first hour.
+  - The real insert path: type /zenuml, pick {{macro_title}}.
+  - A "for your team" block with the Apps › {{apps_menu}} link: about half the sites that got going were installed for others.
+  - Signed by a person who reads replies (draw.io style), without a sales call. No "evaluating" or trial talk, so the same copy fits free Lite and paid Full.
+  - No promise of a drip series. A follow-up needs its own approval.
+  Table-based, inline styles, no external images.
+-->
+</head>
+<body style="margin:0;padding:0;background-color:#F4F5F7;">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Your first diagram takes about a minute: type /zenuml on any page.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#F4F5F7">
+<tr><td align="center" style="padding:24px 12px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;">
+
+  <tr><td style="padding:8px 32px 16px;">
+    <span style="font-size:20px;font-weight:700;color:#172B4D;">Zen<span style="color:#0C66E4;">UML</span></span>
+    <span style="font-size:12px;color:#626F86;padding-left:6px;">for Confluence</span>
+  </td></tr>
+
+  <tr><td bgcolor="#FFFFFF" style="border-radius:8px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+
+    <!-- Hero: the result, drawn in HTML so it shows with images off -->
+    <tr><td bgcolor="#E9F2FF" style="padding:28px 32px;border-radius:8px 8px 0 0;" align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td style="background:#FFFFFF;border:1px solid #0C66E4;border-radius:6px;padding:10px 14px;font-size:13px;font-weight:600;color:#172B4D;">Request</td>
+        <td style="padding:0 8px;color:#626F86;font-size:16px;">&rarr;</td>
+        <td style="background:#FFFFFF;border:1px solid #0C66E4;border-radius:6px;padding:10px 14px;font-size:13px;font-weight:600;color:#172B4D;">Review</td>
+        <td style="padding:0 8px;color:#626F86;font-size:16px;">&rarr;</td>
+        <td style="background:#DCFFF1;border:1px solid #22A06B;border-radius:6px;padding:10px 14px;font-size:13px;font-weight:600;color:#172B4D;">Approved</td>
+      </tr></table>
+      <div style="font-size:12px;color:#44546F;padding-top:10px;">A diagram on a Confluence page, saved with the page.</div>
+    </td></tr>
+
+    <tr><td style="padding:32px 32px 8px;">
+      <h1 style="margin:0 0 14px;font-size:24px;line-height:32px;color:#172B4D;">ZenUML is ready on {{site_name}}</h1>
+      <p style="margin:0 0 14px;font-size:15px;line-height:24px;color:#172B4D;">Hi {{first_name}},</p>
+      <p style="margin:0 0 20px;font-size:15px;line-height:24px;color:#172B4D;">Thanks for installing {{product_name}}. Your first diagram takes about a minute:</p>
+    </td></tr>
+
+    <tr><td style="padding:0 32px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:15px;line-height:22px;color:#172B4D;">
+        <tr><td width="32" valign="top" style="padding:0 0 12px;"><span style="display:inline-block;width:22px;height:22px;line-height:22px;border-radius:11px;background:#0C66E4;color:#FFFFFF;font-size:12px;font-weight:700;text-align:center;">1</span></td>
+            <td style="padding:0 0 12px;">Open any page you can edit and click <b>Edit</b>.</td></tr>
+        <tr><td width="32" valign="top" style="padding:0 0 12px;"><span style="display:inline-block;width:22px;height:22px;line-height:22px;border-radius:11px;background:#0C66E4;color:#FFFFFF;font-size:12px;font-weight:700;text-align:center;">2</span></td>
+            <td style="padding:0 0 12px;">Type <code style="background:#F1F2F4;border-radius:3px;padding:1px 5px;font-size:14px;">/zenuml</code> and pick <b>{{macro_title}}</b>.</td></tr>
+        <tr><td width="32" valign="top" style="padding:0 0 12px;"><span style="display:inline-block;width:22px;height:22px;line-height:22px;border-radius:11px;background:#0C66E4;color:#FFFFFF;font-size:12px;font-weight:700;text-align:center;">3</span></td>
+            <td style="padding:0 0 12px;">Choose a starter, change the text, then publish the page.</td></tr>
+      </table>
+    </td></tr>
+
+    <tr><td style="padding:12px 32px 28px;">
+      <a href="{{site_url}}/wiki" style="display:inline-block;background:#0C66E4;color:#FFFFFF;text-decoration:none;font-size:15px;font-weight:600;padding:12px 22px;border-radius:6px;">Open {{site_name}} Confluence &rarr;</a>
+    </td></tr>
+
+    <!-- For the team -->
+    <tr><td style="padding:0 32px 28px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #DCDFE4;border-radius:8px;">
+        <tr><td style="padding:20px 22px;">
+          <div style="font-size:16px;font-weight:700;color:#172B4D;padding-bottom:6px;">Installed it for your team?</div>
+          <div style="font-size:14px;line-height:22px;color:#44546F;">Send them the ZenUML page. Everyone on {{site_name}} can open it from <b>Apps &rsaquo; {{apps_menu}}</b>; it shows how to add a diagram.</div>
+          <div style="padding-top:12px;"><a href="{{team_page_url}}" style="font-size:14px;font-weight:600;color:#0C66E4;">Open the ZenUML page to copy its link &rarr;</a></div>
+        </td></tr>
+      </table>
+    </td></tr>
+
+    <tr><td style="padding:0 32px 32px;font-size:15px;line-height:24px;color:#172B4D;">
+      <p style="margin:0 0 14px;">If anything gets in the way, just reply to this email. It comes to me and the team, and we answer every one.</p>
+      <p style="margin:0 0 14px;">If a colleague looks after this app, please feel free to forward this.</p>
+      <p style="margin:0;">Peng<br><span style="color:#626F86;font-size:13px;">ZenUML for Confluence</span></p>
+    </td></tr>
+
+  </table>
+  </td></tr>
+
+  <tr><td align="center" style="padding:20px 32px;font-size:12px;line-height:18px;color:#626F86;">
+    You received this one-time message because your Confluence site installed {{product_name}} from the Atlassian Marketplace. We will not email again unless you reply.<br>
+    P&amp;D Vision Pty Ltd, makers of ZenUML
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>

@@ -17,15 +17,16 @@
         <label class="recovery__label" for="recovery-note">Anything that would help us understand your use</label>
         <textarea id="recovery-note" v-model="note" rows="3" maxlength="2000" />
       </details>
+      <BundleBlackFridayOffer v-if="blackFriday" />
       <div class="recovery__actions">
-        <button type="button" class="recovery__primary" :disabled="scenarios.length === 0" @click="showContact">Contact support</button>
+        <button type="button" class="recovery__primary" :disabled="scenarios.length === 0" @click="showContact">Request temporary access</button>
         <button type="button" class="recovery__secondary" @click="planUsage">Plan and usage</button>
       </div>
       <button type="button" class="recovery__link" @click="close">{{ copy.backLabel }}</button>
     </template>
 
     <template v-else-if="view === 'contact'">
-      <h1 id="recovery-title">Contact support</h1>
+      <h1 id="recovery-title">Request temporary access</h1>
       <p class="recovery__lead">{{ copy.contactLead }}</p>
       <div class="recovery__context">
         <strong>Included with your request</strong>
@@ -65,6 +66,7 @@
       <h1 id="recovery-title">{{ copy.expiredTitle }}</h1>
       <p class="recovery__lead">{{ copy.expiredLead(expiryText) }}</p>
       <p>{{ copy.expiredPrompt }}</p>
+      <BundleBlackFridayOffer v-if="blackFriday" />
       <div class="recovery__actions">
         <button type="button" class="recovery__primary" @click="showRequest">Continue the conversation</button>
         <button type="button" class="recovery__secondary" @click="planUsage">Plan and usage</button>
@@ -99,6 +101,8 @@ import { RECOVERY_FEATURE_DEFINITIONS } from '../../../shared/fullscreenRecovery
 import type { RecoveryFeature, RecoveryRequestInput, RecoveryResult, RecoveryScenario, RecoverySnapshot } from '../../../shared/fullscreenRecovery'
 import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent'
 import { requestFullscreenRecovery } from '@/apis/fullscreenRecovery'
+import BundleBlackFridayOffer from '@/components/UpgradePrompt/BundleBlackFridayOffer.vue'
+import { useBundleBlackFriday } from '@/utils/paywall/useBundleBlackFriday'
 import RequestSummary from './RequestSummary.vue'
 import { fullLocalDate, recoveryCopy, safeSupportMailto, scenarioLabel } from './recoveryPresentation'
 
@@ -106,6 +110,7 @@ type View = 'scenarios' | 'contact' | 'ready' | 'expired' | 'request'
 const props = withDefaults(defineProps<{
   snapshot: RecoverySnapshot
   feature?: RecoveryFeature
+  editTarget?: 'existing_diagram' | 'new_diagram'
   request?: (input: RecoveryRequestInput) => Promise<RecoveryResult>
   context?: Partial<Pick<RecoveryRequestInput, 'contentId' | 'customContentId' | 'spaceKey'>>
   initialView?: 'request'
@@ -134,6 +139,7 @@ const localSnapshot = ref(props.snapshot)
 const view = ref<View>(viewForSnapshot(props.snapshot))
 watch(() => props.snapshot, (next) => { localSnapshot.value = next; view.value = viewForSnapshot(next) })
 
+const blackFriday = useBundleBlackFriday()
 const copy = computed(() => recoveryCopy[props.feature])
 const definition = computed(() => RECOVERY_FEATURE_DEFINITIONS[props.feature])
 const scenarioCodes = computed(() => definition.value.scenarios as readonly RecoveryScenario[])
@@ -153,7 +159,7 @@ function analyticsBase(attemptId = gateAttemptId) {
     feature_area: 'upgrade' as const, surface: props.surface ?? (props.feature === 'edit' ? 'editor' as const : 'viewer' as const), feature: props.feature,
     policy_version: definition.value.policyVersion,
     entry_point: props.surface === 'dashboard' ? 'dashboard' as const : 'macro_toolbar' as const,
-    attempt_id: attemptId, recovery_state: localSnapshot.value.state,
+    attempt_id: attemptId, recovery_state: localSnapshot.value.state, edit_target: props.editTarget,
     recovery_request_id: localSnapshot.value.request?.id,
     recovery_grant_id: localSnapshot.value.grant?.id,
   }

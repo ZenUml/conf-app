@@ -58,12 +58,12 @@ export const recoveryCopy: { [F in RecoveryFeature]: RecoveryCopy<F> } = {
   edit: {
     eyebrow: 'ZenUML Lite · Editing',
     scenarioLabels: {
-      fix_or_update: 'Fix or update this diagram',
+      fix_or_update: 'Fix or update a diagram',
       keep_current: 'Keep our documentation current',
       prepare_review: 'Prepare for a review or release',
       other: 'Something else',
     },
-    scenariosTitle: 'How will you edit this diagram?',
+    scenariosTitle: 'How will you edit diagrams?',
     scenariosLead: limit => `This site has reached the free limit of ${limit ?? 100} diagrams. Tell us what you need. After your request is saved, you can edit for 7 days starting with your first successful save.`,
     contactLead: "We'll reply about this editing request at the address you provide.",
     contactIncluded: 'Current Confluence site, diagram reference, and your editing use.',

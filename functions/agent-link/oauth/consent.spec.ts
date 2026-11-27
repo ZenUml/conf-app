@@ -1,7 +1,7 @@
 // The consent hop's browser binding — the thing that stops the `auth` id in
 // the URL from being a credential on its own.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { onRequestGet, onRequestPost } from './consent';
 import {
   CONSENT_COOKIE,
@@ -148,15 +148,28 @@ describe('consent screen', () => {
     expect([...env.kv.keys()].some((k) => k.includes('-code:'))).toBe(false);
   });
 
-  it('carries a decline back to the client as access_denied', async () => {
-    const env = makeEnv();
-    await seed(env);
-    const res = await onRequestPost(
-      ctx(postForm({ auth: PENDING_ID, decision: 'deny' }, `${CONSENT_COOKIE}=${PENDING_ID}`), env.env),
-    );
-    expect(res.status).toBe(302);
-    expect(new URL(res.headers.get('location')!).searchParams.get('error')).toBe('access_denied');
-    expect([...env.kv.keys()].some((k) => k.includes('-consent:'))).toBe(false);
+  it('carries a decline back to the client as access_denied, and counts it', async () => {
+    const events: Array<{ event: string; properties: Record<string, unknown> }> = [];
+    // mixpanelService posts with the global fetch.
+    vi.stubGlobal('fetch', async (url: unknown, init?: RequestInit) => {
+      if (String(url).includes('mixpanel.com/import')) events.push(...JSON.parse(String(init?.body ?? '[]')));
+      return new Response('1', { status: 200 });
+    });
+    try {
+      const env = makeEnv();
+      await seed(env);
+      const res = await onRequestPost(
+        ctx(postForm({ auth: PENDING_ID, decision: 'deny' }, `${CONSENT_COOKIE}=${PENDING_ID}`), { ...env.env, MIXPANEL_TOKEN: 'mp-token' }),
+      );
+      expect(res.status).toBe(302);
+      expect(new URL(res.headers.get('location')!).searchParams.get('error')).toBe('access_denied');
+      expect([...env.kv.keys()].some((k) => k.includes('-consent:'))).toBe(false);
+      expect(events.map((e) => [e.event, e.properties.reason, e.properties.distinct_id])).toEqual([
+        ['agent_link_oauth_failed', 'consent_declined', 'acct-1'],
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

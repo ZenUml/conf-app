@@ -13,7 +13,7 @@ One variant per command. No variant named: ask which one. Do not release a varia
 
 Script: `.claude/skills/release-app/scripts/release.sh`
 
-Diagramly, Lite, Full, and AsyncAPI use this same command. Full stays behind Lite by 24 hours. The script enforces that. Do not pass an override.
+Diagramly, Lite, Full, and AsyncAPI use this same command. Full stays behind Lite by 8 hours, and publishes only if Lite's errors did not grow in that window (`scripts/soak_errors.py`: Lite error events by radar signature, against the same hours 1-2 weeks earlier; a BLOCK names the signature). The script enforces both. Do not pass an override.
 
 ## 1. Prepare
 

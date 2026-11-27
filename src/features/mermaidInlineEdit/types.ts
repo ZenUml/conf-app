@@ -79,6 +79,8 @@ export type FlowReadOnlyReason =
   | 'unsupported';
 
 export interface FlowNodeLocation {
+  /** Verified vertex id occurrences, including edge endpoints. Excludes style, class and click directives. */
+  idRanges: Range[];
   /** db `vertex.domId` (`flowchart-<id>-<n>`), which ends the id of the SVG `g.node`. */
   domId: string;
   /**

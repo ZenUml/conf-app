@@ -22,7 +22,7 @@ vi.mock('svg-pan-zoom', () => ({ default: vi.fn() }));
 vi.mock('hammerjs', () => ({ default: vi.fn() }));
 vi.mock('@/utils/renderGate/documentLayout', () => ({ awaitSvgTextLayout: vi.fn(() => Promise.resolve(true)) }));
 
-const controller = vi.hoisted(() => ({ onRendered: vi.fn(), onCodeChanged: vi.fn(), setSuspended: vi.fn(), destroy: vi.fn() }));
+const controller = vi.hoisted(() => ({ onRendered: vi.fn(), onRenderFailed: vi.fn(), onCodeChanged: vi.fn(), setSuspended: vi.fn(), destroy: vi.fn() }));
 const mountMock = vi.hoisted(() => vi.fn(() => controller));
 vi.mock('@/features/mermaidInlineEdit', () => ({ mountMermaidInlineEdit: mountMock }));
 
@@ -54,6 +54,21 @@ describe('Mermaid.vue inline edit gate', () => {
 
     wrapper.unmount();
     expect(controller.destroy).toHaveBeenCalled();
+  });
+
+  it('clears source selection if the latest store render fails', async () => {
+    mountWith({ [MERMAID_INLINE_EDIT_SURFACE]: true });
+    await vi.waitFor(() => expect(controller.onRendered).toHaveBeenCalledWith(CODE));
+    renderMock.mockRejectedValueOnce(new Error('Parse error'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const next = `${CODE}
+  invalid syntax`;
+      store.state.diagram.mermaidCode = next;
+      await vi.waitFor(() => expect(controller.onRenderFailed).toHaveBeenCalledWith(next));
+    } finally {
+      log.mockRestore();
+    }
   });
 
   // Display mode is not case-tested here: the store's isDisplayMode getter has

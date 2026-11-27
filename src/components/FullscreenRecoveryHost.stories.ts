@@ -58,7 +58,7 @@ function eligibilityStory(count: number): Story {
     const canvas = within(canvasElement);
     if (count < 100) {
       await waitFor(() => expect(canvasElement.querySelector('svg[id^="mermaid-"]')).not.toBeNull(), { timeout: 15000 });
-      await expect(canvas.queryByRole('button', { name: 'Contact support' })).toBeNull();
+      await expect(canvas.queryByRole('button', { name: 'Request temporary access' })).toBeNull();
       await expect(canvas.queryByText(/Temporary Fullscreen access ended/)).toBeNull();
     } else {
       await expect(canvas.getByText(/This space has reached the free limit of 100 diagrams/)).toBeVisible();

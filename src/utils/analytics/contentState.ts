@@ -8,7 +8,7 @@
 //   default  — the body equals the bundled starter content for that type
 //   authored — anything else, including types that have no known body field
 import { DiagramType, type Diagram } from '@/model/Diagram/Diagram';
-import Example from '@/utils/sequence/Example';
+import Example, { LegacyMermaid } from '@/utils/sequence/Example';
 import OpenApiExample from '@/model/OpenApi/OpenApiExample';
 import { EMPTY_GRAPH } from '@/utils/graph/emptyGraph';
 import { decompress } from '@/utils/compress';
@@ -84,8 +84,10 @@ export function classifyContentState(
   if (raw == null || typeof raw !== 'string' || raw.trim() === '') return 'empty';
   const seed = DEFAULT_BODY[diagramType];
   if (seed === undefined) return 'authored';
-  const body = diagramType === DiagramType.Graph ? plainGraphXml(raw) : raw;
-  return normalise(body) === normalise(seed) ? 'default' : 'authored';
+  const body = normalise(diagramType === DiagramType.Graph ? plainGraphXml(raw) : raw);
+  if (body === normalise(seed)) return 'default';
+  if (diagramType === DiagramType.Mermaid && body === normalise(LegacyMermaid)) return 'default';
+  return 'authored';
 }
 
 // The loader still displays the legacy PlantUML example for a missing/falsy

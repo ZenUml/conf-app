@@ -79,12 +79,16 @@ if [[ "$variant" == "full" ]]; then
     || block "could not parse publishedAt for $matching_tag: $matching_published_at"
   now_epoch="$(date -u '+%s')"
   age_seconds=$((now_epoch - published_epoch))
-  if (( age_seconds < 86400 )); then
-    remaining_seconds=$((86400 - age_seconds))
+  soak_seconds=$((8 * 3600))
+  if (( age_seconds < soak_seconds )); then
+    remaining_seconds=$((soak_seconds - age_seconds))
     remaining_hours="$(awk -v seconds="$remaining_seconds" 'BEGIN { printf "%.1f", seconds / 3600 }')"
-    block "$matching_tag targets $draft_sha but has soaked for < 24 hours; $remaining_hours hours remain"
+    block "$matching_tag targets $draft_sha but has soaked for < 8 hours; $remaining_hours hours remain"
   fi
-  printf 'OK: %s and %s target %s; lite soak is >= 24 hours\n' "$draft_tag" "$matching_tag" "$draft_sha"
+  # Lite's errors during the soak must not have grown. No Mixpanel answer is a BLOCK.
+  soak_check="$(python3 "$(dirname "${BASH_SOURCE[0]}")/soak_errors.py" --since "$matching_published_at" --variant lite 2>&1)" \
+    || block "${soak_check#BLOCK: }"
+  printf 'OK: %s and %s target %s; lite soak is >= 8 hours; %s\n' "$draft_tag" "$matching_tag" "$draft_sha" "${soak_check#OK: }"
 else
   printf 'OK: %s and %s target %s\n' "$draft_tag" "$matching_tag" "$draft_sha"
 fi

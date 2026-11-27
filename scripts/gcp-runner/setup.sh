@@ -27,6 +27,15 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 
 sudo apt-get update -y
 sudo apt-get install -y docker.io jq curl
+# No package upgrades while jobs run. On 2026-11-23 unattended-upgrades upgraded libc6
+# at 06:31 UTC, needrestart then restarted every runner service, and the 13 shards
+# running on that VM were cancelled ("The runner has received a shutdown signal";
+# daily regression run 45123486912). Patches are applied here instead, when setup.sh
+# runs, and never mid-run.
+sudo systemctl disable --now apt-daily-upgrade.timer apt-daily.timer unattended-upgrades.service 2>/dev/null || true
+sudo mkdir -p /etc/needrestart/conf.d
+echo "\$nrconf{restart} = 'l';" | sudo tee /etc/needrestart/conf.d/90-gha-no-restart.conf >/dev/null
+sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l apt-get upgrade -y
 # Every container job creates its own bridge network. Docker's default pools hold about 31
 # networks, so with 48 runners busy the rest failed with "all predefined address pools have
 # been fully subnetted" (run 45107657015: 24 of 56 shards). 10.200.0.0/16 cut into /24s

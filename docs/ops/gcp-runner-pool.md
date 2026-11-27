@@ -71,4 +71,6 @@ Charged against the Google for Startups credit (valid to 2027-10-27). The rates 
 - the disk costs about $16 a month even when the VM is stopped;
 - a daily run plus the 10-minute idle tail is about 30 minutes of VM time.
 
+`setup.sh` turns off the Ubuntu `apt-daily` and `unattended-upgrades` timers and sets needrestart to list, not restart. Run 45123486912 (2026-11-23) lost 13 shards when an unattended libc6 upgrade made needrestart restart every runner service mid-job. Package upgrades now happen only when `setup.sh` runs: re-run `install.sh` for both VMs to patch them.
+
 A SPOT preemption stops the VM mid-run. The shards then fail, and the regression must be run again.

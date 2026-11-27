@@ -103,7 +103,12 @@ export interface AuthenticatedMetricsContext {
 }
 
 export class HttpError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(
+    public readonly status: number,
+    message: string,
+    // Non-secret facts for the rejection log: names, types and booleans only.
+    public readonly detail?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = 'HttpError';
   }
@@ -113,6 +118,15 @@ export const NO_STORE_HEADERS = { 'Cache-Control': 'no-store' };
 
 export function errorResponse(error: unknown): Response {
   if (error instanceof HttpError) {
+    // The Forge caller discards the response body, so the reason is only
+    // visible here. Message strings are fixed and carry no request values.
+    if (error.status === 401 || error.status === 403) {
+      console.warn('[macro-count:snapshot] rejected', {
+        status: error.status,
+        reason: error.message,
+        ...(error.detail ? { detail: error.detail } : {}),
+      });
+    }
     return json({ error: error.message }, { status: error.status, headers: NO_STORE_HEADERS });
   }
   console.error('[macro-count:snapshot] unexpected error', {
@@ -248,7 +262,18 @@ export async function authenticateMetricsRequest(
     // frontend context. Requiring this shape prevents a Custom UI caller with
     // a valid FIT from invoking the snapshot write protocol directly.
     if (verifiedContext.invocationSource !== 'backend' || !hasSystemToken || hasUserToken) {
-      throw new HttpError(403, 'Snapshot writes require a backend Forge invocation');
+      const payload = fit?.payload;
+      const fitContext = payload?.context;
+      throw new HttpError(403, 'Snapshot writes require a backend Forge invocation', {
+        invocationSource: verifiedContext.invocationSource,
+        hasSystemToken,
+        hasUserToken,
+        fitContextKeys: fitContext && typeof fitContext === 'object'
+          ? Object.keys(fitContext).sort()
+          : null,
+        fitModuleType: typeof payload?.app?.module?.type === 'string' ? payload.app.module.type : null,
+        fitHasPrincipal: payload?.principal != null,
+      });
     }
   }
 
@@ -263,7 +288,10 @@ export async function authenticateMetricsRequest(
     env.EXPECTED_FORGE_ENVIRONMENT_TYPE
     && environment !== env.EXPECTED_FORGE_ENVIRONMENT_TYPE
   ) {
-    throw new HttpError(403, 'Forge environment does not match this backend');
+    throw new HttpError(403, 'Forge environment does not match this backend', {
+      environment,
+      expected: env.EXPECTED_FORGE_ENVIRONMENT_TYPE,
+    });
   }
   const context = {
     appId,

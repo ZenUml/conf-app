@@ -1,6 +1,6 @@
 # PR E2E decisions
 
-Every PR starts Draft. The creating or updating agent uses `pr-labeling` to inspect the complete diff and publish its E2E decision. Build, type-check, unit-test and deployment jobs keep their independent rules. A valid test decision allows E2E while the PR remains Draft; only the author chooses Ready for Review.
+Every PR starts Draft. The creating or updating agent uses `pr-labeling` to inspect the complete diff and publish its E2E decision. Build, type-check and unit-test jobs keep their independent rules. The PR-slot deployment in `PR validation` runs only after a current decision is authorized, because it exists to feed PR E2E and the slot is shared by every PR; a PR in triage is not deployed. A valid test decision allows E2E while the PR remains Draft; only the author chooses Ready for Review.
 
 ## States
 
@@ -36,7 +36,18 @@ Labeling must inspect applicable variants and configured PR suites: a test tagge
 
 The newest trusted record supersedes older records. Editing a record invalidates it. Deleting one leaves a controller-generated triage record so that an older approval cannot become active again. The GitHub Actions controller can revoke authorization, but cannot approve tests. A later collaborator decision can resolve the revocation.
 
-Each push requires a new labeling decision. Full approval never transfers to the next commit. A changed base or selector catalog also requires revalidation. Renamed and removed paths still need evidence, but specs that no longer exist cannot be required executable tests.
+Each push requires a new labeling decision. Full approval never transfers to the next commit. A changed selector catalog also requires revalidation.
+
+A moved target branch does not always require a new decision. The controller compares the decision's base commit with the current target tip (`GET /compare/<base>...<tip>`):
+
+| Target branch since the decision's base | `selected` decision | `all` approval |
+| --- | --- | --- |
+| No new commit | Valid | Valid |
+| New commits, none touches a path the PR changes (rename sources count) | Valid | Stale |
+| A new commit touches a path the PR changes | Stale | Stale |
+| Base is not in the tip's history, 300 or more changed files, or the comparison fails | Stale | Stale |
+
+The tested merge commit follows the same rule: its second parent must be the PR head, and its first parent must be the target tip or a target commit that carries over by the table above. The selection artifact records that first parent as `base_sha`, so every later recheck of the same candidate agrees while the target keeps moving. The head, the diff fingerprint and every catalog fingerprint are still bound exactly; a catalog change on the target makes the decision stale through its fingerprint. Renamed and removed paths still need evidence, but specs that no longer exist cannot be required executable tests.
 
 The minimum subset includes smoke, directly changed surviving E2E specs, explicit helper dependencies, mapped floor selectors and known transitive category dependencies reached through selected pairs, direct specs and floor categories. Browser preview, Mixpanel-isolation and export checks remain required local coverage once a PR has authorization. Missing artifacts, stale decisions, incomplete inventories and invalid plans block PR E2E; they never fall back to full coverage. A valid empty auxiliary render plan stays empty.
 
@@ -49,7 +60,7 @@ When the user explicitly asks to try labeling an existing PR before the trusted 
 
 1. Create the PR with `--draft` and publish its decision using `pr-labeling`.
 2. For a subset, run `node scripts/test-selection/request-pr-e2e.mjs --pr NUMBER`. For triage, stop E2E processing and leave the queue for an explicit triage request.
-3. The request helper verifies current authorization and requests a fresh PR-associated validation run. This preserves PR check provenance. A diagnostic `workflow_dispatch` on main cannot substitute for the PR's own checks.
+3. The request helper verifies current authorization and requests a fresh PR-associated validation run. `PR validation` deploys to the PR slot only after `Select E2E for this PR` passes; a blocked decision does not spend the slot. A request for a head that an earlier run already validated under the same newest decision is skipped and links to that run; to force another validation, re-run the workflow run or dispatch it manually. This preserves PR check provenance. A diagnostic `workflow_dispatch` on main cannot substitute for the PR's own checks.
 4. The trusted default-branch controller reads the decision and produces immutable raw/resolved artifacts for the candidate merge. The child, plan and shard entrypoints recheck the decision. The planner retains the mandatory floor and produces concrete test identities.
 5. `Pipeline outcome` requires selection and all configured PR E2E stages to succeed. Report executed test evidence separately from the selected plan.
 

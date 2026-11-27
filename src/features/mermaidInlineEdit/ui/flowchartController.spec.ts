@@ -69,6 +69,8 @@ interface Options {
   renderMs?: number;
 }
 
+const controllers: ReturnType<typeof attachInlineEdit>[] = [];
+
 function setup(opts: Options = {}) {
   const store = { code: CODE };
   const container = document.createElement('div');
@@ -108,6 +110,7 @@ function setup(opts: Options = {}) {
     clearTimer: (t: unknown) => { (t as { live: boolean }).live = false; },
   };
   const controller = attachInlineEdit(container, deps as unknown as InlineEditDeps, host as unknown as InlineEditHost);
+  controllers.push(controller);
   const flush = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setTimeout(r, 0)); };
   const render = async (code = store.code) => {
     await draw(content, code);
@@ -154,6 +157,7 @@ beforeEach(() => {
   __resetInlineEditSessionForTests();
 });
 afterEach(() => {
+  for (const controller of controllers.splice(0)) controller.destroy();
   document.body.innerHTML = '';
 });
 
@@ -602,6 +606,7 @@ describe('flowchart in-place editing (controller)', () => {
       const rest = { ...h.deps } as any;
       delete rest.flowchart;
       const c = attachInlineEdit(container, rest as InlineEditDeps, h.host as unknown as InlineEditHost);
+      controllers.push(c);
       c.onRendered(CODE);
       await h.flush();
       expect(container.classList.contains('mie-cursor')).toBe(false);
@@ -618,5 +623,37 @@ describe('flowchart in-place editing (controller)', () => {
     await vi.waitFor(() => expect(h.deps.writeCode).toHaveBeenCalled());
     const sent = JSON.stringify(h.deps.track.mock.calls);
     for (const leak of ['Secret', 'Start', '"A"', 'flowchart-A', 'L_A_B']) expect(sent).not.toContain(leak);
+  });
+});
+
+describe('flowchart source selection discovery', () => {
+  it('locates exact node and edge labels and skips unsupported and multiline ranges', async () => {
+    const h = setup();
+    await h.render();
+    const ring = () => h.container.querySelector<HTMLElement>('[data-testid="mermaid-source-selection-ring"]');
+    const select = (text: string, caret = false) => {
+      const from = CODE.indexOf(text);
+      window.dispatchEvent(new CustomEvent('mermaid-source-selection', {
+        detail: { owner: h.container, code: CODE, from, to: caret ? from : from + text.length, typing: false },
+      }));
+    };
+    node(h, 'A').getBoundingClientRect = () => ({ left: 20, right: 45, top: 5, bottom: 20 }) as DOMRect;
+    const edgeId = [...map.edges].find(([, loc]) => loc.textRange && CODE.slice(...loc.textRange) === 'yes')![0];
+    edge(h, edgeId).getBoundingClientRect = () => ({ left: 120, right: 145, top: 5, bottom: 20 }) as DOMRect;
+
+    select('Start');
+    expect(ring()?.style.left).toBe('20px');
+    select('A[Start]', true);
+    expect(ring()?.style.left).toBe('20px');
+    select('yes', true);
+    expect(ring()?.style.left).toBe('120px');
+    expect(h.container.querySelector('[data-testid="mermaid-source-selection-hint"]')).toBeNull();
+    select('shared');
+    expect(ring()).toBeNull();
+    select('Linked');
+    expect(ring()).toBeNull();
+    select('Decide}\n  C');
+    expect(ring()).toBeNull();
+    h.controller.destroy();
   });
 });

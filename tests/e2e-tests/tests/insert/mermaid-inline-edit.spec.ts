@@ -55,6 +55,20 @@ function editLayer(frame: FrameLocator): Locator {
   return frame.locator('div.mie-layer');
 }
 
+async function expectRingOn(ring: Locator, target: Locator, other: Locator): Promise<void> {
+  await expect.poll(async () => {
+    const [outline, expected, unexpected] = await Promise.all([
+      ring.boundingBox(), target.boundingBox(), other.boundingBox(),
+    ]);
+    if (!outline || !expected || !unexpected) return false;
+    const x = outline.x + outline.width / 2;
+    const y = outline.y + outline.height / 2;
+    const contains = (box: typeof outline) =>
+      x > box.x && x < box.x + box.width && y > box.y && y < box.y + box.height;
+    return contains(expected) && !contains(unexpected);
+  }).toBe(true);
+}
+
 /**
  * The controller adds `mie-enabled` to the Mermaid container only when the
  * three-way equality holds (rendered code = source map = store) and no layer
@@ -64,12 +78,12 @@ async function waitEditable(frame: FrameLocator): Promise<void> {
   await expect(frame.locator('.mie-enabled').first()).toBeAttached({ timeout: TIMEOUTS.FRAME_LOAD });
 }
 
-async function setupSequence(page: Page, testName: string) {
+async function setupSequence(page: Page, testName: string, source = SOURCE) {
   const editorPage = new ConfluenceEditorPage(page);
   const helper = new DiagramTestHelper(page, editorPage);
   await helper.createPageWithDiagramMacro(testName);
   await editorPage.switchToMacroTab('Mermaid');
-  await helper.enterCodeInEditor(SOURCE);
+  await helper.enterCodeInEditor(source);
   const frame = editorPage.getMacroEditorFrame();
   await waitEditable(frame);
   await expect(actorLabel(frame, 'Bob').first()).toBeAttached({ timeout: TIMEOUTS.FRAME_LOAD });
@@ -97,6 +111,11 @@ async function openLayerOn(_page: Page, frame: FrameLocator, label: Locator, ari
   await expect(layer).toBeFocused();
   return layer;
 }
+
+// Each test builds its own page, so the planner may place tests of this
+// file on different shards (scripts/test-selection/plan.mjs splits a
+// file per test only when it declares parallel mode).
+test.describe.configure({ mode: 'parallel' });
 
 test.describe('Mermaid sequence inline edit', { tag: ['@test:mermaid', '@variant:lite', '@variant:full', '@variant:diagramly', '@editor', '@viewer', '@mermaid', '@feature:editing', '@interface:editor', '@scenario:editing:editor'] }, () => {
   test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
@@ -147,6 +166,85 @@ test.describe('Mermaid sequence inline edit', { tag: ['@test:mermaid', '@variant
       expect(changed).toHaveLength(1);
       expect(changed[0]).toMatch(/^\s*Alice->>Bob: Hello there$/);
       await expect(editLayer(frame)).toHaveCount(0, { timeout: TIMEOUTS.FRAME_LOAD });
+    });
+  });
+
+  test('select the second of two equal source labels, then type and edit it in the diagram', async ({ page }) => {
+    const { frame, before } = await setupSequence(page, 'Mermaid Source Selection', SOURCE + '\n\n  Alice->>Bob: Hi');
+    const editor = frame.locator('.cm-content[contenteditable="true"]').first();
+    const ring = frame.getByTestId('mermaid-source-selection-ring');
+    const hint = frame.getByTestId('mermaid-source-selection-hint');
+    const duplicate = messageLabel(frame, 'Hi');
+    await expect(duplicate).toHaveCount(2, { timeout: TIMEOUTS.FRAME_LOAD });
+
+    await test.step('Move a collapsed caret between equal labels and through a blank line', async () => {
+      await editor.locator('.cm-line').last().click();
+      await page.keyboard.press('End');
+      await page.keyboard.press('ArrowLeft');
+      await expectRingOn(ring, duplicate.last(), duplicate.first());
+      await expect(hint).toHaveCount(0);
+      await expect(editor).toBeFocused();
+      expect(await editor.evaluate(element => element.ownerDocument.getSelection()?.isCollapsed)).toBe(true);
+
+      await page.keyboard.press('ArrowUp');
+      await expect(ring).toHaveCount(0);
+      await page.keyboard.press('ArrowUp');
+      await expectRingOn(ring, duplicate.first(), duplicate.last());
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('ArrowDown');
+      await expectRingOn(ring, duplicate.last(), duplicate.first());
+    });
+
+    await test.step('Type at the caret and keep the ring on the edited label', async () => {
+      await page.keyboard.insertText('e');
+      const edited = messageLabel(frame, 'Hei');
+      await expect(edited).toBeAttached({ timeout: TIMEOUTS.FRAME_LOAD });
+      await expectRingOn(ring, edited, duplicate.first());
+      await expect(hint).toHaveCount(0);
+      await expect(editor).toBeFocused();
+      await page.keyboard.press('Backspace');
+      await expect(duplicate).toHaveCount(2, { timeout: TIMEOUTS.FRAME_LOAD });
+      await expectRingOn(ring, duplicate.last(), duplicate.first());
+      expect(await readCode(frame)).toBe(before);
+    });
+
+    await test.step('Select the second source label with the keyboard and verify its exact preview target', async () => {
+      await editor.locator('.cm-line').last().click();
+      await page.keyboard.press('End');
+      await page.keyboard.press('Shift+ArrowLeft');
+      await page.keyboard.press('Shift+ArrowLeft');
+      await expect(hint).toHaveText('You can also double-click here to edit.');
+      await expect(hint).toBeVisible();
+      await expect(editor).toBeFocused();
+      await expectRingOn(ring, duplicate.last(), duplicate.first());
+    });
+
+    const updated = before.slice(0, before.lastIndexOf('Hi')) + 'Updated';
+    await test.step('Type in the focused source editor and clear the hint with a multiline selection', async () => {
+      await page.keyboard.insertText('Updated');
+      await expect.poll(() => readCode(frame)).toBe(updated);
+      await expect(editor).toBeFocused();
+      await expect(messageLabel(frame, 'Hi')).toHaveCount(1, { timeout: TIMEOUTS.FRAME_LOAD });
+      await expect(messageLabel(frame, 'Updated')).toHaveCount(1);
+      await expect(ring).toBeVisible();
+      await expect(hint).toHaveCount(0);
+      await page.keyboard.press('Shift+ArrowUp');
+      await expect(ring).toHaveCount(0);
+    });
+
+    await test.step('Reselect the label and double-click the highlighted text to enter inline edit', async () => {
+      await editor.locator('.cm-line').last().click();
+      await page.keyboard.press('End');
+      for (const _ of 'Updated') await page.keyboard.press('Shift+ArrowLeft');
+      await expect(hint).toBeVisible();
+      const layer = await openLayerOn(page, frame, messageLabel(frame, 'Updated'), 'Edit message text');
+      await expect(layer).toHaveText('Updated');
+      await expect(ring).toHaveCount(0);
+      await expect(hint).toHaveCount(0);
+      await page.keyboard.press('End');
+      await page.keyboard.type(' again');
+      await page.keyboard.press('Enter');
+      await expect.poll(() => readCode(frame), { timeout: TIMEOUTS.FRAME_LOAD }).toBe(updated + ' again');
     });
   });
 
@@ -242,6 +340,7 @@ test.describe('Mermaid sequence inline edit', { tag: ['@test:mermaid', '@variant
 });
 
 const FLOW_SOURCE = 'flowchart LR\n  A[Start] -->|yes| B(Round)\n  B --> C';
+const FLOW_DUPLICATES = 'flowchart LR\n  A[Start]\n  B[Start]\n  A -->|yes| B\n  B --> C';
 
 /** A rendered flowchart node label (HTML in a foreignObject) in the editor preview. */
 function nodeLabel(frame: FrameLocator, text: string): Locator {
@@ -253,17 +352,17 @@ function edgeLabel(frame: FrameLocator, text: string): Locator {
   return frame.locator('.diagram-viewport-content svg g.edgeLabel span.edgeLabel').filter({ hasText: exact(text) });
 }
 
-async function setupFlowchart(page: Page, testName: string) {
+async function setupFlowchart(page: Page, testName: string, source = FLOW_SOURCE) {
   const editorPage = new ConfluenceEditorPage(page);
   const helper = new DiagramTestHelper(page, editorPage);
   await helper.createPageWithDiagramMacro(testName);
   await editorPage.switchToMacroTab('Mermaid');
-  await helper.enterCodeInEditor(FLOW_SOURCE);
+  await helper.enterCodeInEditor(source);
   const frame = editorPage.getMacroEditorFrame();
   await waitEditable(frame);
   await expect(nodeLabel(frame, 'Start').first()).toBeAttached({ timeout: TIMEOUTS.FRAME_LOAD });
   const before = await readCode(frame);
-  expect(before).toContain('A[Start] -->|yes| B(Round)');
+  expect(before).toContain(source.split('\n')[1].trim());
   expect(before).toMatch(/^\s*B --> C$/m);
   console.log(`  ✓ Source in editor:\n${before}`);
   return { frame, before };
@@ -273,10 +372,43 @@ test.describe('Mermaid flowchart inline edit', { tag: ['@test:mermaid', '@varian
   test.skip(skip, `Macro "${macroType}" not in app profile [${testConfig.macros.join(', ')}]`);
 
   test('edit a node label in place: live preview, source written once on Enter', async ({ page }) => {
-    const { frame, before } = await setupFlowchart(page, 'Mermaid Flow Inline Node');
+    const { frame, before } = await setupFlowchart(page, 'Mermaid Flow Inline Node', FLOW_DUPLICATES);
+    const labels = nodeLabel(frame, 'Start');
+    const ring = frame.getByTestId('mermaid-source-selection-ring');
+    const editor = frame.locator('.cm-content[contenteditable="true"]').first();
+    const labelFor = (id: string) => frame.locator(`svg g.node[id*="-flowchart-${id}-"] span.nodeLabel`);
+    await expect(labels).toHaveCount(2);
+
+    await test.step('Click identical source labels and highlight their respective nodes without selecting text', async () => {
+      for (const [id, otherId] of [['B', 'A'], ['A', 'B']]) {
+        const line = editor.locator('.cm-line').filter({ hasText: `${id}[Start]` });
+        const position = await line.evaluate(element => {
+          const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+          let offset = element.textContent!.indexOf('Start') + 2;
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const length = node.textContent!.length;
+            if (offset < length) {
+              const range = element.ownerDocument.createRange();
+              range.setStart(node, offset);
+              range.setEnd(node, offset + 1);
+              const char = range.getBoundingClientRect();
+              const line = element.getBoundingClientRect();
+              return { x: char.left - line.left + char.width / 2, y: char.top - line.top + char.height / 2 };
+            }
+            offset -= length;
+          }
+          throw new Error('Flowchart source label is missing');
+        });
+        await line.click({ position });
+        await expectRingOn(ring, labelFor(id), labelFor(otherId));
+        await expect(editor).toBeFocused();
+        expect(await editor.evaluate(element => element.ownerDocument.getSelection()?.isCollapsed)).toBe(true);
+        await expect(frame.getByTestId('mermaid-source-selection-hint')).toHaveCount(0);
+      }
+    });
 
     await test.step('Double-click Start and replace the text', async () => {
-      await openLayerOn(page, frame, nodeLabel(frame, 'Start'), 'Edit node label');
+      await openLayerOn(page, frame, labelFor('A'), 'Edit node label');
       await page.keyboard.press('ControlOrMeta+a');
       await page.keyboard.type('Begin here');
       await expect(nodeLabel(frame, 'Begin here').first()).toBeAttached({ timeout: TIMEOUTS.FRAME_LOAD });
@@ -289,7 +421,7 @@ test.describe('Mermaid flowchart inline edit', { tag: ['@test:mermaid', '@varian
       await expect.poll(() => readCode(frame), { timeout: TIMEOUTS.FRAME_LOAD }).toBe(expected);
       await expect(editLayer(frame)).toHaveCount(0, { timeout: TIMEOUTS.FRAME_LOAD });
       await expect(nodeLabel(frame, 'Begin here').first()).toBeAttached();
-      await expect(nodeLabel(frame, 'Start')).toHaveCount(0);
+      await expect(labels).toHaveCount(1);
     });
   });
 

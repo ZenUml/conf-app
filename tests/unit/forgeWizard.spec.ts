@@ -133,12 +133,11 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(yq.join(' ')).not.toContain('macroCountSnapshotFn')
   })
 
-  // scripts/forge-wizard.mjs is the source of truth, but three workflows carry
-  // hand-copied duplicates of its yq edits and have drifted before (#383/#460,
-  // and deploy-whimet4.yml was missed when ADR-0005 landed). Pin the Lite
-  // asyncapi edits across every workflow that deploys Lite, so the next drift
-  // fails here instead of shipping a manifest nobody intended.
-  describe('Lite asyncapi manifest edits are mirrored in every Lite-deploying workflow', () => {
+  // scripts/forge-wizard.mjs is the source of truth. The three workflows that
+  // deploy Lite used to carry hand copies of its yq edits and drifted (#383/#460,
+  // deploy-whimet4.yml after ADR-0005); they now apply this list through
+  // scripts/ci/manifest-edits.mjs (scripts/ci/manifest-edits.node-test.mjs).
+  describe('every Lite-deploying workflow applies the wizard edits', () => {
     const LITE_WORKFLOWS = [
       '.github/workflows/release.yml',
       '.github/workflows/staging-deploy.yml',
@@ -149,15 +148,13 @@ describe('forge-wizard manifest preview helpers', () => {
     const liteYq = (): string[] =>
       getManifestEditYqArgs('lite').map((x: { expr: string }) => x.expr)
 
-    it.each(LITE_WORKFLOWS)('%s carries the wizard\'s Lite asyncapi edits', (file: string) => {
+    it.each(LITE_WORKFLOWS)('%s writes its manifest edits from the wizard', (file: string) => {
       const yaml = fs.readFileSync(file, 'utf8')
       const yq = liteYq()
-      const embedStrip = yq.find((e: string) => e.includes('zenuml-asyncapi-embed-macro'))
-      const cspEdit = yq.find((e: string) => e.includes('unsafe-eval'))
-      expect(embedStrip).toBeDefined()
-      expect(cspEdit).toBeDefined()
-      expect(yaml).toContain(embedStrip!)
-      expect(yaml).toContain(cspEdit!)
+      expect(yq.find((e: string) => e.includes('zenuml-asyncapi-embed-macro'))).toBeDefined()
+      expect(yq.find((e: string) => e.includes('unsafe-eval'))).toBeDefined()
+      expect(yaml).toContain('node scripts/ci/manifest-edits.mjs')
+      expect(yaml).toContain('cmd: sh manifest-edits.sh')
     })
 
     // deploy-whimet4.yml deploys ONLY Lite, so unlike release.yml /
@@ -305,11 +302,8 @@ describe('forge-wizard manifest preview helpers', () => {
       // autoConvert (AsyncAPI keeps zenuml-asyncapi-embed-macro), and Forge
       // lint rejects an empty list. The cleanup must run AFTER it.
       expect(expr!.endsWith('| del(.modules.macro[] | select((.autoConvert.matchers // []) | length == 0) | .autoConvert)'), variant).toBe(true)
-      // release.yml and staging-deploy.yml carry hand copies; a copy without
-      // the cleanup is what failed the AsyncAPI deploy.
-      for (const file of ['.github/workflows/release.yml', '.github/workflows/staging-deploy.yml']) {
-        expect(fs.readFileSync(file, 'utf8'), `${file} (${variant})`).toContain(expr!)
-      }
+      // A hand copy without the cleanup once failed the AsyncAPI deploy; CI
+      // now applies this list itself (scripts/ci/manifest-edits.mjs).
     }
     const hosts = ['lite', 'full', 'asyncapi'].map(typedDeeplinkHostForProductType)
     expect(new Set(hosts).size, 'byline variants mint on distinct hosts').toBe(hosts.length)
@@ -330,9 +324,6 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(edit).toBeDefined()
     expect(edit).toContain('.title) = "API Docs"')
     expect(edit).toContain('.tooltip) = "See the API docs on this page, or add one"')
-    for (const file of ['.github/workflows/release.yml', '.github/workflows/staging-deploy.yml']) {
-      expect(fs.readFileSync(file, 'utf8'), file).toContain(edit!)
-    }
     for (const v of ['lite', 'full', 'diagramly']) {
       expect(getManifestEditYqArgs(v).map((x: { expr: string }) => x.expr).join('\n'), v).not.toContain('API Docs')
     }
@@ -405,12 +396,15 @@ describe('forge-wizard manifest preview helpers', () => {
     // Diagramly ships the embed macro (task 6, deeplink productization,
     // commit c539e1f7) — this test used to assert the opposite (a
     // 'Remove embed macro (zenuml-embed-macro)' edit) and went stale the
-    // moment that commit landed without updating it. CI's parallel manifest
-    // edits (.github/workflows/release.yml + staging-deploy.yml) must agree
-    // with this wizard — see the comment on diagramly's manifestEdits array
-    // in scripts/forge-wizard.mjs.
+    // moment that commit landed without updating it. CI applies this same
+    // list (scripts/ci/manifest-edits.mjs).
     const desc = getManifestEditDescriptions('diagramly')
-    expect(desc).toContain('Remove globalSettings + globalPage + spacePage')
+    expect(desc).toContain('Remove ZenUML-only globalSettings entry, globalPage and spacePage')
+    // Diagramly keeps its admin page (diagramly-admin-create-demo-page); the
+    // wizard used to delete all of globalSettings while CI kept it.
+    const globals = getManifestEditYqArgs('diagramly').map((x: { expr: string }) => x.expr).find((e: string) => e.includes('globalSettings'))
+    expect(globals).toContain('select(.key == "zenuml-get-started-settings")')
+    expect(globals).not.toContain('del(.modules["confluence:globalSettings"]) |')
     expect(desc).not.toContain('Remove embed macro (zenuml-embed-macro)')
     expect(desc).toContain(
       'Remove asyncapi macros (zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro)',
@@ -424,7 +418,7 @@ describe('forge-wizard manifest preview helpers', () => {
 
     const yq = getManifestEditYqArgs('diagramly').map((x) => x.expr)
     expect(yq).toContain(
-      'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:spacePage"])',
+      'del(.modules["confluence:globalSettings"][] | select(.key == "zenuml-get-started-settings")) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:spacePage"])',
     )
     expect(yq).not.toContain(
       'del(.modules.macro[] | select(.key | test("zenuml-embed-macro")))',

@@ -1,0 +1,39 @@
+name: Seed dependency cache
+
+# PR runs read the node_modules cache but only a PR that changes the lockfile
+# saves one. This workflow saves the entry on main, so every other PR restores
+# main's entry instead of running pnpm install.
+on:
+  push:
+    branches: [main]
+    paths:
+      - pnpm-lock.yaml
+      - patches/**
+      - .npmrc
+      - pnpm-workspace.yaml
+      - package.json
+      - forge-console/package.json
+      - local-crm/package.json
+      - workers/cron-aggregate/package.json
+      - workers/agent-link/package.json
+      - .github/actions/install-deps/action.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seed-dependency-cache
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    name: Seed node_modules cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install dependencies and save the cache
+        uses: ./.github/actions/install-deps
+        with:
+          save: 'true'

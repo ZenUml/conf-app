@@ -87,6 +87,11 @@ async function insertAndPublishNonSequenceMacro(page: Page, kind: 'graph' | 'ope
   return pageId!;
 }
 
+// Each test builds its own page, so the planner may place tests of this
+// file on different shards (scripts/test-selection/plan.mjs splits a
+// file per test only when it declares parallel mode).
+test.describe.configure({ mode: 'parallel' });
+
 test.describe('REGRESSION #170 / view-fork gate — copy shapes are stopped before the in-viewer modal', { tag: ['@test:writeback-gate-non-submittable', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@viewer', '@editor', '@sequence', '@feature:copy-independence', '@interface:inline-viewer', '@scenario:copy-independence:inline-viewer'] }, () => {
   test.skip(!testConfig.isLite, 'Lite-only: the in-viewer Edit modal is the non-submittable surface');
   test.skip(!testConfig.macros.includes('sequence'), 'diagram (sequence) macro required');

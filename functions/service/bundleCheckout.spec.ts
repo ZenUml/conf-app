@@ -170,3 +170,46 @@ describe('GET /bundle-checkout/go', () => {
     expect(res.status).toBe(302);
   });
 });
+
+describe('Black Friday offer', () => {
+  const offerQuery = `${validQuery}&offer=black_friday_2026`;
+  const start = Date.parse('2026-11-20T00:00:00+11:00');
+  const end = Date.parse('2026-11-30T23:59:00+11:00');
+
+  it('shows the first-year terms and forwards the prefilled code and unchanged space reference', async () => {
+    const { track, events } = recorder();
+    const deps = { track, now: () => start, stripePromotionCode: 'TEST-OFFER' };
+    const handoff = await handleBundleCheckoutPage(page(offerQuery), deps);
+    const html = await handoff.text();
+    expect(handoff.status).toBe(200);
+    expect(html).toContain('US$149.50 first year');
+    expect(html).toContain('Then US$299/year per space');
+    expect(html).toContain('offer=black_friday_2026');
+    const redirect = await handleBundleCheckoutGo(go(offerQuery), deps);
+    expect(redirect.status).toBe(302);
+    const target = new URL(redirect.headers.get('location')!);
+    expect(target.searchParams.get('prefilled_promo_code')).toBe('TEST-OFFER');
+    expect(target.searchParams.get('client_reference_id')).toBe(REF);
+    expect(events.map(event => event.bundle_offer)).toEqual(['black_friday_2026', 'black_friday_2026']);
+  });
+
+  it.each([start - 1, end])('requires standard checkout confirmation outside the offer window (%s)', async (now) => {
+    const { track } = recorder();
+    const deps = { track, now: () => now, stripePromotionCode: 'TEST-OFFER' };
+    const redirect = await handleBundleCheckoutGo(go(offerQuery), deps);
+    expect(redirect.status).toBe(409);
+    expect(redirect.headers.get('location')).toBeNull();
+    expect(await redirect.text()).toContain('Review standard checkout');
+    const standard = await handleBundleCheckoutGo(go(validQuery), deps);
+    expect(standard.headers.get('location')).toBe(`${BUNDLE_PAYMENT_LINK}?client_reference_id=${REF}`);
+  });
+
+  it('requires standard checkout confirmation when no Stripe promotion is configured', async () => {
+    const { track } = recorder();
+    const response = await handleBundleCheckoutPage(page(offerQuery), {
+      track, now: () => end - 1, stripePromotionCode: null,
+    });
+    expect(response.status).toBe(409);
+    expect(await response.text()).not.toContain('US$149.50');
+  });
+});

@@ -23,9 +23,12 @@ import { testConfig } from '../config/test-config.js';
  */
 
 // Match the active staging app's remote (Diagramly shares Lite's backend).
-export const AGENT_LINK_STG_BASE = testConfig.productType === 'full'
-  ? 'https://conf-stg-full.zenuml.com'
-  : 'https://conf-stg-lite.zenuml.com';
+// A dedicated slot (the PR validation slot) sets E2E_BACKEND_BASE_URL to its
+// own backend; unset or empty keeps the shared staging host.
+export const AGENT_LINK_STG_BASE = process.env.E2E_BACKEND_BASE_URL
+  || (testConfig.productType === 'full'
+    ? 'https://conf-stg-full.zenuml.com'
+    : 'https://conf-stg-lite.zenuml.com');
 export const agentLinkMcpUrl = (base = AGENT_LINK_STG_BASE) => `${base}/agent-link/mcp`;
 
 export interface McpResult {

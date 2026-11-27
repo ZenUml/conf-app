@@ -49,6 +49,10 @@ import {
 import { clientDeclaresUi, negotiateProtocolVersion, withTimeout } from './mcpProtocol';
 import { checkRenderRate, RENDER_LIMIT, RENDER_WINDOW_SECONDS, type RateEnv } from './renderRateLimit';
 import { mixpanelTrack } from '../service/mixpanelService';
+// The same version /mcp/health reports: workers/render-mcp/build.mjs writes this
+// package.json version into build-info.json. A named JSON import keeps only the
+// one field in the bundle.
+import { version as RENDER_SERVER_VERSION } from '../../package.json';
 import { json } from '../OkResponse';
 
 export const CORS = {
@@ -176,7 +180,7 @@ export async function handleRenderRpc(
       return rpcResult(id, {
         protocolVersion: negotiated,
         capabilities: { tools: {}, resources: {}, extensions: uiCapability() },
-        serverInfo: { name: 'zenuml-render', version: '0.1.0' },
+        serverInfo: { name: 'zenuml-render', version: RENDER_SERVER_VERSION },
         instructions: INSTRUCTIONS,
       });
     }

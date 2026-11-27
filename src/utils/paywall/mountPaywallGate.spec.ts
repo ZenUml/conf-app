@@ -83,6 +83,12 @@ describe('paywall_gate_evaluated (#302 instrumentation)', () => {
     vi.clearAllMocks()
     const globals = (await import('@/model/globals')).default
     vi.mocked(globals.apWrapper.isLite).mockReturnValue(true)
+    // Several tests switch the surface with mockResolvedValue, which
+    // clearAllMocks does not undo; put the macro-view default back.
+    const forge = await import('@/model/globals/forgeGlobal')
+    vi.mocked(forge.isFullscreenMode).mockResolvedValue(false)
+    vi.mocked(forge.isEditorMode).mockResolvedValue(false)
+    vi.mocked(forge.getContext).mockResolvedValue({ extension: {} } as any)
     fakeCS.shouldBlockActions.value = false
     fakeCS.macrosCreated.value = 0
     fakeCS.macroCountSource.value = 'undefined'

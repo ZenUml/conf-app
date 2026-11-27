@@ -91,6 +91,8 @@ interface SetupOptions {
   renderPreview?: (code: string, paint: () => void) => Promise<boolean>;
 }
 
+const controllers: ReturnType<typeof attachInlineEdit>[] = [];
+
 function setup(opts: SetupOptions = {}): Harness {
   const bNoAlias = opts.bNoAlias ?? false;
   const store = { code: opts.code ?? CODE_A };
@@ -134,6 +136,7 @@ function setup(opts: SetupOptions = {}): Harness {
     schedule: (run: () => void) => run(),
   };
   const controller = attachInlineEdit(container, deps as unknown as InlineEditDeps, host as unknown as InlineEditHost);
+  controllers.push(controller);
   const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
   const render = async (code = store.code) => {
     paintAndKeep(code);
@@ -174,6 +177,7 @@ beforeEach(() => {
   __resetInlineEditSessionForTests();
 });
 afterEach(() => {
+  for (const controller of controllers.splice(0)) controller.destroy();
   document.body.innerHTML = '';
 });
 
@@ -930,5 +934,111 @@ describe('analytics placement', () => {
     ]) {
       expect(sampleRateFor(name, Date.parse('2026-11-20T00:00:00Z'))).toBe(1);
     }
+  });
+});
+
+describe('source selection discovery', () => {
+  it('uses offsets for identical labels, follows zoom and redraw, and preserves source focus until inline edit', async () => {
+    const code = CODE_A + '  A->>A: Same\n  A->>A: Same\n';
+    const h = setup({
+      code,
+      map(source) {
+        const map = fakeMap(source, { bNoAlias: false });
+        const first = source.indexOf('Same');
+        const last = source.lastIndexOf('Same');
+        map.messages.set(4, { textRange: [first, first + 4] });
+        map.messages.set(5, { textRange: [last, last + 4] });
+        const reference = source.indexOf('A->>B');
+        map.participants.get('A')!.idRanges.push([reference, reference + 1]);
+        return map;
+      },
+    });
+    const rectangle = (left: number, width = 20) => ({
+      left, top: 0, right: left + width, bottom: 20, width, height: 20,
+    }) as DOMRect;
+    h.viewport.$el.getBoundingClientRect = () => ({ ...rectangle(0, 500), bottom: 500, height: 500 });
+    const ring = () => h.container.querySelector<HTMLElement>('[data-testid="mermaid-source-selection-ring"]');
+    const hint = () => h.container.querySelector('[data-testid="mermaid-source-selection-hint"]');
+    const select = (source: string, from: number, to: number, typing = false, owner = h.container) =>
+      window.dispatchEvent(new CustomEvent('mermaid-source-selection', { detail: { owner, code: source, from, to, typing } }));
+    await h.render();
+    messageTexts(h, 4)[0].getBoundingClientRect = () => rectangle(20);
+    const second = messageTexts(h, 5)[0];
+    let left = 120;
+    second.getBoundingClientRect = () => rectangle(left);
+    const from = code.lastIndexOf('Same');
+
+    select(code, from, from, false, document.createElement('div'));
+    expect(ring()).toBeNull();
+    select(code, from, from);
+    expect(ring()?.style.left).toBe('120px');
+    expect(hint()).toBeNull();
+    const reference = code.indexOf('A->>B');
+    const participant = header(h, 'A').querySelector('text')!;
+    participant.getBoundingClientRect = () => rectangle(60);
+    select(code, reference + 1, reference + 1);
+    expect(ring()?.style.left).toBe('60px');
+    const first = code.indexOf('Same');
+    select(code, first + 4, first + 4);
+    expect(ring()?.style.left).toBe('20px');
+    select(code, from, from + 4);
+    expect(ring()?.style.left).toBe('120px');
+    expect(hint()?.textContent).toBe('You can also double-click here to edit.');
+    left = 160;
+    second.setAttribute('transform', 'translate(40)');
+    await h.flush();
+    expect(ring()?.style.left).toBe('160px');
+
+    const typed = code.slice(0, from) + 'Same!' + code.slice(from + 4);
+    h.store.code = typed;
+    select(typed, from + 5, from + 5, true);
+    h.controller.onCodeChanged(typed);
+    expect(ring()?.style.left).toBe('160px');
+    expect(hint()).toBeNull();
+    h.controller.onRenderFailed(typed);
+    expect(ring()).toBeNull();
+
+    h.store.code = code;
+    h.controller.onCodeChanged(code);
+    select(code, from, from + 4);
+    await h.render();
+    const after = messageTexts(h, 5)[0];
+    after.getBoundingClientRect = () => rectangle(200);
+    after.setAttribute('transform', 'translate(80)');
+    await h.flush();
+    expect(ring()?.style.left).toBe('200px');
+    expect(h.deps.track.mock.calls.filter(([event]: [string]) => event === 'editor_source_selection_hint_shown'))
+      .toEqual([['editor_source_selection_hint_shown', { ...BASE_PROPS, inline_edit_kind: 'message_text' }]]);
+
+    const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    after.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    after.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+    expect(layer()).not.toBeNull();
+    expect(ring()).toBeNull();
+    expect(hint()).toBeNull();
+    h.controller.destroy();
+  });
+
+  it('waits for the exact source map and clears on scoped reset', async () => {
+    let resolve!: (map: SequenceSourceMap) => void;
+    const h = setup({ map: () => new Promise((done) => { resolve = done; }) });
+    await h.render();
+    const hasRing = () => !!h.container.querySelector('[data-testid="mermaid-source-selection-ring"]');
+    const select = (code: string, from: number, to: number) => window.dispatchEvent(new CustomEvent('mermaid-source-selection', {
+      detail: { owner: h.container, code, from, to, typing: false },
+    }));
+    select(CODE_A, 26, 31);
+    expect(hasRing()).toBe(false);
+    resolve(fakeMap(CODE_A, { bNoAlias: false }));
+    await h.flush();
+    expect(hasRing()).toBe(true);
+    select(CODE_B, 26, 31);
+    expect(hasRing()).toBe(false);
+    select(CODE_A, 26, 31);
+    expect(hasRing()).toBe(true);
+    window.dispatchEvent(new CustomEvent('mermaid-source-selection', { detail: { owner: h.container, clear: true } }));
+    expect(hasRing()).toBe(false);
+    h.controller.destroy();
   });
 });

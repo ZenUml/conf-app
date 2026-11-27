@@ -1,0 +1,6 @@
+#!/bin/sh
+# Local pre-push hook: lint only the files changed versus origin/main.
+# Install once per clone with `pnpm hooks:install`. See CLAUDE.md.
+root=$(git rev-parse --show-toplevel) || exit 1
+cd "$root" || exit 1
+exec node scripts/git-hooks/pre-push-lint.mjs

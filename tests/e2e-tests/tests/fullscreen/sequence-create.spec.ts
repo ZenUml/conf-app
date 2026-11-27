@@ -24,6 +24,11 @@ import {
 } from '../../helpers/CloseGuardHelper.js';
 import { createPageAndSetup } from '../insert/insert-helpers.js';
 
+// Each test builds its own page, so the planner may place tests of this
+// file on different shards (scripts/test-selection/plan.mjs splits a
+// file per test only when it declares parallel mode).
+test.describe.configure({ mode: 'parallel' });
+
 test.describe('Sequence — Create flow', { tag: ['@test:sequence-create', '@variant:lite', '@variant:full', '@variant:diagramly', '@fullscreen', '@sequence', '@feature:create-diagram', '@interface:editor', '@scenario:create-diagram:editor', '@feature:publishing', '@scenario:publishing:editor'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence not in profile');

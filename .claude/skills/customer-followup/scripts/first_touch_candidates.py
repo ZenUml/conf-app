@@ -75,8 +75,7 @@ def classify(row, app, other_apps):
         excl.append("existing customer: " + ", ".join(sorted(other_apps)))
     if not tech.get("email"):
         excl.append("no technical contact email")
-    elif partner_dom and domain(tech["email"]) == partner_dom:
-        excl.append("technical contact is at the reseller")
+    # A technical contact at the reseller is still emailed (owner, 2026-11-25); the flag only labels it.
     if row.get("status") != "active":
         excl.append("licence not active")
     return {
@@ -92,6 +91,7 @@ def classify(row, app, other_apps):
         "billing_email": bill.get("email"),
         "freemail": domain(tech.get("email")) in FREEMAIL,
         "partner": partner.get("partnerName"),
+        "reseller_contact": bool(partner_dom and domain(tech.get("email")) == partner_dom),
         "personal_dev_site": bool(PERSONAL_DEV_HOST.search(host)),
         "exclude": excl,
     }

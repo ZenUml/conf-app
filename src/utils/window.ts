@@ -2,7 +2,7 @@ import {
   getClientDomain,
   getSpaceKey,
 } from "@/utils/ContextParameters/ContextParameters";
-import mixpanel from "mixpanel-browser";
+import mixpanel, { MIXPANEL_RECORDER_SRC } from "@/utils/analytics/mixpanelClient";
 import {DiagramType} from "@/model/Diagram/Diagram";
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import { decideSample } from "@/utils/analytics/eventSampling";
@@ -26,6 +26,7 @@ const initMixpanel = () => {
       // first fixes the recorder config for this iframe.
       record_console: true,
       record_network: true,
+      recorder_src: MIXPANEL_RECORDER_SRC,
     });
     initialized = true;
   }
@@ -195,6 +196,16 @@ export function addonKeyForProductType(productType: string | undefined): string 
 
 export function addonKey() {
   return addonKeyForProductType(import.meta.env.PRODUCT_TYPE);
+}
+
+/**
+ * The Connect key this build's development environment was deployed with, when
+ * it is not the variant's fixed key; '' otherwise (every staging and production
+ * build). Only custom-content types use it: `addonKey()` stays the variant's
+ * fixed key because the backend and analytics read it as the variant's identity.
+ */
+export function connectKeyOverride(): string {
+  return import.meta.env.CONNECT_KEY_OVERRIDE || '';
 }
 
 /**

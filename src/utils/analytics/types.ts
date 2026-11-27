@@ -27,6 +27,9 @@ import type {
   PlantUmlRenderer,
   McpViewPlantUmlRenderer,
   McpViewFullscreenOutcome,
+  McpViewAction,
+  McpViewDownloadFormat,
+  McpViewActionOutcome,
   PlantUmlLocalFailureReason,
   PlantUmlUnresolvedInclude,
   PlantUmlPngPurpose,
@@ -41,6 +44,8 @@ import type {
   AgentLinkExpiryCause,
   AgentLinkRenderOutcome,
   AgentLinkGuardrailRejectReason,
+  AgentLinkGuardrailErrorKind,
+  AgentLinkGuardrailDslKind,
   AgentLinkSessionSuspendReason,
   AgentLinkListScope,
   AgentLinkMacroKeySource,
@@ -108,6 +113,8 @@ export type AnalyticsProperties = {
   attempt_id?: string;
   recovery_request_id?: string;
   recovery_grant_id?: string;
+  /** `edit` only: the gated editor opens an existing diagram or creates a new one (one shared grant). */
+  edit_target?: 'existing_diagram' | 'new_diagram';
   recovery_state?: 'disabled' | 'not_requested' | 'pending_activation' | 'active' | 'expired' | 'unavailable';
   recovery_action?: 'contact_support' | 'plan_usage' | 'return_inline' | 'continue_request' | 'dismiss_notice';
   recovery_outcome?: 'created' | 'reused' | 'activated' | 'already_active' | 'extended' | 'already_applied';
@@ -407,6 +414,10 @@ export type AnalyticsProperties = {
   fullscreen_outcome?: McpViewFullscreenOutcome;
   // agent_link_app_view_zoomed: whether the view was in fullscreen.
   fullscreen_active?: boolean;
+  // agent_link_app_view_action_used only.
+  view_action?: McpViewAction;
+  download_format?: McpViewDownloadFormat;
+  action_outcome?: McpViewActionOutcome;
   plantuml_failure_reason?: PlantUmlLocalFailureReason;
   plantuml_unresolved_include?: PlantUmlUnresolvedInclude;
   // ADR-0010: a GitHub C4-PlantUML URL include was rewritten to the hosted C4
@@ -456,15 +467,17 @@ export type AnalyticsProperties = {
   preview_source_changed_in_window?: boolean;
   preview_window_completed?: boolean;
   preview_ms_since_editor_open?: number;
-  // editor_inline_edit_* only (Mermaid inline edit). Bounded values:
+  // editor_inline_edit_* and editor_source_selection_hint_shown identify the Mermaid label kind. Bounded values:
   // never the edited text, the actor or node id, or the message index.
   inline_edit_kind?: InlineEditKind;
   /**
-   * All editor_inline_edit_* events: the diagram type being edited. Optional
+   * Diagram type being edited or demonstrated in the introduction. Optional
    * because events sent before flowchart inline edit carry none (read absent
    * as 'sequence').
    */
   inline_edit_diagram?: InlineEditDiagram;
+  /** mermaid_inline_edit_intro_shown: the example starts in its final state. */
+  inline_edit_intro_reduced_motion?: boolean;
   /** editor_inline_edit_unavailable: why it is read-only (absent on events sent before 2026-11-21). */
   inline_edit_unavailable_reason?: InlineEditUnavailableReason;
   /** editor_inline_edit_rejected: the EditRejection reason. */
@@ -633,6 +646,8 @@ export type AnalyticsProperties = {
   // Advertised annual price on the bundle CTA at click time (USD, per space).
   // Recorded on the event so a later price change stays comparable.
   bundle_price_usd?: number;
+  /** Seasonal offer advertised on the CTA or forwarded to Stripe. */
+  bundle_offer?: 'black_friday_2026';
   /** Confirmed unpaid rows offering a one-space checkout on Plan and usage. */
   purchasable_space_count?: number;
   /** Per-space Lite limit at the time of a checkout action. */
@@ -1253,6 +1268,17 @@ export type AnalyticsProperties = {
   // `guardrail_rejected` call. `reason` there is only that code, which cannot
   // tell a source that did not parse from a suspected truncation.
   guardrail_reason?: AgentLinkGuardrailRejectReason;
+  // The same refusals, in enough detail to judge whether the guard was right
+  // (2026-11: 10% of headless update_diagram calls were refused and the
+  // reason alone could not separate false alarms from real ones).
+  // `guardrail_kept_pct` = new non-whitespace length as a % of the current
+  // (data_loss only; the threshold is 80). `guardrail_error_kind` = class of
+  // the first parse error (parse_error only). `guardrail_dsl_kind` = the
+  // Mermaid diagram keyword of the refused source (Mermaid only). Sizes ride
+  // the shared `input_len` (current) / `output_len` (proposed) above.
+  guardrail_kept_pct?: number;
+  guardrail_error_kind?: AgentLinkGuardrailErrorKind;
+  guardrail_dsl_kind?: AgentLinkGuardrailDslKind;
   // agent_link_diagram_updated only: true when the call renamed the diagram
   // (a non-blank `title` that differs from the stored one, #789).
   title_changed?: boolean;

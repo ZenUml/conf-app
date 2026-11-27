@@ -67,7 +67,21 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
   }
 
-  if (!outcome.ok) return response;
+  if (!outcome.ok) {
+    // sites_failed stored a grant and is counted as authorized above.
+    if (outcome.reason !== 'sites_failed' && env.MIXPANEL_TOKEN) {
+      try {
+        await mixpanelTrack(
+          { event: 'agent_link_oauth_failed', feature_area: 'agent_link', surface: 'backend', reason: outcome.reason },
+          env.MIXPANEL_TOKEN,
+          env,
+        );
+      } catch {
+        // analytics must never fail the authorization
+      }
+    }
+    return response;
+  }
 
   // Remember who this browser belongs to, so the next /authorize from it can
   // skip Atlassian while this grant is live (returningUser.ts). Set on every

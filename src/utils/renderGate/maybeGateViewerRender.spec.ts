@@ -10,6 +10,7 @@ import {
 
 beforeEach(() => {
   _resetForTesting();
+  localStorage.removeItem(GATE_MODE_KEY);
   document.getElementById("viewport-gate-placeholder")?.remove();
 });
 

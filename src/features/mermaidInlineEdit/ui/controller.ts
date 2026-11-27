@@ -32,11 +32,14 @@ import { baseProps, unionRect, type EditHandle, type InlineEditAdapter, type Poi
 import { createSequenceAdapter, glyphColour, type SequenceAdapterDeps } from './sequenceAdapter';
 import { createFlowchartAdapter, type FlowchartInlineEditDeps } from './flowchartAdapter';
 import { createRenderLoop, type RenderLoop } from './renderLoop';
+import { attachSourceSelectionOverlay } from './sourceSelectionOverlay';
 
 export { glyphColour };
 export type { FlowchartInlineEditDeps };
 
 export type InlineEditEventName = Extract<AnalyticsEventName, `editor_inline_edit_${string}`>;
+
+type InteractionEventName = InlineEditEventName | 'editor_source_selection_hint_shown';
 
 export interface InlineEditDeps extends SequenceAdapterDeps {
   /** Flowchart editing. Absent: flowcharts stay inert (no map request, no cursor). */
@@ -45,7 +48,7 @@ export interface InlineEditDeps extends SequenceAdapterDeps {
   getCode: () => string;
   /** The one correct write: clears the error and dispatches the store update. */
   writeCode: (code: string) => void;
-  track: (name: InlineEditEventName, properties: AnalyticsProperties) => void;
+  track: (name: InteractionEventName, properties: AnalyticsProperties) => void;
   toast: (message: string) => void;
   now?: () => number;
   /**
@@ -64,6 +67,8 @@ export interface InlineEditDeps extends SequenceAdapterDeps {
 export interface InlineEditController {
   /** Call after every successful render, with the exact store string rendered. */
   onRendered(code: string): void;
+  /** The latest store render failed. Do not leave a ring on the old SVG. */
+  onRenderFailed(code: string): void;
   /** Call whenever the store code changes (before or without a render). */
   onCodeChanged(code: string | null | undefined | false): void;
   /** Export capture and similar: no affordance, no open layer. */
@@ -190,6 +195,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
   let map: SourceMap | null = null;
   /** The adapter the map came from. */
   let mapAdapter: InlineEditAdapter | null = null;
+  let mapRoot: Element | null = null;
   /** The code a source map is being computed for (cursor stays on meanwhile). */
   let mapPendingFor: string | null = null;
   /** The code whose source map came back null or failed: that diagram is read-only. */
@@ -197,7 +203,6 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
   let session: Session | null = null;
   let closing: Closing | null = null;
   let hoverBox: HTMLDivElement | null = null;
-
   const stats: InlineEditStats = { sessions: 0, inputs: 0, renders: 0, latencies: [], renderMs: [], anchorTrace: [], invalid: 0 };
   if (import.meta.env.DEV) {
     // Measurement hook for the Storybook harness; stripped from production builds.
@@ -212,7 +217,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
   }
 
   const msOpen = (s: Session) => Math.round(now() - s.openedAt);
-  const track = (name: InlineEditEventName, props: AnalyticsProperties) => {
+  const track = (name: InteractionEventName, props: AnalyticsProperties) => {
     try { deps.track(name, props); } catch { /* analytics never breaks editing */ }
   };
   const reportUnavailable = (adapter: InlineEditAdapter, reason: InlineEditUnavailableReason) => {
@@ -271,8 +276,10 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
         if (result.code === code && deps.getCode() === code) {
           map = result;
           mapAdapter = adapter;
+          mapRoot = root;
         }
         setAffordance();
+        sourceOverlay.update();
       },
       () => {
         if (destroyed || gen !== generation) return;
@@ -365,7 +372,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
   }
 
   const onPointerOver = (event: Event) => {
-    if (session || !container.classList.contains(ENABLED_CLASS) || !map || !mapAdapter) return hideHover();
+    if (sourceOverlay.visible || session || !container.classList.contains(ENABLED_CLASS) || !map || !mapAdapter) return hideHover();
     const root = svg();
     if (!root || !mapAdapter.accepts(root)) return hideHover();
     const hit = mapAdapter.hit(event.target, root);
@@ -377,6 +384,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
 
   /** The keeper Mermaid.vue calls after every attach, in the same task as the SVG swap. */
   function keeper(code: string): void {
+    sourceOverlay.hide();
     // Any re-render moves the diagram under a hover box.
     hideHover();
     const root = svg();
@@ -470,6 +478,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
     const elements = handle.locate(root, handle.baseKey);
     if (!elements.length) return;
     hideHover();
+    sourceOverlay.clear();
 
     const layer = doc.createElement('div');
     layer.className = 'mie-layer';
@@ -840,6 +849,16 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
     const link = event.target.closest('a');
     if (link && root.contains(link)) event.preventDefault();
   };
+  const sourceOverlay = attachSourceSelectionOverlay(container, {
+    svg,
+    viewport: () => host.viewport()?.$el,
+    getCode: deps.getCode,
+    mappedSvg: (code, root) => sameSource(code) && root === mapRoot && map && mapAdapter?.accepts(root)
+      ? { map, adapter: mapAdapter } : null,
+    isBlocked: () => destroyed || suspended || !!session || !!closing,
+    hideHover,
+    trackShown: (props) => track('editor_source_selection_hint_shown', props),
+  });
   container.addEventListener('click', onClick);
   container.addEventListener('dblclick', onDoubleClick);
   container.addEventListener('pointerover', onPointerOver);
@@ -854,17 +873,23 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
       renderedCode = code;
       map = null;
       mapAdapter = null;
+      mapRoot = null;
       mapPendingFor = null;
       mapUnavailableFor = null;
       hideHover();
+      sourceOverlay.hide();
       // A real render replaced the picture under the layer: close quietly.
       if (session) abort();
       if (closing && closing.code === code) releaseHold();
       prepare(code, generation);
       setAffordance();
     },
+    onRenderFailed(code) {
+      if (!destroyed && deps.getCode() === code) sourceOverlay.clear();
+    },
     onCodeChanged(code) {
       if (destroyed) return;
+      sourceOverlay.update();
       const next = typeof code === 'string' ? code : null;
       // Typing in the code panel or an AI apply while editing: never write over it.
       if (session && next !== session.baseCode) rejectStale(session);
@@ -873,7 +898,10 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
     setSuspended(value: boolean) {
       suspended = value;
       // Export capture must see the stored diagram, not a candidate.
-      if (value) abort({ restore: true });
+      if (value) {
+        sourceOverlay.clear();
+        abort({ restore: true });
+      }
       setAffordance();
     },
     destroy() {
@@ -881,6 +909,7 @@ export function attachInlineEdit(container: HTMLElement, deps: InlineEditDeps, h
       abort();
       if (closing) releaseHold();
       destroyed = true;
+      sourceOverlay.destroy();
       container.removeEventListener('click', onClick);
       container.removeEventListener('dblclick', onDoubleClick);
       container.removeEventListener('pointerover', onPointerOver);

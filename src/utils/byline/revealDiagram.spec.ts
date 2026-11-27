@@ -183,12 +183,17 @@ describe('revealDiagram — the hand-off across the reload', () => {
     it('never breaks the render when the DOM refuses', () => {
       // The diagram is on the page either way; the flourish is not worth an
       // exception on the macro's mount path.
-      vi.spyOn(document.body, 'prepend').mockImplementation(() => {
+      const prepend = vi.spyOn(document.body, 'prepend').mockImplementation(() => {
         throw new Error('nope')
       })
       const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
-      expect(() => revealThisMacro()).not.toThrow()
-      debug.mockRestore()
+      try {
+        expect(() => revealThisMacro()).not.toThrow()
+      } finally {
+        // Left in place, every later test that prepends to body would throw.
+        prepend.mockRestore()
+        debug.mockRestore()
+      }
     })
   })
 

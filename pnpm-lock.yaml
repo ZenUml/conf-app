@@ -26,6 +26,11 @@ overrides:
   local-crm>react-dom: 19.2.8
   react-dom@19.2.8>react: 19.2.8
 
+patchedDependencies:
+  mermaid@11.17.2:
+    hash: 68d29b4f2171c7f9c1a2adbe6c354480409791a909af7f0a004d5a7ebfad9ef1
+    path: patches/mermaid@11.17.2.patch
+
 importers:
 
   .:
@@ -101,7 +106,7 @@ importers:
         version: 1.4.6
       '@mermaid-js/mermaid-zenuml':
         specifier: 1.0.0
-        version: 1.0.0(@babel/core@7.29.0)(@babel/template@7.28.6)(@types/react@18.3.31)(mermaid@11.17.2)
+        version: 1.0.0(@babel/core@7.29.0)(@babel/template@7.28.6)(@types/react@18.3.31)(mermaid@11.17.2(patch_hash=68d29b4f2171c7f9c1a2adbe6c354480409791a909af7f0a004d5a7ebfad9ef1))
       '@plantuml/core':
         specifier: 1.2026.9
         version: 1.2026.9
@@ -167,7 +172,7 @@ importers:
         version: 2.3.0
       mermaid:
         specifier: ^11.17.2
-        version: 11.17.2
+        version: 11.17.2(patch_hash=68d29b4f2171c7f9c1a2adbe6c354480409791a909af7f0a004d5a7ebfad9ef1)
       mixpanel-browser:
         specifier: ^2.83.0
         version: 2.83.0
@@ -13590,10 +13595,10 @@ snapshots:
       '@types/react': 18.3.31
       react: 18.3.1
 
-  '@mermaid-js/mermaid-zenuml@1.0.0(@babel/core@7.29.0)(@babel/template@7.28.6)(@types/react@18.3.31)(mermaid@11.17.2)':
+  '@mermaid-js/mermaid-zenuml@1.0.0(@babel/core@7.29.0)(@babel/template@7.28.6)(@types/react@18.3.31)(mermaid@11.17.2(patch_hash=68d29b4f2171c7f9c1a2adbe6c354480409791a909af7f0a004d5a7ebfad9ef1))':
     dependencies:
       '@zenuml/core': 4.13.1(@babel/core@7.29.0)(@babel/template@7.28.6)(@types/react@18.3.31)
-      mermaid: 11.17.2
+      mermaid: 11.17.2(patch_hash=68d29b4f2171c7f9c1a2adbe6c354480409791a909af7f0a004d5a7ebfad9ef1)
     transitivePeerDependencies:
       - '@babel/core'
       - '@babel/template'
@@ -20012,7 +20017,7 @@ snapshots:
 
   merge2@1.4.1: {}
 
-  mermaid@11.17.2:
+  mermaid@11.17.2(patch_hash=68d29b4f2171c7f9c1a2adbe6c354480409791a909af7f0a004d5a7ebfad9ef1):
     dependencies:
       '@braintree/sanitize-url': 7.1.2
       '@iconify/utils': 3.1.0

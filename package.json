@@ -225,6 +225,9 @@
       "core-js",
       "esbuild",
       "keytar"
-    ]
+    ],
+    "patchedDependencies": {
+      "mermaid@11.17.2": "patches/mermaid@11.17.2.patch"
+    }
   }
 }

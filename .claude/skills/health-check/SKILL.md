@@ -38,7 +38,8 @@ Run a quick health check by querying Mixpanel for key event volumes across multi
 | `load_macro` | — | `CompositeContentProvider` threw on load | Any spike means macros fail to open |
 | `load_custom_content` | — | `ApWrapper2` CC fetch threw | Any spike means content unreadable |
 | `render_failed` | — | Diagram render threw in Mermaid/Sequence/PlantUML component; `event_category` = diagram type | Any spike vs previous period is a red flag |
-| `customcontent_orphan_observed` | — | Orphan CC detected; query **total** and **`recovery_used=false`** separately | Rising unrecovered count means data loss risk |
+| `customcontent_orphan_observed` | — | Orphan CC detected; query **total** and **unrecovered** (`recovery_used=false` AND `recoverable` ≠ `probe_skipped_no_probe_result`) separately | Rising unrecovered count means data loss risk |
+| `customcontent_fetch_unavailable` | — | By-id CC fetch failed **without** proving the CC gone (429/403/5xx/thrown/malformed). Carved out of the orphan event by PR #1022 (#1014) | A spike = Confluence rate-limiting or unavailable, not data loss. Break down by `client_domain` and `direct_fetch_http_status` |
 | `load_custom_content_v2_missing` | — | CC ID resolved to nothing (warning-level precursor to orphan) | Track alongside orphan total — a spike here without a matching orphan spike = gap in orphan detection |
 | `attachment_upload_failed` | — | PNG attachment write failed | Any spike means export broken |
 
@@ -174,7 +175,8 @@ Errors are split into four groups. Run each group as a single Mixpanel query (mu
 
 **Group D — Orphan errors:** three separate metrics queries:
 - Total orphan observations: `customcontent_orphan_observed` (no extra filter)
-- Unrecovered orphans: `customcontent_orphan_observed` with filter `recovery_used = false`
+- Unrecovered orphans: `customcontent_orphan_observed` with filters `recovery_used = false` **and** `recoverable` not equal to `probe_skipped_no_probe_result`. Before PR #1022 releases, that value marks a by-id fetch that failed transiently (429, 403, 5xx) — the CC may still exist. On 2026-10-21..27 it was 279 of one rate-limited site's 348 orphan events; counting it reads a rate-limit episode as data loss.
+- Transient fetch failures: `customcontent_fetch_unavailable` (after PR #1022 releases) — sum with the excluded orphan slice above when a window spans the release
 - CC ID missing: `load_custom_content_v2_missing` (precursor — CC resolved to nothing)
 
 **Group E — Export errors:** `attachment_upload_failed`
@@ -206,7 +208,8 @@ Errors are split into four groups. Run each group as a single Mixpanel query (mu
   ],
   "filters": [
     ...global filters...,
-    { "type": "boolean", "propertyName": "recovery_used", "operator": "equals", "value": false }
+    { "type": "boolean", "propertyName": "recovery_used", "operator": "false", "value": false },
+    { "type": "string", "propertyName": "recoverable", "resource": "event", "operator": "does not equal", "value": "probe_skipped_no_probe_result" }
   ]
 }
 ```
@@ -316,6 +319,8 @@ Present a summary table, then flag any of these conditions:
 | `customcontent_orphan_observed` with `recovery_used=false` > 0 in past day | INFO | Unrecovered orphan: user saw a blank macro; actionable if rising trend |
 | `customcontent_orphan_observed` with `recovery_used=false` rising week-over-week | WARNING | Orphan recovery is degrading — data loss risk |
 | `load_custom_content_v2_missing` spike without matching spike in `customcontent_orphan_observed` | WARNING | Orphan detection gap — missing CCs not reaching the orphan recovery path |
+| `customcontent_fetch_unavailable` (or the orphan `probe_skipped_no_probe_result` slice) > 2× previous period | WARNING | Confluence is refusing reads. Break down by `client_domain`; if one site dominates, check `save_failed` / `attachment_upload_failed` messages for `HTTP 429` on the same site |
+| Any error spike | — | Before reporting a fleet-wide trend, break it down by `client_domain`. On 2026-10-28 one site produced 87 of 90 `save_failed` |
 | `attachment_upload_failed` > 2× previous period | WARNING | PNG export broken |
 | `macro_create_succeeded` = 0 for past week | INFO | Low activity but possibly normal for small user base |
 | Any diagram type that had `macro_viewed` volume before but now shows 0 | WARNING | Specific diagram type may be broken |
@@ -363,6 +368,9 @@ Peak hour: {time} with {N} total views
 - **`timeComparison` not in API response**: The Mixpanel `timeComparison` parameter creates visual comparisons in the UI but delta values are not returned in the Run-Query API response. Use explicit previous-period queries instead.
 - **Forge graph macro_viewed missing**: `macro_viewed` (and legacy `view_macro`) for graph type on Forge is not tracked (known bug in `forge-graph-viewer.ts`). Don't flag missing graph views as an anomaly.
 - **`event_category` casing**: `openapi` and `OpenAPI` both appear. Treat them as the same category when comparing.
+- **October 2026 sampling**: from Lite v2026.10.121121 until 2026-11-01 UTC, `customcontent_orphan_observed` (and other `OCTOBER_REDUCED_EVENTS` in `src/utils/analytics/eventSampling.ts`) is emitted at 10%; events carry `sample_rate`. Ratios and week-over-week deltas hold, absolute counts are ~10× low. Failure-class names (`save_failed`, `attachment_upload_failed`, `load_custom_content_v2_missing`, `customcontent_fetch_unavailable`) are never reduced.
+- **Orphan history splits at PR #1022's release**: transient fetch failures move from `customcontent_orphan_observed` to `customcontent_fetch_unavailable`, so total orphans drop on that date without any real change. Compare windows on the same side of the release, or exclude `recoverable = probe_skipped_no_probe_result` on both sides.
+- **Boolean filter syntax**: the MCP rejects `"operator": "equals"` on a boolean; use `"operator": "false"` (or `"true"`) and keep `"value"`.
 - **Weekend dip**: Confluence usage drops significantly on weekends (~85% vs weekday peak). A 50–80% drop on Saturday vs Friday is normal, not an outage.
 - **Holiday dip**: Major public holidays (Labour Day, Christmas, Golden Week) can suppress a full weekday by 50–70%. Always run the holiday calendar check (see above) before interpreting any week-over-week delta >15% as genuine signal.
 

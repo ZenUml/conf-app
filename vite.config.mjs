@@ -92,6 +92,28 @@ function getHtmlFiles(dir, { isBuild = false } = {}) {
   return htmlFiles;
 }
 
+// A development environment's own Connect key must be the variant's fixed key
+// plus a suffix (`com.zenuml.confluence-addon-lite-<name>`): the backend
+// recognises dev keys by that convention (functions/magic-writeback.ts), and a
+// key belongs to the LONGEST fixed key it extends, so a Full build may not use
+// a `…-lite-…` key. See docs/reference/dev-connect-key.md.
+const FIXED_CONNECT_KEYS = {
+  full: 'com.zenuml.confluence-addon',
+  lite: 'com.zenuml.confluence-addon-lite',
+  diagramly: 'gptdock-confluence',
+  asyncapi: 'my-api',
+}
+const CONNECT_KEY_OVERRIDE = process.env.CONNECT_KEY_OVERRIDE || ''
+if (CONNECT_KEY_OVERRIDE) {
+  const fixed = FIXED_CONNECT_KEYS[process.env.PRODUCT_TYPE || 'full']
+  const suffix = fixed && CONNECT_KEY_OVERRIDE.startsWith(`${fixed}-`) ? CONNECT_KEY_OVERRIDE.slice(fixed.length + 1) : ''
+  const claimedByLonger = Object.values(FIXED_CONNECT_KEYS).some((other) => other.length > (fixed || '').length
+    && (CONNECT_KEY_OVERRIDE === other || CONNECT_KEY_OVERRIDE.startsWith(`${other}-`)))
+  if (!/^[a-z0-9][a-z0-9.-]{0,40}$/.test(suffix) || claimedByLonger) {
+    throw new Error(`CONNECT_KEY_OVERRIDE "${CONNECT_KEY_OVERRIDE}" must be "${fixed}-<suffix>" (suffix lowercase [a-z0-9.-], up to 41 chars) for PRODUCT_TYPE=${process.env.PRODUCT_TYPE || 'full'}`)
+  }
+}
+
 export default defineConfig(({ command }) => ({
   base: './',
   define: {
@@ -103,6 +125,13 @@ export default defineConfig(({ command }) => ({
     // variant can render, which is how a malformed key once rendered as an
     // unknown extension on a customer's page.
     'import.meta.env.SEQUENCE_MACRO_KEY': JSON.stringify(process.env.SEQUENCE_MACRO_KEY || 'zenuml-sequence-macro'),
+    // Non-default Connect key for a development environment, the same env var
+    // the manifest templates as ${CONNECT_KEY}. Empty means "use the variant's
+    // fixed key" (ApWrapper2.getCustomContentTypePrefix). It must match the key
+    // the environment was deployed with, or every custom-content read and write
+    // targets a type this install did not register. See
+    // docs/reference/dev-connect-key.md.
+    'import.meta.env.CONNECT_KEY_OVERRIDE': JSON.stringify(CONNECT_KEY_OVERRIDE),
     'import.meta.env.VITE_MIXPANEL_TOKEN': JSON.stringify(mixpanelToken),
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
     'import.meta.env.VITE_APP_COMMIT': JSON.stringify(process.env.VITE_APP_GIT_HASH || 'unknown'),
@@ -320,6 +349,17 @@ export default defineConfig(({ command }) => ({
   // If a refactor renames these entry chunks the family silently drops out of
   // the manifest — the renderer-prefetch unit test on family presence guards
   // a built dist (see docs/features/renderer-prefetch.md).
+  // Records which Connect key this dist/ was built for, so scripts/forgex can
+  // refuse to deploy it to an environment with a different key (every
+  // custom-content read and write would then name types the install does not
+  // own). Empty for every staging and production build.
+  {
+    name: 'connect-key-marker',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'connect-key-override.txt', source: CONNECT_KEY_OVERRIDE });
+    },
+  },
   zenumlCoreClosureGuard(),
   {
     name: 'prefetch-manifest',

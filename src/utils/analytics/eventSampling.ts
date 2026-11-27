@@ -32,6 +32,7 @@ export const EVENT_SAMPLE_RATES: Record<string, number> = {
   duplication_detect: 0.1, // model/ApWrapper2.ts — cross/same-page warning probe
   click: 0.1, // generic UI-click telemetry (edit/fullscreen/copy_link/…)
   close_guard_rejected: 0.1, // editor close-guard diagnostic
+  mermaid_inline_edit_intro_shown: 0.1,
 
   // Phase-5a admin-activity probe (spaceAdminProbe.ts). The measurement question
   // — "do admins load Confluence pages on Lite installs?" — is answered (~38k
@@ -130,6 +131,18 @@ export const OCTOBER_STOP_EVENTS = new Set<string>([
 // The reviewed core/error list is explicit so an expanded success/info
 // allowlist cannot silently reduce a protected event during this budget.
 export const OCTOBER_RETAINED_EVENTS = new Set<string>([
+  // Connect MCP dialog funnel, rate 1 (2026-11-26). At 10% the funnel's first
+  // step was a sample while agent_link_oauth_authorized is sent in full: a
+  // 30-day funnel showed 2 of 25 openers signing in when 35 users did. One
+  // event per deliberate click; 66 sampled rows in 30 days, so ~700 a month
+  // at full rate (0.07% of the 1M cap).
+  "agent_link_mcp_dialog_opened",
+  "agent_link_mcp_dialog_copied",
+  "agent_link_mcp_dialog_closed",
+  "agent_link_mcp_promo_dismissed",
+  // Backend: a failed MCP sign-in (oauth/callback.ts, oauth/consent.ts). At
+  // most one per attempt; ~70 Atlassian sign-ins started in 30 days.
+  "agent_link_oauth_failed",
   // Rate 1 on purpose: fullscreenZoomSummary.ts keeps 10% of Fullscreen views
   // and stamps sample_rate itself, so a kept view sends every row. About 500 a
   // month. Must not sit in OCTOBER_REDUCED_EVENTS (a second, per-row cut).
@@ -143,6 +156,7 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   // `unavailable` at most once per editor session (a few hundred a month at
   // most). Rate 1 on purpose, so it must not sit in OCTOBER_REDUCED_EVENTS: a
   // 10% cut would leave too few rejections per reason to read.
+  "editor_source_selection_hint_shown", // First visible hint per Mermaid editor mount.
   "editor_inline_edit_started",
   "editor_inline_edit_succeeded",
   "editor_inline_edit_rejected",
@@ -418,10 +432,6 @@ export const OCTOBER_REDUCED_EVENTS = new Set<string>([
   "agent_link_diagram_updated",
   "agent_link_page_created",
   "agent_link_page_updated",
-  "agent_link_mcp_dialog_opened",
-  "agent_link_mcp_dialog_copied",
-  "agent_link_mcp_dialog_closed",
-  "agent_link_mcp_promo_dismissed",
   "agent_link_mcp_initialized",
   "activation_nudge_clicked",
   "activation_served",

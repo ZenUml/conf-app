@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateKeyPair, SignJWT } from 'jose';
 import { inspect } from 'node:util';
 import authenticate, {
+  fitInvocationSource,
   normalizeAllowedForgeAppAris,
   validateContextToken,
 } from './authenticate';
@@ -153,5 +154,49 @@ describe('authenticate', () => {
     expect(consoleError).toHaveBeenCalledWith(
       'ALLOWED_FORGE_APP_IDS environment variable is not set',
     );
+  });
+});
+
+// A backend invokeRemote FIT carries only context.cloudId and no principal.
+// Hosted functions report their own module type (core:scheduledTrigger,
+// core:function, or historically ""), not only the documented core:endpoint.
+describe('fitInvocationSource', () => {
+  const app = { id: APP_ARI };
+
+  it('reads a scheduled-trigger invokeRemote FIT (context.cloudId only) as backend', () => {
+    expect(fitInvocationSource({
+      app: { ...app, module: { type: 'core:endpoint', key: 'connect' } },
+      context: { cloudId: CLOUD_ID },
+    })).toBe('backend');
+  });
+
+  it.each([
+    'core:scheduledTrigger',
+    'core:function',
+    '',
+  ])('reads hosted backend module %j with only context.cloudId as backend', (moduleType) => {
+    expect(fitInvocationSource({
+      app: { ...app, module: { type: moduleType, key: 'lite-macro-count-daily' } },
+      context: { cloudId: CLOUD_ID },
+    })).toBe('backend');
+  });
+
+  it('keeps a scheduled-trigger module with UI context fields as frontend', () => {
+    expect(fitInvocationSource({
+      app: { ...app, module: { type: 'core:scheduledTrigger', key: 'lite-macro-count-daily' } },
+      context: { cloudId: CLOUD_ID, siteUrl: 'https://example.atlassian.net' },
+    })).toBe('frontend');
+  });
+
+  it('reads a FIT without context as backend', () => {
+    expect(fitInvocationSource({ app })).toBe('backend');
+  });
+
+  it.each([
+    ['a principal', { app, context: { cloudId: CLOUD_ID }, principal: 'account-1' }],
+    ['a UI module type', { app: { ...app, module: { type: 'xen:macro' } }, context: { cloudId: CLOUD_ID } }],
+    ['UI context fields (anonymous viewer)', { app, context: { cloudId: CLOUD_ID, siteUrl: 'https://example.atlassian.net', extension: {} } }],
+  ])('reads a FIT with %s as frontend', (_name, payload) => {
+    expect(fitInvocationSource(payload as Parameters<typeof fitInvocationSource>[0])).toBe('frontend');
   });
 });

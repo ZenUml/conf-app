@@ -33,6 +33,7 @@ export async function expectFlowMap(code: string): Promise<FlowchartSourceMap> {
   for (const v of vertices) {
     const loc = map!.nodes.get(v.id)!;
     expect(loc.domId).toBe(v.domId);
+    for (const range of loc.idRanges) expect(slice(code, range)).toBe(v.id);
     expect(loc.shape).toBe(v.type);
     expect(loc.quoted).toBe(v.labelType === 'string');
     if (loc.labelRange) {

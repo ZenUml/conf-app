@@ -1,5 +1,6 @@
 import { getAtlassianInstanceClientDomain, getForgeInstallationClientDomain } from '../../utils/dbUtils';
 import {
+  fitInvocationSource,
   validateContextToken,
   type ForgeRequestContext,
   type VerifiedForgeFit,
@@ -102,7 +103,12 @@ export interface AuthenticatedMetricsContext {
 }
 
 export class HttpError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(
+    public readonly status: number,
+    message: string,
+    // Non-secret facts for the rejection log: names, types and booleans only.
+    public readonly detail?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = 'HttpError';
   }
@@ -112,6 +118,15 @@ export const NO_STORE_HEADERS = { 'Cache-Control': 'no-store' };
 
 export function errorResponse(error: unknown): Response {
   if (error instanceof HttpError) {
+    // The Forge caller discards the response body, so the reason is only
+    // visible here. Message strings are fixed and carry no request values.
+    if (error.status === 401 || error.status === 403) {
+      console.warn('[macro-count:snapshot] rejected', {
+        status: error.status,
+        reason: error.message,
+        ...(error.detail ? { detail: error.detail } : {}),
+      });
+    }
     return json({ error: error.message }, { status: error.status, headers: NO_STORE_HEADERS });
   }
   console.error('[macro-count:snapshot] unexpected error', {
@@ -225,7 +240,7 @@ export async function authenticateMetricsRequest(
       installationId: fit.installationId,
       environmentId: fit.environmentId,
       environmentType: fit.environmentType,
-      invocationSource: fit.payload.context == null ? 'backend' : 'frontend',
+      invocationSource: fitInvocationSource(fit.payload),
     };
   }
 
@@ -247,7 +262,24 @@ export async function authenticateMetricsRequest(
     // frontend context. Requiring this shape prevents a Custom UI caller with
     // a valid FIT from invoking the snapshot write protocol directly.
     if (verifiedContext.invocationSource !== 'backend' || !hasSystemToken || hasUserToken) {
-      throw new HttpError(403, 'Snapshot writes require a backend Forge invocation');
+      // Middleware verifies the FIT first and passes forgeContext, so the
+      // payload is only in hand on the direct path. The shape stored there
+      // is names and booleans, same as this log.
+      const shape = fit ? undefined : verifiedContext.fitShape;
+      const payload = fit?.payload;
+      const fitContext = payload?.context;
+      throw new HttpError(403, 'Snapshot writes require a backend Forge invocation', {
+        invocationSource: verifiedContext.invocationSource,
+        hasSystemToken,
+        hasUserToken,
+        fitContextKeys: payload
+          ? (fitContext && typeof fitContext === 'object' ? Object.keys(fitContext).sort() : null)
+          : shape?.contextKeys ?? null,
+        fitModuleType: payload
+          ? (typeof payload.app?.module?.type === 'string' ? payload.app.module.type : null)
+          : shape?.moduleType ?? null,
+        fitHasPrincipal: payload ? payload.principal != null : shape?.hasPrincipal ?? false,
+      });
     }
   }
 
@@ -262,7 +294,10 @@ export async function authenticateMetricsRequest(
     env.EXPECTED_FORGE_ENVIRONMENT_TYPE
     && environment !== env.EXPECTED_FORGE_ENVIRONMENT_TYPE
   ) {
-    throw new HttpError(403, 'Forge environment does not match this backend');
+    throw new HttpError(403, 'Forge environment does not match this backend', {
+      environment,
+      expected: env.EXPECTED_FORGE_ENVIRONMENT_TYPE,
+    });
   }
   const context = {
     appId,

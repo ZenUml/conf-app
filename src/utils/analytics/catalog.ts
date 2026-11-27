@@ -931,7 +931,9 @@ export type AnalyticsEventName =
   // time) and `advocacy_message_copied` (asks SOMEONE ELSE to act).
   // Also fires on a Plan and usage row click: surface=dashboard, space_key,
   // macro_count, macro_limit, bundle_price_usd and client_reference_id identify
-  // the selected space and its checkout attribution.
+  // the selected space and its checkout attribution. bundle_offer identifies a
+  // seasonal price on the existing CTA and handoff events. The campaign adds
+  // no event sends, sampling changes, or replay sources.
   | "paywall_bundle_cta_clicked"
   // Bundle checkout path (spec 2026-11-20-bundle-checkout-path-design.md).
   // The Bundle CTA opens our own handoff page on the backend host, because
@@ -1051,7 +1053,9 @@ export type AnalyticsEventName =
   // two features. `feature` ('fullscreen' | 'edit') tells them apart; for `edit`,
   // `surface` is 'editor' and activation (first successful save) is reported with the
   // same `_activation_completed` / `_activation_failed` events. `fullscreen_view_ready`
-  // is Fullscreen-only (the editor has no equivalent moment).
+  // is Fullscreen-only (the editor has no equivalent moment). For `edit`, `edit_target`
+  // says whether the gated editor opened an existing diagram (`block_edit`) or a new
+  // one (`block_create`); both share one 7-day grant.
   // Contact recovery: intent, durable request, successful view and support outcomes
   // stay separate. Never put email addresses or free-form customer text in events.
   | "fullscreen_recovery_gate_shown"
@@ -1760,6 +1764,12 @@ export type AnalyticsEventName =
   // transient failures (5xx, network) are not reported. There is no
   // user-initiated disconnect yet, so `reason: 'user'` is not emitted.
   | "agent_link_oauth_authorized"
+  // `_failed`: an MCP sign-in that did not finish, with `reason`: the
+  // Atlassian leg's failure (atlassian_denied | state_mismatch | missing_code
+  // | exchange_failed | me_failed | config, from oauth/callback.ts) or
+  // 'consent_declined' (Cancel on our consent screen, oauth/consent.ts).
+  // Callback failures carry no user (the account is not known yet).
+  | "agent_link_oauth_failed"
   | "agent_link_oauth_refresh_failed"
   // OUR MCP authorization-server refresh endpoint (oauth/authServer.ts), not
   // the upstream Atlassian grant refresh above. One event per inbound refresh
@@ -2069,11 +2079,18 @@ export type AnalyticsEventName =
   // editor_inline_edit_* event once flowchart inline edit ships, absent on events
   // sent before it). Flowchart labels use inline_edit_kind 'node_label' /
   // 'edge_label'. Never diagram text or ids. docs/features/mermaid-inline-edit.md.
+  // First visible source-selection hint per editor mount (surface=editor, macro_type=Mermaid).
+  | "editor_source_selection_hint_shown"
   | "editor_inline_edit_started"
   | "editor_inline_edit_succeeded"
   | "editor_inline_edit_rejected"
   | "editor_inline_edit_cancelled"
   | "editor_inline_edit_unavailable"
+  // Mermaid inline-edit introduction (#1312): fires when the blocking modal
+  // actually opens for an account and diagram type, before playback ends.
+  // feature_area 'macro', surface 'editor', macro_type 'mermaid',
+  // inline_edit_diagram, inline_edit_intro_reduced_motion. No diagram text.
+  | "mermaid_inline_edit_intro_shown"
   // Onboarding funnel — "second diagram" prompt (registered ahead of its
   // producer: this task only registers the event names + properties so the
   // catalog/types are ready; no call site exists yet in this codebase. A

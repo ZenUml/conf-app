@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Prepares a fresh Amp orb (Debian) to build, lint and unit-test conf-app.
+# Runs once per orb or on top of a stale snapshot, so every step is idempotent
+# and cheap when its result is already present. Mirrors the CI install in
+# .github/actions/install-deps and .github/workflows/pr-checks.yml.
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+repo_root="$PWD"
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+
+step() {
+  local name="$1"
+  shift
+  local start=$SECONDS
+  echo "==> $name"
+  "$@"
+  echo "<== $name ($((SECONDS - start))s)"
+}
+
+node_version="$(cat .node-version)"
+pnpm_version="$(sed -n 's/.*"packageManager": "pnpm@\([^"]*\)".*/\1/p' package.json)"
+
+install_node() {
+  # The orb image may ship another Node; .node-version pins the one CI and
+  # engines (>=24) expect. mise installs it per user, no root needed.
+  if ! command -v mise >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/mise" ]; then
+    curl -fsSL https://mise.run | sh
+  fi
+  export PATH="$HOME/.local/bin:$PATH"
+  mise use --global "node@$node_version"
+  # Make the pinned Node and pnpm reach Amp and supervised services, which
+  # start in non-interactive login shells.
+  local marker="# conf-app: mise shims"
+  if ! grep -Fqx "$marker" "$HOME/.bash_profile" 2>/dev/null; then
+    printf '\n%s\nexport PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"\n' "$marker" >>"$HOME/.bash_profile"
+  fi
+}
+
+install_pnpm() {
+  if [ "$(pnpm --version 2>/dev/null || true)" != "$pnpm_version" ]; then
+    mkdir -p "$HOME/.local/bin"
+    corepack enable --install-directory "$HOME/.local/bin" pnpm
+    corepack prepare "pnpm@$pnpm_version" --activate
+  fi
+}
+
+install_root_deps() {
+  # --ignore-scripts as in CI: the allowed build scripts (keytar, cloudflared,
+  # @forge/cli) need native toolchains or downloads that build, lint and unit
+  # tests do not use. Forge CLI authenticates from FORGE_EMAIL/FORGE_API_TOKEN.
+  CI=true NODE_OPTIONS="--max-old-space-size=8192" \
+    pnpm install --frozen-lockfile --ignore-scripts --reporter=append-only
+}
+
+install_e2e_deps() {
+  # Unit tests list E2E specs, which needs this package's own modules
+  # (pr-checks.yml "Install E2E discovery dependencies"). No browsers.
+  (cd tests/e2e-tests && CI=true pnpm install --frozen-lockfile --ignore-scripts --ignore-workspace --reporter=append-only)
+}
+
+local_config() {
+  [ -f wrangler.toml ] || cp -- wrangler-dev.toml wrangler.toml
+}
+
+export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
+if [ "$(node --version 2>/dev/null || true)" != "v$node_version" ]; then
+  step "Node $node_version" install_node
+fi
+hash -r
+step "pnpm $pnpm_version" install_pnpm
+step "root dependencies" install_root_deps
+step "E2E discovery dependencies" install_e2e_deps
+step "local config" local_config
+
+echo "conf-app orb setup complete in ${SECONDS}s ($repo_root)"

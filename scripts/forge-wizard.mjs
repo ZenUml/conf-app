@@ -680,6 +680,12 @@ function getForgeEnvVarsForApp({ app, backendApiBaseUrl, appEnvironmentChoice, d
       appEnvVars.DIAGRAMLY_BACKEND_API_BASE_URL =
         devEnvVars.DIAGRAMLY_BACKEND_API_BASE_URL
     }
+    // A development environment that shares a site with another environment
+    // of the same app needs its own Connect key; build dist/ with the same
+    // CONNECT_KEY_OVERRIDE. See docs/reference/dev-connect-key.md.
+    if (devEnvVars.CONNECT_KEY_OVERRIDE) {
+      appEnvVars.CONNECT_KEY = devEnvVars.CONNECT_KEY_OVERRIDE
+    }
   }
 
   return appEnvVars

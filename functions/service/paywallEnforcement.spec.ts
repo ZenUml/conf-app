@@ -1,20 +1,25 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  decideEnforcement, effectsOf, parseEnforcementPolicy, resolveEnforcement,
+  decideEnforcement, effectsInForce, effectsOf, parseEnforcementPolicy, resolveEnforcement,
   stageInForce, thresholdReached, type EnforcementStage,
 } from './paywallEnforcement';
 
 const LITE = '8ad26115-211f-4216-971b-0540f606303d';
 const EFFECTIVE = '2026-12-08T00:00:00Z';
-const policy = (stage: string, effectiveAt: unknown = EFFECTIVE) => JSON.stringify({ stage, effectiveAt });
+// Test shorthand: the effects that the old stage names stood for.
+const LADDER: Record<string, object> = {
+  notice: {}, watermark: { watermark: true }, block_create: { watermark: true, blockCreate: true },
+  block_edit: { watermark: true, blockCreate: true, requestEdit: true },
+};
+const policy = (stage: string, effectiveAt: unknown = EFFECTIVE) => JSON.stringify({ effects: LADDER[stage], effectiveAt });
 
 describe('stage in force', () => {
   it.each([
     ['key absent', null, '2026-12-09T00:00:00Z', null],
     ['not JSON', 'nope', '2026-12-09T00:00:00Z', null],
     ['not an object', '[1]', '2026-12-09T00:00:00Z', null],
-    ['unknown stage', policy('block_all'), '2026-12-09T00:00:00Z', null],
-    ['effectiveAt missing', JSON.stringify({ stage: 'watermark' }), '2026-12-09T00:00:00Z', null],
+    ['no effects (a stage alone is not a policy)', JSON.stringify({ stage: 'watermark', effectiveAt: EFFECTIVE }), '2026-12-09T00:00:00Z', null],
+    ['effectiveAt missing', JSON.stringify({ effects: { watermark: true } }), '2026-12-09T00:00:00Z', null],
     ['effectiveAt not a date', policy('watermark', 'soon'), '2026-12-09T00:00:00Z', null],
     ['notice early', policy('notice'), '2026-11-20T00:00:00Z', 'notice'],
     ['notice late', policy('notice'), '2026-12-09T00:00:00Z', 'notice'],
@@ -60,10 +65,40 @@ describe('effects', () => {
     ['watermark', true, true, false, false],
     ['block_create', true, true, true, false],
     ['block_edit', true, true, true, true],
-  ] as const)('%s', (stage, datedBanner, watermark, blockCreate, requestEdit) => {
+  ] as const)('%s-equivalent switches', (stage, datedBanner, watermark, blockCreate, requestEdit) => {
     // `meterEdit` is the old name of `requestEdit`. Both are emitted until every client reads the new one,
     // so no deploy order makes an old client drop the whole enforcement object.
-    expect(effectsOf(stage)).toEqual({ datedBanner, watermark, blockCreate, requestEdit, meterEdit: requestEdit });
+    const parsed = parseEnforcementPolicy(policy(stage))!;
+    expect(parsed.stage).toBe(stage);
+    expect(effectsOf(parsed.effects)).toEqual({ datedBanner, watermark, blockCreate, requestEdit, meterEdit: requestEdit });
+  });
+
+  const switches = (effects: unknown, effectiveAt: unknown = EFFECTIVE) => JSON.stringify({ effects, effectiveAt });
+  it.each([
+    ['edit only: no watermark, create open', { requestEdit: true }, { watermark: false, blockCreate: false, requestEdit: true }, 'block_edit'],
+    ['create only', { blockCreate: true }, { watermark: false, blockCreate: true, requestEdit: false }, 'block_create'],
+    ['watermark and edit, create open', { watermark: true, requestEdit: true }, { watermark: true, blockCreate: false, requestEdit: true }, 'block_edit'],
+    ['nothing on is notice', {}, { watermark: false, blockCreate: false, requestEdit: false }, 'notice'],
+  ] as const)('independent switches: %s', (_n, given, effects, stage) => {
+    expect(parseEnforcementPolicy(switches(given))).toEqual({ stage, effects, effectiveAt: EFFECTIVE });
+  });
+  it.each([
+    ['a non-boolean switch', switches({ requestEdit: 'yes' })],
+    ['an unknown switch', switches({ blockView: true })],
+    ['effects not an object', switches([true])],
+    ['no effectiveAt', JSON.stringify({ effects: { requestEdit: true } })],
+  ])('independent switches: %s -> no policy', (_n, raw) => {
+    expect(parseEnforcementPolicy(raw)).toBeNull();
+  });
+  it('a stage field never decides: effects win, the label comes from effects', () => {
+    const raw = JSON.stringify({ stage: 'watermark', effects: { requestEdit: true }, effectiveAt: EFFECTIVE });
+    expect(parseEnforcementPolicy(raw)).toEqual({
+      stage: 'block_edit', effects: { watermark: false, blockCreate: false, requestEdit: true }, effectiveAt: EFFECTIVE });
+  });
+  it('independent switches stay off until effectiveAt', () => {
+    const p = parseEnforcementPolicy(switches({ requestEdit: true }))!;
+    expect(effectsInForce(p, new Date('2026-12-07T23:59:59Z'))).toEqual({ watermark: false, blockCreate: false, requestEdit: false });
+    expect(effectsInForce(p, new Date(EFFECTIVE))).toEqual({ watermark: false, blockCreate: false, requestEdit: true });
   });
 });
 
@@ -130,6 +165,13 @@ describe('resolveEnforcement end-to-end examples', () => {
     expect(result?.stage).toBe('notice');
     expect(result?.effects.watermark).toBe(false);
     expect(result?.effects.datedBanner).toBe(true);
+  });
+  it('independent switches: edit blocked, create open, no watermark', async () => {
+    const pol = JSON.stringify({ effects: { requestEdit: true }, effectiveAt: EFFECTIVE });
+    expect(await resolveEnforcement(fakeEnv({ policy: pol }).env, input, AFTER)).toEqual({
+      stage: 'block_edit', effectiveAt: EFFECTIVE, count: 2282, limit: 100,
+      effects: { datedBanner: true, watermark: false, blockCreate: false, requestEdit: true, meterEdit: true },
+    });
   });
   it('12: no policy key -> off after exactly one KV read and no other reads', async () => {
     const { env, kvGet, dbFirst } = fakeEnv({ policy: null });

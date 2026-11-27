@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import ApWrapper2 from './ApWrapper2';
-import { trackEvent } from '@/utils/window';
+import { trackEvent, connectKeyOverride } from '@/utils/window';
 import { forgeRequest } from '@/utils/requestUtil';
 import { requestConfluence } from '@forge/bridge';
 
 vi.mock('@/utils/window', () => ({
   trackEvent: vi.fn(),
   addonKey: 'test-addon',
+  connectKeyOverride: vi.fn(() => ''),
 }));
 
 vi.mock('@/utils/requestUtil', () => ({
@@ -122,6 +123,26 @@ describe('ApWrapper2', () => {
         expect(wrapper.getMacroContentTypes()).toEqual(['ac:my-api:async-api-doc']);
       } finally {
         (forgeGlobalMod.default as any).isAsyncApi = false;
+      }
+    });
+
+    // A development environment deployed with its own Connect key registers
+    // its types under that key; the variant's fixed key would name types this
+    // install does not own (docs/reference/dev-connect-key.md).
+    it('uses the build-time Connect key override for every type when one is set', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isLite = true;
+      vi.mocked(connectKeyOverride).mockReturnValue('com.zenuml.confluence-addon-lite-alt');
+      try {
+        expect(wrapper.getMacroContentTypes()).toEqual([
+          'ac:com.zenuml.confluence-addon-lite-alt:zenuml-content-sequence',
+          'ac:com.zenuml.confluence-addon-lite-alt:zenuml-content-graph',
+        ]);
+        expect(wrapper.getCustomContentType()).toBe('ac:com.zenuml.confluence-addon-lite-alt:zenuml-content-sequence');
+      } finally {
+        vi.mocked(connectKeyOverride).mockReset();
+        vi.mocked(connectKeyOverride).mockReturnValue('');
+        (forgeGlobalMod.default as any).isLite = false;
       }
     });
 

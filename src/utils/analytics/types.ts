@@ -110,6 +110,8 @@ export type AnalyticsProperties = {
   attempt_id?: string;
   recovery_request_id?: string;
   recovery_grant_id?: string;
+  /** `edit` only: the gated editor opens an existing diagram or creates a new one (one shared grant). */
+  edit_target?: 'existing_diagram' | 'new_diagram';
   recovery_state?: 'disabled' | 'not_requested' | 'pending_activation' | 'active' | 'expired' | 'unavailable';
   recovery_action?: 'contact_support' | 'plan_usage' | 'return_inline' | 'continue_request' | 'dismiss_notice';
   recovery_outcome?: 'created' | 'reused' | 'activated' | 'already_active' | 'extended' | 'already_applied';
@@ -462,15 +464,17 @@ export type AnalyticsProperties = {
   preview_source_changed_in_window?: boolean;
   preview_window_completed?: boolean;
   preview_ms_since_editor_open?: number;
-  // editor_inline_edit_* only (Mermaid inline edit). Bounded values:
+  // editor_inline_edit_* and editor_source_selection_hint_shown identify the Mermaid label kind. Bounded values:
   // never the edited text, the actor or node id, or the message index.
   inline_edit_kind?: InlineEditKind;
   /**
-   * All editor_inline_edit_* events: the diagram type being edited. Optional
+   * Diagram type being edited or demonstrated in the introduction. Optional
    * because events sent before flowchart inline edit carry none (read absent
    * as 'sequence').
    */
   inline_edit_diagram?: InlineEditDiagram;
+  /** mermaid_inline_edit_intro_shown: the example starts in its final state. */
+  inline_edit_intro_reduced_motion?: boolean;
   /** editor_inline_edit_unavailable: why it is read-only (absent on events sent before 2026-11-21). */
   inline_edit_unavailable_reason?: InlineEditUnavailableReason;
   /** editor_inline_edit_rejected: the EditRejection reason. */
@@ -639,6 +643,8 @@ export type AnalyticsProperties = {
   // Advertised annual price on the bundle CTA at click time (USD, per space).
   // Recorded on the event so a later price change stays comparable.
   bundle_price_usd?: number;
+  /** Seasonal offer advertised on the CTA or forwarded to Stripe. */
+  bundle_offer?: 'black_friday_2026';
   /** Confirmed unpaid rows offering a one-space checkout on Plan and usage. */
   purchasable_space_count?: number;
   /** Per-space Lite limit at the time of a checkout action. */

@@ -32,9 +32,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, type Component } from 'vue'
+import { provide, ref, type Component } from 'vue'
 import UpgradePrompt from '@/components/UpgradePrompt/UpgradePrompt.vue'
 import type { MacroKind } from '@/components/UpgradePrompt/buildAdvocacyMessage'
+import { editorPaywallContinued } from '@/utils/paywall/editorContinueContext'
 import type { PaywallActionType } from '@/utils/paywall/mountPaywallGate'
 import {
   getOrCreateContinueAttempts,
@@ -67,6 +68,8 @@ const emit = defineEmits<{
 }>()
 
 const modalVisible = ref(true)
+const continuedEditing = ref(false)
+provide(editorPaywallContinued, continuedEditing)
 const remainingContinueAttempts = ref(
   props.remainingContinueAttempts ??
   (props.continueAttemptsIdentity
@@ -86,6 +89,7 @@ function onContinueEditing() {
     ).remainingAttempts
   }
   modalVisible.value = false
+  continuedEditing.value = true
   emit('continue-editing')
 }
 </script>

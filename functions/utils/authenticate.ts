@@ -35,6 +35,7 @@ type ForgeFitApp = {
 
 type ForgeFitContext = {
   cloudId?: unknown;
+  id?: unknown;
   siteUrl?: unknown;
 };
 
@@ -46,6 +47,9 @@ type ForgeFitPayload = jose.JWTPayload & {
 };
 
 const BACKEND_FIT_CONTEXT_KEYS = new Set(['cloudId']);
+// A scheduled trigger's FIT also carries `context.id` (observed on staging
+// 2026-11-27: keys `cloudId`, `id`). Accept it from that module type only.
+const SCHEDULED_TRIGGER_FIT_CONTEXT_KEYS = new Set(['cloudId', 'id']);
 
 // Docs say a non-UI invokeRemote FIT has module type `core:endpoint`. Hosted
 // functions send the module that actually called invokeRemote: a scheduled
@@ -74,7 +78,10 @@ export function fitInvocationSource(
   if (typeof moduleType === 'string' && !BACKEND_FIT_MODULE_TYPES.has(moduleType)) return 'frontend';
   const context = payload.context;
   if (context == null) return 'backend';
-  return Object.keys(context).every((key) => BACKEND_FIT_CONTEXT_KEYS.has(key))
+  const allowedKeys = moduleType === 'core:scheduledTrigger'
+    ? SCHEDULED_TRIGGER_FIT_CONTEXT_KEYS
+    : BACKEND_FIT_CONTEXT_KEYS;
+  return Object.keys(context).every((key) => allowedKeys.has(key))
     ? 'backend'
     : 'frontend';
 }

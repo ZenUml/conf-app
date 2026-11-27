@@ -181,6 +181,22 @@ describe('fitInvocationSource', () => {
     })).toBe('backend');
   });
 
+  // Observed on staging 2026-11-27 22:15Z: the lite-macro-count-daily trigger's
+  // FIT context carries `cloudId` and `id`, no principal.
+  it('reads the observed scheduled-trigger FIT (context cloudId + id) as backend', () => {
+    expect(fitInvocationSource({
+      app: { ...app, module: { type: 'core:scheduledTrigger', key: 'lite-macro-count-daily' } },
+      context: { cloudId: CLOUD_ID, id: 'trigger-context-id' },
+    })).toBe('backend');
+  });
+
+  it('accepts context.id only from a scheduled-trigger module', () => {
+    expect(fitInvocationSource({
+      app: { ...app, module: { type: 'core:endpoint', key: 'connect' } },
+      context: { cloudId: CLOUD_ID, id: 'trigger-context-id' },
+    })).toBe('frontend');
+  });
+
   it('keeps a scheduled-trigger module with UI context fields as frontend', () => {
     expect(fitInvocationSource({
       app: { ...app, module: { type: 'core:scheduledTrigger', key: 'lite-macro-count-daily' } },

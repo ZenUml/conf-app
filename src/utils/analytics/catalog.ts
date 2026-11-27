@@ -2456,8 +2456,22 @@ export type AgentLinkMcpButtonPlacement =
   | "editor_tip";
 
 // How the button showed: 'hover' = only on hover or focus, like the other
-// inline header actions; 'always' = visible at rest (Fullscreen headers).
+// inline header actions; 'always' = visible at rest (Fullscreen headers, and
+// the inline button for editors in the 'outcome_label' arm below).
 export type AgentLinkMcpButtonReveal = "always" | "hover";
+
+// The viewer-header Connect MCP button test (from 2026-11, `mcp_button_variant`
+// on every agent_link_mcp_* event GenericViewer sends: button_shown,
+// dialog_opened/_copied/_closed, client_selected, install_clicked,
+// promo_dismissed). Accounts split 50/50 by a stable hash
+// (mcpButtonExperiment.ts), so a person sees one arm on every page and site.
+// 'control' = the button as before: labelled "MCP", revealed on hover inline.
+// 'outcome_label' = labelled "Use with AI", and kept visible at rest inline
+// for viewers who can edit the diagram (they then report
+// `mcp_button_reveal: 'always'`). Read: dialog opens per viewer-day of
+// agent_link_mcp_button_shown, by arm. Viewers without an account (anonymous)
+// get 'control'.
+export type AgentLinkMcpButtonVariant = "control" | "outcome_label";
 
 // How a Connect MCP dialog connects the agent: 'headless' = the agent signs
 // in with OAuth and edits through Confluence directly (the only mode offered

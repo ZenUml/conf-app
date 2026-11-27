@@ -39,6 +39,8 @@ export interface HeaderModel {
   hasEdit: boolean
   /** Connect MCP sits next to Source (inline, every diagram type). */
   connectMcp?: boolean
+  /** Its stage-0 label; "MCP" unless the button test gives another. */
+  connectMcpLabel?: string
 }
 
 /** Width in px of a button label at the given font size (500 weight). */
@@ -73,10 +75,10 @@ export function controlsWidth(model: HeaderModel, stage: HeaderStage, measureLab
   }
   const toolbar: number[] = []
   if (model.hasSource && stage < 3) {
-    // Source icon, then Connect MCP: labelled "MCP" at stage 0 (8px padding
+    // Source icon, then Connect MCP: labelled at stage 0 (8px padding
     // + 1px border each side, 16px icon, 6px gap, label), icon-only after.
     toolbar.push(ICON)
-    if (model.connectMcp) toolbar.push(stage < 1 ? 40 + measureLabel('MCP', 13) : ICON)
+    if (model.connectMcp) toolbar.push(stage < 1 ? 40 + measureLabel(model.connectMcpLabel ?? 'MCP', 13) : ICON)
     toolbar.push(SEPARATOR)
   }
   toolbar.push(ICON) // More

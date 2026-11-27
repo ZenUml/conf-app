@@ -2827,6 +2827,48 @@ describe('GenericViewer (chrome-less)', () => {
       expect(wrapper.find('[data-testid="agent-link-live-badge"]').exists()).toBe(false)
     })
 
+    describe('button test (mcp_button_variant)', () => {
+      it('keeps the control arm as it was and reports it', async () => {
+        const wrapper = mountViewer()
+        await settleLayout()
+        const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
+        expect(btn.attributes('data-mcp-variant')).toBe('control')
+        expect(btn.find('.viewer-btn-label').text()).toBe('MCP')
+        expect(btn.classes()).not.toContain('viewer-act-connect-mcp--pinned')
+        expect(shownCalls()[0]?.[1]).toMatchObject({ mcp_button_variant: 'control', mcp_button_reveal: 'hover' })
+        await btn.trigger('click')
+        expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+          'agent_link_mcp_dialog_opened', expect.objectContaining({ mcp_button_variant: 'control' }))
+      })
+
+      it('labels the outcome and keeps the button visible at rest for an editor in the treatment arm', async () => {
+        localStorage.setItem('zenuml.mcpButtonVariant', 'outcome_label')
+        const wrapper = mountViewer()
+        await settleLayout()
+        const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
+        expect(btn.find('.viewer-btn-label').text()).toBe('Use with AI')
+        expect(btn.attributes('title')).toBe('Connect an AI agent (MCP)')
+        expect(btn.attributes('aria-label')).toBe('Connect MCP')
+        expect(btn.classes()).toContain('viewer-act-connect-mcp--pinned')
+        expect(shownCalls()[0]?.[1]).toMatchObject({ mcp_button_variant: 'outcome_label', mcp_button_reveal: 'always' })
+        await btn.trigger('click')
+        await wrapper.find('[data-testid="connect-mcp-tab-cursor"]').trigger('click')
+        expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
+          'agent_link_mcp_client_selected', expect.objectContaining({ mcp_button_variant: 'outcome_label', mcp_client_choice: 'cursor' }))
+      })
+
+      it('does not pin the button for a reader in the treatment arm', async () => {
+        localStorage.setItem('zenuml.mcpButtonVariant', 'outcome_label')
+        vi.mocked(globals.apWrapper.canUserEdit).mockResolvedValueOnce(false)
+        const wrapper = mountViewer()
+        await settleLayout()
+        const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
+        expect(btn.find('.viewer-btn-label').text()).toBe('Use with AI')
+        expect(btn.classes()).not.toContain('viewer-act-connect-mcp--pinned')
+        expect(shownCalls()[0]?.[1]).toMatchObject({ mcp_button_variant: 'outcome_label', mcp_button_reveal: 'hover' })
+      })
+    })
+
     it.each([
       DiagramType.Sequence,
       DiagramType.Mermaid,

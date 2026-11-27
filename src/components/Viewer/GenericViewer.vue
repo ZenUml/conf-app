@@ -204,8 +204,10 @@
                 v-if="showAgentLinkConnect"
                 type="button"
                 class="viewer-btn-ghost viewer-act-connect-mcp"
+                :class="{ 'viewer-act-connect-mcp--pinned': connectMcpPinned }"
                 aria-label="Connect MCP"
-                title="Connect MCP"
+                :title="connectMcpVariant === 'outcome_label' ? 'Connect an AI agent (MCP)' : 'Connect MCP'"
+                :data-mcp-variant="connectMcpVariant"
                 data-testid="connect-mcp-btn"
                 aria-haspopup="dialog"
                 :aria-expanded="showConnectMcpDialog ? 'true' : 'false'"
@@ -214,7 +216,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" :d="connectMcpIcon" />
                 </svg>
-                <span class="viewer-btn-label">MCP</span>
+                <span class="viewer-btn-label">{{ connectMcpLabel }}</span>
               </button>
               <span v-if="showViewSource && !isFullscreenMode" class="viewer-header-sep viewer-act-sep" aria-hidden="true"></span>
               <OverflowMenu ref="moreMenu" class="viewer-act-more" trigger-label="More" menu-label="More actions"
@@ -552,6 +554,7 @@ import McpPromoCard from '@/components/AgentLink/McpPromoCard.vue'
 import { createMcpPromoState } from '@/composables/agentLink/mcpPromo'
 import { RELAY_SESSIONS_ENABLED, rememberedMcpClient } from '@/composables/agentLink/connectInstructions'
 import { createConnectMcpShownRecord } from '@/composables/agentLink/connectMcpShown'
+import { mcpButtonVariant, MCP_BUTTON_LABEL } from '@/composables/agentLink/mcpButtonExperiment'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
 import LinkStatusChip from '@/components/AgentLink/LinkStatusChip.vue'
 import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
@@ -827,6 +830,7 @@ export default {
         pages: 0,
         hasEdit: this.showEdit && !this.isFullscreenMode,
         connectMcp: this.showAgentLinkConnect && !this.isFullscreenMode,
+        connectMcpLabel: this.connectMcpLabel,
       };
     },
     // Anything that changes the header's content without resizing the viewer.
@@ -1037,9 +1041,23 @@ export default {
     connectMcpPlacement() {
       return !this.isFullscreenMode && this.headerStage >= 3 ? 'more_menu' : 'toolbar';
     },
-    // Fullscreen headers are always visible; inline ones reveal on hover.
+    // Fullscreen headers are always visible; inline ones reveal on hover,
+    // except the pinned button of the test's treatment arm.
     connectMcpEffectiveReveal() {
-      return this.isFullscreenMode ? 'always' : 'hover';
+      return this.isFullscreenMode || this.connectMcpPinned ? 'always' : 'hover';
+    },
+    // The Connect MCP button test (mcpButtonExperiment.ts): one arm per account.
+    connectMcpVariant() {
+      return mcpButtonVariant(this.currentAccountId);
+    },
+    connectMcpLabel() {
+      return MCP_BUTTON_LABEL[this.connectMcpVariant];
+    },
+    // Treatment arm, inline, for viewers who can edit: visible at rest, like a
+    // pinned Edit. Readers keep the quiet hover header.
+    connectMcpPinned() {
+      return this.connectMcpVariant === 'outcome_label' && !this.isFullscreenMode && !!this.canUserEdit
+        && this.headerStage < 3;
     },
     viewSourceCode() {
       return getCodeFromDiagram(this.diagram, this.diagramType) || '';
@@ -2368,6 +2386,7 @@ export default {
         surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
         macro_type: this.diagramType ?? 'none',
         mcp_mode: 'headless',
+        mcp_button_variant: this.connectMcpVariant,
         ...extra,
       };
     },
@@ -3142,7 +3161,7 @@ export default {
    affordance), the page navigation and a pressed Refined toggle stay visible
    at rest. Opacity only — a hidden control still takes focus, which reveals. */
 .viewer-top-actions > * { transition: opacity 200ms ease; }
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-surface:not(.viewer-surface--revealed) .viewer-top-actions > :not(.viewer-btn-create):not(.viewer-header-nav):not(.viewer-refined-toggle--pressed):not(.viewer-act-edit--pinned) {
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-surface:not(.viewer-surface--revealed) .viewer-top-actions > :not(.viewer-btn-create):not(.viewer-header-nav):not(.viewer-refined-toggle--pressed):not(.viewer-act-edit--pinned):not(.viewer-act-connect-mcp--pinned) {
   opacity: 0;
 }
 /* Inline order (prototype), in DOM order so Tab follows what is seen:

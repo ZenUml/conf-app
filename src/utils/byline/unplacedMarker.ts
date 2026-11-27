@@ -1,5 +1,6 @@
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { getClientDomain } from '@/utils/ContextParameters/ContextParameters'
+import { markerKey, readRawMarker, writeJsonMarker } from '@/utils/storage/marker'
 
 /**
  * Cross-iframe marker for the unplaced-diagram page banner.
@@ -176,12 +177,6 @@ export function sanitizeUnplacedEntries(raw: unknown): UnplacedDiagramEntry[] {
     }))
 }
 
-/** encodeURIComponent + 'unknown' fallback, so the byline write and the banner
- *  read derive byte-identical keys (mirrors warningBanner.ts). */
-function normalizeKeyPart(value: string): string {
-  return encodeURIComponent(value || 'unknown')
-}
-
 /**
  * Identity for the page this iframe is mounted on, or `null` when the page is
  * unknown.
@@ -199,29 +194,17 @@ export function deriveUnplacedIdentity(): UnplacedIdentity | null {
 }
 
 export function unplacedMarkerKey(identity: UnplacedIdentity): string {
-  return ['bylineUnplaced', normalizeKeyPart(identity.clientDomain), normalizeKeyPart(identity.pageId)].join(':')
+  return markerKey('bylineUnplaced', identity.clientDomain, identity.pageId)
 }
 
 export function unplacedBannerMarkerKey(identity: UnplacedIdentity): string {
-  return ['bylineUnplacedBanner', normalizeKeyPart(identity.clientDomain), normalizeKeyPart(identity.pageId)].join(':')
+  return markerKey('bylineUnplacedBanner', identity.clientDomain, identity.pageId)
 }
 
 /** Every localStorage access here is best-effort: a restrictive iframe or a
  *  full quota must degrade to "no banner", never to a thrown byline. */
-function readRaw(key: string): string | null {
-  try {
-    return window.localStorage?.getItem(key) ?? null
-  } catch {
-    return null
-  }
-}
-
-function writeRaw(key: string, value: string): void {
-  try {
-    window.localStorage?.setItem(key, value)
-  } catch (e) {
-    console.debug('[byline] unplaced marker write failed', e)
-  }
+function writeMarker(key: string, value: unknown): void {
+  writeJsonMarker(key, value, (e) => console.debug('[byline] unplaced marker write failed', e))
 }
 
 export function parseUnplacedMarker(raw: string | null): UnplacedMarker | null {
@@ -267,7 +250,7 @@ export function parseUnplacedBannerMarker(raw: string | null): UnplacedBannerMar
 }
 
 export function readUnplacedMarker(identity: UnplacedIdentity): UnplacedMarker | null {
-  return parseUnplacedMarker(readRaw(unplacedMarkerKey(identity)))
+  return parseUnplacedMarker(readRawMarker(unplacedMarkerKey(identity)))
 }
 
 /**
@@ -283,7 +266,7 @@ export function isMarkerForPage(marker: UnplacedMarker, identity: UnplacedIdenti
 }
 
 export function readUnplacedBannerMarker(identity: UnplacedIdentity): UnplacedBannerMarker {
-  return parseUnplacedBannerMarker(readRaw(unplacedBannerMarkerKey(identity)))
+  return parseUnplacedBannerMarker(readRawMarker(unplacedBannerMarkerKey(identity)))
 }
 
 /**
@@ -310,11 +293,11 @@ export function writeUnplacedMarker(
     pageId: identity.pageId,
     viaProperty: opts.viaProperty,
   }
-  writeRaw(unplacedMarkerKey(identity), JSON.stringify(marker))
+  writeMarker(unplacedMarkerKey(identity), marker)
 }
 
 function writeBannerMarker(identity: UnplacedIdentity, next: UnplacedBannerMarker): void {
-  writeRaw(unplacedBannerMarkerKey(identity), JSON.stringify(next))
+  writeMarker(unplacedBannerMarkerKey(identity), next)
 }
 
 export function recordUnplacedBannerShown(

@@ -1,4 +1,5 @@
 import { getClientDomain } from '@/utils/ContextParameters/ContextParameters'
+import { markerKey, readJsonMarker, writeJsonMarker } from '@/utils/storage/marker'
 
 /**
  * Editor staleness hint — core predicates and markers.
@@ -17,12 +18,8 @@ export function isInlineEditorRender(context: any): boolean {
   return ext?.type === 'macro' && ext?.isEditing === true && !ext?.modal
 }
 
-function normalizeKeyPart(value: string): string {
-  return encodeURIComponent(value || 'unknown')
-}
-
 export function dismissMarkerKey(ccId: string, clientDomain: string = getClientDomain() || 'unknown'): string {
-  return ['stalenessHint', normalizeKeyPart(clientDomain), normalizeKeyPart(ccId)].join(':')
+  return markerKey('stalenessHint', clientDomain, ccId)
 }
 
 export interface DismissMarker {
@@ -30,22 +27,16 @@ export interface DismissMarker {
 }
 
 export function readDismissMarker(ccId: string): DismissMarker | null {
-  try {
-    const raw = localStorage.getItem(dismissMarkerKey(ccId))
-    if (!raw) return null
-    const p = JSON.parse(raw) as Partial<DismissMarker>
-    return typeof p.dismissedAt === 'string' ? { dismissedAt: p.dismissedAt } : null
-  } catch {
-    return null
-  }
+  return readJsonMarker(dismissMarkerKey(ccId), (raw) => {
+    const p = raw as Partial<DismissMarker> | null
+    return typeof p?.dismissedAt === 'string' ? { dismissedAt: p.dismissedAt } : null
+  })
 }
 
 export function writeDismissMarker(ccId: string): void {
-  try {
-    localStorage.setItem(dismissMarkerKey(ccId), JSON.stringify({ dismissedAt: new Date().toISOString() }))
-  } catch (e) {
+  writeJsonMarker(dismissMarkerKey(ccId), { dismissedAt: new Date().toISOString() }, (e) =>
     console.warn('[staleness-hint] dismiss marker write failed', e)
-  }
+  )
 }
 
 export function isDismissalActive(marker: DismissMarker | null, now: number = Date.now()): boolean {

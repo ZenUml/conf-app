@@ -120,6 +120,9 @@ export function resetViewState(): void {
   drawnImage = null;
   userZoom = 1;
   pendingRequests.clear();
+  // A wheel gesture from before the reset must not swallow the next one's report.
+  wheelGestureStarts = createGestureGate();
+  wheelStep = newWheelStepper();
 }
 
 function isFullscreen(): boolean {
@@ -1151,21 +1154,27 @@ export function onKeyDown(e: KeyboardEvent): void {
 }
 
 /** One report per wheel gesture, as in the Confluence viewer. */
-const wheelGestureStarts = createGestureGate();
-const wheelStep = createWheelStepper((direction) => {
-  const action: ZoomAction = direction > 0 ? 'zoom_in' : 'zoom_out';
-  if (zoom(action) && wheelGestureStarts()) reportZoom(action, 'wheel');
-});
+let wheelGestureStarts = createGestureGate();
+function newWheelStepper() {
+  return createWheelStepper((direction) => {
+    const action: ZoomAction = direction > 0 ? 'zoom_in' : 'zoom_out';
+    if (zoom(action) && wheelGestureStarts()) reportZoom(action, 'wheel');
+  });
+}
+let wheelStep = newWheelStepper();
 
 /**
- * The wheel zooms a drawing, with or without Ctrl/Cmd; a trackpad pinch
- * arrives as a Ctrl + wheel and zooms the same way. Unlike the Confluence page
- * viewer, which keeps a plain wheel for scrolling the page, here the drawing
- * is the whole frame, so the wheel goes to it. Over a document the wheel
- * scrolls as usual.
+ * The wheel zooms a drawing with Ctrl/Cmd, which is also how a trackpad pinch
+ * arrives, and with a plain wheel only in fullscreen, where the drawing is the
+ * whole view. Inline, a plain wheel is left alone so it scrolls the host's
+ * conversation: the frame is one message among many, and taking the wheel
+ * there zoomed a diagram out to 20% while the reader scrolled past it
+ * (claude.ai, 2026-11-27). The Confluence viewer draws the same line. Over a
+ * document the wheel always scrolls.
  */
 export function onWheel(e: WheelEvent): void {
   if (!zoomable()) return;
+  if (!isFullscreen() && !e.ctrlKey && !e.metaKey) return;
   e.preventDefault();
   wheelStep(e, window.innerHeight);
 }

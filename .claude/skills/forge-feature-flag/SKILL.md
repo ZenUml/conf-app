@@ -47,7 +47,11 @@ Confirm writes on the **Activity** tab.
 
 Rules evaluate top-down; the first match wins. Read the whole list before widening a rule, and report which rules that made redundant.
 
-A new flag’s rule is **development + staging**; production starts off. After save, reload and read chips from the snapshot: selected is ✓, unselected is ○.
+When a Console rule needs a typed value, use `agent-browser --profile "Profile 8"` (the Conf App Chrome profile). In September 2026, claude-in-chrome could change chips but its text entry was blocked on this form. Re-read snapshot refs after each structural change.
+
+Resolve a rule's `installContext` cloudId from the authoritative `AtlassianInstance.clientDomain` record in D1. Do not extract a UUID from the Console page: an August 2026 attempt captured an unrelated email-tracking URL and saved a rule that matched no installation.
+
+A new flag’s rule is **development + staging**; production starts off. After save, confirm the Activity row and reload to read back **every** rule. Snapshot chips show selected as ✓ and unselected as ○. A staged chip state alone does not prove the save succeeded.
 
 ## Runtime verification
 

@@ -38,12 +38,9 @@ export async function mountFullscreenRecovery(opts: {
       onOpen: opts.onOpen,
       returnInline: async () => { await (await getView()).close(); },
       planUsage: async (requestId?: string, scenarios?: RecoveryScenario[]) => {
-        // The Plan-and-usage page knows only the Fullscreen context; an edit request opens it plain.
-        if (opts.feature === 'edit') {
-          if (!await navigateToAppPage('zenuml-plan-usage')) throw new Error('Plan and usage navigation is unavailable');
-          return;
-        }
+        // Plan and usage opens on the gated space; Fullscreen sends no feature, as older pages expect.
         const query = new URLSearchParams({ source: 'fullscreen_recovery', space_key: opts.spaceKey });
+        if (opts.feature === 'edit') query.set('feature', 'edit');
         if (requestId) query.set('request', requestId);
         const pageId = context.extension?.content?.id;
         if (pageId && /^\d+$/.test(pageId)) query.set('page_id', pageId);

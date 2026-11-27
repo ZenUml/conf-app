@@ -276,6 +276,7 @@ export const OCTOBER_RETAINED_EVENTS = new Set<string>([
   "paywall_marketplace_cta_clicked",
   "paywall_learn_more_clicked",
   "plan_usage_viewed",
+  "plan_usage_all_spaces_shown",
   "plan_usage_purchase_clicked",
   "request_full_reason_copied",
   // Macro creation entry and process events. A new customer's first events are

@@ -186,6 +186,28 @@ export const FullscreenOrdinarySpace: Story = {
   },
 }
 
+/** A large site: the edit gate stopped OPS, so the first screen is about OPS, and the 12-space table is folded below. */
+const manySpaces = ['ENG', 'OPS', 'PAY', 'SALES', 'DATA', 'MOBILE', 'WEB', 'QA', 'SEC', 'INFRA', 'DOCS', 'LAB']
+  .map((spaceKey, i) => ({ spaceKey, macroCount: 1800 - i * 140 }))
+export const EditGateFirstScreen: Story = {
+  name: 'Edit gate — first screen on the gated space',
+  beforeEach: () => {
+    forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&feature=edit&space_key=OPS&scenes=fix_or_update&page_id=123' } } as any
+    stubResponses.remote = [
+      { match: '/api/space-status', body: { statuses: Object.fromEntries(manySpaces.map(s => [s.spaceKey, { isPaid: false, decisionKnown: true }])) } },
+      { match: '/api/fullscreen-recovery', body: { snapshot: { state: 'not_requested', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'edit-contact-v1', limit: 100 } } },
+    ]
+    return stubFetch({ ...usage, totalMacros: 10_000, spaceCount: 40, overLimitSpaces: manySpaces, spaces: manySpaces.map(s => ({ ...s, lastUpdated: null })) })
+  },
+  play: async () => {
+    const canvas = within(document.body)
+    await expect(await canvas.findByTestId('plan-usage-gate-space-title')).toHaveTextContent('OPS has 1,660 diagrams')
+    await expect(await canvas.findByTestId('plan-usage-gate-unlock-button')).toBeVisible()
+    await expect(canvas.getByText(/All spaces on this site/)).toBeVisible()
+    await expect(canvas.getByRole('button', { name: 'Unlock this space: ENG', hidden: true })).not.toBeVisible()
+  },
+}
+
 export default meta
 
 // Spaces load one after another, so wait for the run to finish ("Fetched at")

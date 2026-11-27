@@ -169,6 +169,37 @@ describe('PlanUsage', () => {
     expect(activateFullscreenRecovery).not.toHaveBeenCalled()
   })
 
+  it('opens on the space an edit gate stopped, with the site-wide list folded below', async () => {
+    forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&feature=edit&space_key=OPS&scenes=fix_or_update&page_id=123' } }
+    vi.mocked(getFullscreenRecovery).mockResolvedValue({ state: 'not_requested', serverNow: '2026-10-24T00:00:00Z', policyVersion: 'edit-contact-v1', limit: 100 })
+    vi.mocked(getSpaceStatuses).mockResolvedValue({ ENG: { isPaid: false, decisionKnown: true }, OPS: { isPaid: false, decisionKnown: true } })
+    // OPS is the gated space but not the largest; ENG leads the site-wide table.
+    const w = await mountPage(usageBody({
+      overLimitSpaces: [{ spaceKey: 'ENG', macroCount: 900 }, { spaceKey: 'OPS', macroCount: 160 }],
+      spaces: [{ spaceKey: 'ENG', macroCount: 900, lastUpdated: null }, { spaceKey: 'OPS', macroCount: 160, lastUpdated: null }],
+    }))
+    expect(getFullscreenRecovery).toHaveBeenCalledWith('OPS', 'edit')
+    expect(w.get('[data-testid="plan-usage-gate-space-title"]').text()).toBe('OPS has 160 diagrams')
+    expect(w.get('.gate-lead').text()).toContain('Lite includes 100 diagrams per space')
+    expect(w.get('[data-testid="plan-usage-fullscreen-context"]').text()).toContain('Fix or update a diagram')
+    expect(w.get('details.site-overview').attributes('open')).toBeUndefined()
+    expect(w.get('.upgrade-block h2').text()).toBe('Upgrade to Full')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('plan_usage_viewed', expect.objectContaining({ feature: 'edit', space_key: 'OPS' }))
+
+    await w.get('[data-testid="plan-usage-gate-unlock-button"]').trigger('click')
+    expect(openUrlForOutcome).toHaveBeenCalledWith(expect.stringContaining('ref=example-tenant__OPS&space=OPS'))
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('paywall_bundle_cta_clicked', expect.objectContaining({ space_key: 'OPS', macro_count: 160, ui_component: 'gate_space_card' }))
+
+    const details = w.get('details.site-overview').element as HTMLDetailsElement
+    details.open = true
+    await w.get('details.site-overview').trigger('toggle')
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith('plan_usage_all_spaces_shown', expect.objectContaining({ feature: 'edit', space_key: 'OPS', space_count: 2 }))
+
+    await w.get('[data-testid="plan-usage-fullscreen-request"]').trigger('click')
+    expect(w.text()).toContain('Fix or update a diagram')
+    expect((w.get('input[value="fix_or_update"]').element as HTMLInputElement).checked).toBe(true)
+  })
+
   it('keeps ordinary space access separate from an old expired site-user grant', async () => {
     forgeGlobal.forgeContext = { extension: { location: 'https://example.atlassian.net/wiki/apps/app/env/zenuml-plan-usage?source=fullscreen_recovery&space_key=SMALL&page_id=123' } }
     vi.mocked(getFullscreenRecovery).mockResolvedValue({
@@ -177,7 +208,7 @@ describe('PlanUsage', () => {
       grant: { id: 'old-grant', activatedAt: '2026-10-01T00:00:00Z', expiresAt: '2026-10-08T00:00:00Z' },
     })
     const w = await mountPage(usageBody({ overLimitSpaces: [], totalMacros: 99 }))
-    expect(getFullscreenRecovery).toHaveBeenCalledWith('SMALL')
+    expect(getFullscreenRecovery).toHaveBeenCalledWith('SMALL', 'fullscreen')
     const context = w.get('[data-testid="plan-usage-fullscreen-context"]')
     expect(context.text()).toContain('does not need temporary Fullscreen access')
     expect(context.text()).not.toContain('ended')

@@ -2176,7 +2176,14 @@ export type AnalyticsEventName =
   // named in the spec: banner -> Plan and usage -> "申请 Full").
   // Fires after usage and paid-status loading settle. purchasable_space_count
   // counts rows with a confirmed unpaid decision and a purchase action.
+  // Opened from a recovery gate (Fullscreen or edit), it also carries
+  // `feature` and `space_key`, the gated space the first screen is about.
+  // `plan_usage_all_spaces_shown` fires when a gate visitor expands the
+  // site-wide list below that first screen (`feature`, `space_key`,
+  // `space_count` = spaces over the limit). A Bundle CTA click from this
+  // page carries `ui_component`: `gate_space_card` or `space_table`.
   | "plan_usage_viewed"
+  | "plan_usage_all_spaces_shown"
   | "plan_usage_request_full_clicked"
   // Admin's direct purchase entry point on the Plan and usage page itself
   // (distinct from the Request-Full flow, which is the non-admin/ask-someone

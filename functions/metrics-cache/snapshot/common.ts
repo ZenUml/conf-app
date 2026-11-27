@@ -262,17 +262,23 @@ export async function authenticateMetricsRequest(
     // frontend context. Requiring this shape prevents a Custom UI caller with
     // a valid FIT from invoking the snapshot write protocol directly.
     if (verifiedContext.invocationSource !== 'backend' || !hasSystemToken || hasUserToken) {
+      // Middleware verifies the FIT first and passes forgeContext, so the
+      // payload is only in hand on the direct path. The shape stored there
+      // is names and booleans, same as this log.
+      const shape = fit ? undefined : verifiedContext.fitShape;
       const payload = fit?.payload;
       const fitContext = payload?.context;
       throw new HttpError(403, 'Snapshot writes require a backend Forge invocation', {
         invocationSource: verifiedContext.invocationSource,
         hasSystemToken,
         hasUserToken,
-        fitContextKeys: fitContext && typeof fitContext === 'object'
-          ? Object.keys(fitContext).sort()
-          : null,
-        fitModuleType: typeof payload?.app?.module?.type === 'string' ? payload.app.module.type : null,
-        fitHasPrincipal: payload?.principal != null,
+        fitContextKeys: payload
+          ? (fitContext && typeof fitContext === 'object' ? Object.keys(fitContext).sort() : null)
+          : shape?.contextKeys ?? null,
+        fitModuleType: payload
+          ? (typeof payload.app?.module?.type === 'string' ? payload.app.module.type : null)
+          : shape?.moduleType ?? null,
+        fitHasPrincipal: payload ? payload.principal != null : shape?.hasPrincipal ?? false,
       });
     }
   }

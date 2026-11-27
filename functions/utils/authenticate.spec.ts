@@ -157,9 +157,9 @@ describe('authenticate', () => {
   });
 });
 
-// Forge docs (remote/essentials): a FIT from a backend function "will contain
-// only context.cloudId for Jira and Confluence apps", app.module.type is
-// core:endpoint, and principal is set for UI modules only.
+// A backend invokeRemote FIT carries only context.cloudId and no principal.
+// Hosted functions report their own module type (core:scheduledTrigger,
+// core:function, or historically ""), not only the documented core:endpoint.
 describe('fitInvocationSource', () => {
   const app = { id: APP_ARI };
 
@@ -168,6 +168,24 @@ describe('fitInvocationSource', () => {
       app: { ...app, module: { type: 'core:endpoint', key: 'connect' } },
       context: { cloudId: CLOUD_ID },
     })).toBe('backend');
+  });
+
+  it.each([
+    'core:scheduledTrigger',
+    'core:function',
+    '',
+  ])('reads hosted backend module %j with only context.cloudId as backend', (moduleType) => {
+    expect(fitInvocationSource({
+      app: { ...app, module: { type: moduleType, key: 'lite-macro-count-daily' } },
+      context: { cloudId: CLOUD_ID },
+    })).toBe('backend');
+  });
+
+  it('keeps a scheduled-trigger module with UI context fields as frontend', () => {
+    expect(fitInvocationSource({
+      app: { ...app, module: { type: 'core:scheduledTrigger', key: 'lite-macro-count-daily' } },
+      context: { cloudId: CLOUD_ID, siteUrl: 'https://example.atlassian.net' },
+    })).toBe('frontend');
   });
 
   it('reads a FIT without context as backend', () => {

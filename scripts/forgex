@@ -70,4 +70,10 @@ for arg in "$@"; do
   args+=("$arg")
 done
 
+# Prefer the project's own @forge/cli (a devDependency); a global `forge` is
+# optional and often absent outside `pnpm` scripts.
+FORGE_BIN="$BASE_DIR/node_modules/.bin/forge"
+if [[ -x "$FORGE_BIN" ]]; then
+  exec "$FORGE_BIN" "${args[@]}"
+fi
 exec forge "${args[@]}"

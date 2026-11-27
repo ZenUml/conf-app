@@ -7,8 +7,11 @@
 // call to a *.zenuml.com URL opens with no dialog (observed 2026-11-20 on
 // production, for zenuml.com, conf-lite and conf-stg-lite). So the CTA opens
 // GET /bundle-checkout here, which shows what the buyer is about to pay for
-// and continues to Stripe after 3 seconds (or at once on Continue), through
+// and continues to Stripe after 10 seconds (or at once on Continue), through
 // GET /bundle-checkout/go, which records the step and answers 302.
+// The bar is driven by elapsed time after the first paint. A CSS transition
+// on an element that has just left `hidden` sometimes has no start frame,
+// so the bar opened already full (2 of 20 loads, 2026-11-21).
 //
 // Trust: `ref` comes from the client, exactly as client_reference_id did when
 // the CTA linked to Stripe directly. The redirect target is a constant, so
@@ -21,7 +24,21 @@ import {
 
 export const BUNDLE_PAYMENT_LINK = 'https://buy.stripe.com/cNifZifkN7hzavK12H7IY05';
 export { BUNDLE_ANNUAL_PRICE_USD };
-const COUNTDOWN_SECONDS = 3;
+const COUNTDOWN_SECONDS = 10;
+
+/** Progress of the handoff bar. `elapsedMs` is time since the first painted frame. */
+export function handoffCountdown(elapsedMs: number, totalMs = COUNTDOWN_SECONDS * 1000): {
+  ratio: number;
+  secondsLeft: number;
+  done: boolean;
+} {
+  const total = totalMs > 0 ? totalMs : 1;
+  const elapsed = Number.isFinite(elapsedMs) ? elapsedMs : 0;
+  const ratio = Math.min(1, Math.max(0, elapsed / total));
+  const done = elapsed >= total;
+  const secondsLeft = done ? 0 : Math.max(0, Math.ceil((total - Math.max(0, elapsed)) / 1000));
+  return { ratio, secondsLeft, done };
+}
 
 const REF_RE = /^[A-Za-z0-9_-]{1,200}$/;
 const CLICK_RE = /^[A-Za-z0-9-]{8,64}$/;
@@ -131,30 +148,38 @@ function headers(nonce?: string): Record<string, string> {
 }
 
 const STYLE = `
-:root{--hi:#1C2024;--lo:#60646C;--hair:#D9D9E0;--ctl:#CDCED6;--pri:#0C66E4}
+:root{--hi:#1C2024;--lo:#60646C;--hair:#D9D9E0;--pri:#0C66E4;--ok:#1F845A;--card:#E9F2FF}
 *{box-sizing:border-box}
 body{margin:0;background:#fff;color:var(--hi);font:14px/20px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
 .top{height:56px;border-bottom:.5px solid var(--hair);display:flex;align-items:center;gap:8px;padding:0 24px;font-weight:600}
 .logo{width:24px;height:24px;border-radius:6px;background:var(--pri);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700}
-main{max-width:480px;margin:0 auto;padding:56px 24px}
-h1{font-size:24px;line-height:32px;font-weight:600;margin:0}
-.lead{color:var(--lo);margin:8px 0 24px}
-.card{border:.5px solid var(--ctl);border-radius:8px}
-.row{display:flex;justify-content:space-between;gap:16px;padding:12px 16px;border-bottom:.5px solid var(--hair)}
-.offer{background:#f3eefd;color:#4c2981;border-radius:8px;padding:12px 16px;margin-bottom:16px}
-.offer strong,.offer small{display:block}
-.row:last-child{border-bottom:0}
-.k{color:var(--lo)}.v{font-weight:500;text-align:right;overflow-wrap:anywhere}
-.v small{display:block;font-weight:400;color:var(--lo);font-size:12px;line-height:16px}
-.count{margin-top:24px}
-.bar{height:4px;background:var(--hair);border-radius:2px;overflow:hidden}
-.bar i{display:block;height:100%;width:0;background:var(--pri);transition:width ${COUNTDOWN_SECONDS}s linear}
-.cd{display:flex;justify-content:space-between;margin-top:8px;font-size:12px;line-height:16px;color:var(--lo)}
-.link{font:inherit;color:var(--pri);font-weight:500;background:none;border:0;padding:0;cursor:pointer}
-.acts{display:flex;align-items:center;gap:8px;margin-top:20px}
-.btn{display:inline-flex;align-items:center;height:32px;padding:0 12px;border-radius:6px;background:var(--pri);color:#fff;font-weight:500;text-decoration:none}
+main{max-width:568px;margin:0 auto;padding:40px 24px 56px}
+.eye{margin:0;font-size:12px;line-height:16px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--pri)}
+h1{font-size:28px;line-height:36px;font-weight:600;margin:8px 0 0}
+.lead{color:var(--lo);margin:8px 0 0}
+.card{display:flex;justify-content:space-between;gap:24px;background:var(--card);border-radius:12px;padding:24px;margin-top:24px}
+.gets{flex:1;min-width:0}
+.glabel{margin:0 0 12px;font-size:12px;line-height:16px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--lo)}
+.benefit{display:flex;gap:8px;align-items:flex-start;margin-top:12px;font-size:16px;line-height:24px;font-weight:500}
+.benefit:first-of-type{margin-top:0}
+.check{flex:0 0 20px;width:20px;height:20px;margin-top:2px}
+.price{text-align:right;width:150px;flex:none}
+.price strong{display:block;font-size:40px;line-height:48px;font-weight:700}
+.price.offer strong{font-size:22px;line-height:28px}
+.offer-note{margin:12px 0 0;color:var(--lo);font-size:12px;line-height:16px}
+.price .per{display:block;font-size:14px;line-height:20px;font-weight:500}
+.price small{display:block;margin-top:4px;font-size:12px;line-height:16px;font-weight:400;color:var(--lo)}
+.pay{display:flex;align-items:center;gap:8px;margin-top:16px;color:var(--lo);font-size:13px;line-height:20px}
+.lock{flex:none}
+.acts{margin-top:24px}
+.btn{display:flex;align-items:center;justify-content:center;height:44px;border-radius:8px;background:var(--pri);color:#fff;font-size:16px;font-weight:600;text-decoration:none}
 .btn:focus-visible,.link:focus-visible{outline:2px solid var(--pri);outline-offset:2px}
-.muted{color:var(--lo);font-size:12px;line-height:16px}
+.count{margin-top:10px}
+.bar{height:6px;background:var(--hair);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--pri);border-radius:3px}
+.cd{display:flex;justify-content:space-between;gap:12px;margin-top:8px;font-size:13px;line-height:20px;color:var(--lo)}
+.link{font:inherit;font-size:13px;line-height:20px;color:var(--pri);font-weight:500;background:none;border:0;padding:0;cursor:pointer}
+.muted{display:block;margin-top:10px;color:var(--lo);font-size:13px;line-height:20px;text-align:center}
 .fine{color:var(--lo);font-size:12px;line-height:16px;margin-top:24px}
 [hidden]{display:none!important}
 `;
@@ -163,35 +188,58 @@ function shell(title: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>${STYLE}</style></head><body><header class="top"><span class="logo" aria-hidden="true">Z</span>ZenUML</header>${body}</body></html>`;
 }
 
+const CHECK = '<svg class="check" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="10" fill="#1F845A"/><path d="M5.5 10.5l3 3 6-6" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const LOCK = '<svg class="lock" width="12" height="14" viewBox="0 0 12 14" aria-hidden="true"><rect x="1" y="6" width="10" height="7" rx="1.5" fill="#60646C"/><path d="M3 6V4a3 3 0 0 1 6 0v2" fill="none" stroke="#60646C" stroke-width="1.5"/></svg>';
+
+function benefit(text: string): string {
+  return `<div class="benefit">${CHECK}<span>${text}</span></div>`;
+}
+
 function handoffHtml(p: CheckoutParams, nonce: string | undefined, offer: boolean): string {
   const space = escapeHtml(p.displaySpace ?? (p.refSpaceKey as string));
   const site = escapeHtml(`${p.clientDomain}.atlassian.net`);
   const href = escapeHtml(goHref(p));
+  const price = offer
+    ? `<div class="price offer"><strong>${BLACK_FRIDAY_PRICE} first year</strong></div>`
+    : `<div class="price"><strong>$${BUNDLE_ANNUAL_PRICE_USD}</strong><span class="per">per year</span><small>plus tax where applicable</small></div>`;
+  const offerNote = offer ? `<p class="offer-note">${BLACK_FRIDAY_TERMS} Applied automatically at checkout.</p>` : '';
   // Without scripts the page shows its ready state and a working Continue
   // link. The script switches to the countdown and starts it once the tab is
   // visible, so a tab opened in the background does not leave on its own.
+  // The first animation frame paints the bar at 0. Later frames set its width
+  // from elapsed time, the same ratio as handoffCountdown.
   const script = nonce ? `<script nonce="${nonce}">(function(){
-var a=document.getElementById('go'),t=null,stopped=false;
-var h=document.getElementById('h'),l=document.getElementById('lead'),c=document.getElementById('count'),r=document.getElementById('ready'),n=document.getElementById('n'),bar=document.getElementById('bar');
-function ready(){stopped=true;if(t)clearTimeout(t);t=null;c.hidden=true;r.hidden=false;h.textContent='Checkout is ready';l.textContent='Stripe handles the payment for ZenUML. Continue when you are ready.';a.textContent='Continue to Stripe';a.href=a.getAttribute('href')+'&stopped=1';}
-function start(){if(t||stopped)return;var left=${COUNTDOWN_SECONDS};requestAnimationFrame(function(){bar.style.width='100%';});
-t=setInterval(function(){left-=1;if(left>0){n.textContent=left+(left===1?' second':' seconds');return;}clearInterval(t);location.replace(a.href.replace('trigger=button','trigger=auto'));},1000);}
-h.textContent='Opening secure checkout';l.textContent='Stripe handles the payment for ZenUML. Check the details below.';a.textContent='Continue to Stripe now';c.hidden=false;r.hidden=true;
+var a=document.getElementById('go'),stopped=false,raf=0;
+var c=document.getElementById('count'),r=document.getElementById('ready'),n=document.getElementById('n'),bar=document.getElementById('bar');
+var TOTAL=${COUNTDOWN_SECONDS * 1000};
+function ready(){stopped=true;if(raf)cancelAnimationFrame(raf);raf=0;c.hidden=true;r.hidden=false;a.textContent='Continue to Stripe';a.href=a.getAttribute('href')+'&stopped=1';}
+function frame(now,t0){
+if(stopped)return;
+if(t0===undefined){bar.style.width='0%';raf=requestAnimationFrame(function(t){frame(t,t);});return;}
+var elapsed=now-t0;
+var ratio=Math.min(1,Math.max(0,elapsed/TOTAL));
+bar.style.width=(ratio*100)+'%';
+var left=Math.ceil((TOTAL-elapsed)/1000);
+if(left>0){n.textContent=left+(left===1?' second':' seconds');raf=requestAnimationFrame(function(t){frame(t,t0);});return;}
+location.replace(a.href.replace('trigger=button','trigger=auto'));
+}
+function start(){if(raf||stopped)return;a.textContent='Continue to Stripe now';c.hidden=false;r.hidden=true;raf=requestAnimationFrame(function(t){frame(t);});}
 document.getElementById('stop').addEventListener('click',ready);
 if(document.visibilityState==='visible')start();else document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')start();});
 })();</script>` : '';
   return shell('Secure checkout · ZenUML', `<main>
-<h1 id="h">Checkout is ready</h1>
-<p class="lead" id="lead">Stripe handles the payment for ZenUML. Continue when you are ready.</p>
-${offer ? `<div class="offer"><strong>Black Friday · 50% off the first year</strong><strong>${BLACK_FRIDAY_PRICE} first year</strong><small>${BLACK_FRIDAY_TERMS}</small><small>Applied automatically at checkout.</small></div>` : ''}
+<p class="eye">Unlock one space</p>
+<h1 id="h">Unlimited diagrams in ${space}</h1>
+<p class="lead" id="lead">${site} · Stripe handles the payment for ZenUML</p>
 <div class="card">
-<div class="row"><span class="k">Space</span><span class="v">${space}<small>${site}</small></span></div>
-${offer ? '' : `<div class="row"><span class="k">Price</span><span class="v">$${BUNDLE_ANNUAL_PRICE_USD} per year<small>plus tax where applicable</small></span></div>`}
-<div class="row"><span class="k">You get</span><span class="v">No diagram limit in this space<small>for this space only</small></span></div>
-<div class="row"><span class="k">Payment</span><span class="v">Card, by Stripe<small>No Confluence admin needed</small></span></div>
+<div class="gets"><p class="glabel">You get</p>${benefit('No diagram limit in this space')}${benefit(`Covers ${space} only`)}${benefit('No Confluence admin needed')}${benefit('5 seats on diagramly.ai')}</div>
+${price}
 </div>
-<div class="count" id="count" hidden><div class="bar"><i id="bar"></i></div><div class="cd" role="status"><span>Opening Stripe in <span id="n">${COUNTDOWN_SECONDS} seconds</span></span><button type="button" class="link" id="stop">Stop</button></div></div>
-<div class="acts"><a class="btn" id="go" href="${href}">Continue to Stripe</a><span class="muted" id="ready">or close this tab to cancel</span></div>
+${offerNote}
+<p class="pay">${LOCK}Pay by card on Stripe's secure checkout</p>
+<div class="acts"><a class="btn" id="go" href="${href}">Continue to Stripe</a>
+<div class="count" id="count" hidden><div class="bar" aria-hidden="true"><i id="bar"></i></div><div class="cd" role="status"><span>Opening Stripe in <span id="n">${COUNTDOWN_SECONDS} seconds</span></span><button type="button" class="link" id="stop">Stay on this page</button></div></div>
+<p class="muted" id="ready">or close this tab to cancel</p></div>
 <p class="fine">Stripe may show our registered company name on the checkout page and on your card statement.</p>
 </main>${script}`);
 }

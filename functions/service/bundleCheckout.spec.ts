@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   BUNDLE_PAYMENT_LINK,
+  handoffCountdown,
   handleBundleCheckoutGo,
   handleBundleCheckoutPage,
   type BundleCheckoutEvent,
@@ -25,17 +26,51 @@ function recorder() {
 
 const validQuery = `ref=${REF}&space=ENG&surface=plan_usage&click=${CLICK}`;
 
+describe('handoff countdown', () => {
+  it('starts at 0 and reaches the 06.15 sample of 40% with 6 seconds left', () => {
+    expect(handoffCountdown(0)).toEqual({ ratio: 0, secondsLeft: 10, done: false });
+    expect(handoffCountdown(4000)).toEqual({ ratio: 0.4, secondsLeft: 6, done: false });
+    expect(handoffCountdown(9000).secondsLeft).toBe(1);
+    expect(handoffCountdown(10000)).toEqual({ ratio: 1, secondsLeft: 0, done: true });
+  });
+});
+
 describe('GET /bundle-checkout (handoff page)', () => {
+  it('serves the value-first handoff: 10 second bar driven by elapsed time, and 5 Diagramly seats', async () => {
+    const { track } = recorder();
+    const html = await (await handleBundleCheckoutPage(page(validQuery), { track, nonce: 'n0nce' })).text();
+    expect(html).toContain('Unlimited diagrams in ENG');
+    expect(html).toContain('example-tenant.atlassian.net · Stripe handles the payment for ZenUML');
+    expect(html).toContain('No diagram limit in this space');
+    expect(html).toContain('Covers ENG only');
+    expect(html).toContain('No Confluence admin needed');
+    expect(html).toContain('5 seats on diagramly.ai');
+    expect(html).toContain('>$299<');
+    expect(html).toContain('per year');
+    expect(html).toContain('plus tax where applicable');
+    expect(html).toContain('Pay by card on Stripe');
+    expect(html).toContain('Continue to Stripe now');
+    expect(html).toContain('Opening Stripe in <span id="n">10 seconds</span>');
+    expect(html).toContain('Stay on this page');
+    expect(html).not.toContain('transition:');
+    const script = html.slice(html.indexOf('<script'), html.indexOf('</script>'));
+    expect(script).toContain('requestAnimationFrame');
+    expect(script).toContain("bar.style.width='0%'");
+    expect(script).toContain('elapsed/TOTAL');
+    expect(script.indexOf("bar.style.width='0%'")).toBeLessThan(script.indexOf('elapsed/TOTAL'));
+  });
+
   it('serves the handoff page with the space, site, price and a no-JS Continue link', async () => {
     const { track } = recorder();
     const res = await handleBundleCheckoutPage(page(validQuery), { track, nonce: 'n0nce' });
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/html');
     const html = await res.text();
-    expect(html).toContain('Opening secure checkout');
+    expect(html).toContain('Unlimited diagrams in ENG');
     expect(html).toContain('ENG');
     expect(html).toContain('example-tenant.atlassian.net');
-    expect(html).toContain('$299 per year');
+    expect(html).toContain('>$299<');
+    expect(html).toContain('per year');
     expect(html).toContain('plus tax where applicable');
     expect(html).toContain('No Confluence admin needed');
     // A plain link, so the page works with scripts blocked.
@@ -81,7 +116,7 @@ describe('GET /bundle-checkout (handoff page)', () => {
   it('falls back to the space key in the ref when no display key is given', async () => {
     const { track } = recorder();
     const html = await (await handleBundleCheckoutPage(page(`ref=${REF}`), { track, nonce: 'n' })).text();
-    expect(html).toContain('>ENG<');
+    expect(html).toContain('Unlimited diagrams in ENG');
   });
 
   it.each([

@@ -1,0 +1,21 @@
+{
+  "name": "f9-trunk",
+  "direction": "TB",
+  "nodes": [
+    {"id": "S", "text": "Start run"}, {"id": "A", "text": "Check A"}, {"id": "B", "text": "Check B"},
+    {"id": "C", "text": "Check C"}, {"id": "D", "text": "Check D"}, {"id": "R", "text": "Aggregate results"}
+  ],
+  "edges": [
+    {"source": "S", "target": "A", "label": "", "dashed": false},
+    {"source": "S", "target": "B", "label": "", "dashed": false},
+    {"source": "S", "target": "C", "label": "", "dashed": false},
+    {"source": "S", "target": "D", "label": "", "dashed": false},
+    {"source": "A", "target": "R", "label": "", "dashed": false},
+    {"source": "B", "target": "R", "label": "", "dashed": false},
+    {"source": "C", "target": "R", "label": "", "dashed": false},
+    {"source": "D", "target": "R", "label": "", "dashed": false}
+  ],
+  "thick": [],
+  "groups": [],
+  "ungrouped": ["S", "A", "B", "C", "D", "R"]
+}

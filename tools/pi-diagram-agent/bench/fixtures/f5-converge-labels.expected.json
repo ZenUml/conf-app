@@ -1,0 +1,16 @@
+{
+  "name": "f5-converge-labels",
+  "direction": "LR",
+  "nodes": [
+    {"id": "A", "text": "Source one"}, {"id": "B", "text": "Source two"}, {"id": "C", "text": "Source three"},
+    {"id": "D", "text": "Combine data"}, {"id": "E", "text": "Final report"}
+  ],
+  "edges": [
+    {"source": "A", "target": "D", "label": "primary feed", "dashed": false},
+    {"source": "B", "target": "D", "label": "secondary feed", "dashed": false},
+    {"source": "C", "target": "D", "label": "periodic refresh", "dashed": true},
+    {"source": "D", "target": "E", "label": "summary", "dashed": false}
+  ],
+  "groups": [],
+  "ungrouped": ["A", "B", "C", "D", "E"]
+}

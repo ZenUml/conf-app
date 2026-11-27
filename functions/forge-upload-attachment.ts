@@ -325,6 +325,18 @@ async function doUpload(
     pageStatus = undefined;
   }
 
+  // Avoid constructing and posting the multipart body when the app cannot
+  // read the page. The user read check above remains the authorization gate.
+  const appReadResp = await fetch(pageReadUrl, {
+    method: 'GET',
+    headers: { Accept: 'application/json', Authorization: `Bearer ${systemToken}` },
+  });
+  if (!appReadResp.ok) {
+    return { ok: false, status: appReadResp.status,
+      body: `app_no_access: app cannot access page ${p.pageId} (${appReadResp.status})`,
+      stage: 'read_check', pageStatus };
+  }
+
   // ---- upload the attachment data as the app -----------------------------
   const blob = new Blob([p.bytes], { type: p.contentType });
   const form = new FormData();

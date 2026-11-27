@@ -10,9 +10,9 @@
 // js-yaml for spec parsing).
 
 import React, { useEffect, useMemo, useState } from 'react'
-import yaml from 'js-yaml'
 import globals from '@/model/globals'
 import type { ICustomContent } from '@/model/ICustomContent'
+import { toSpecDocument } from '@/components/AsyncApiDashboard/specDocuments'
 
 export interface AsyncApiEmbedPick {
   customContentId: string
@@ -32,28 +32,6 @@ interface DocRow {
   description?: string
 }
 
-function parseDocTitle(code: string | undefined): {
-  title?: string
-  apiVersion?: string
-  schemaVersion?: string
-  description?: string
-} {
-  if (!code) return {}
-  try {
-    const doc = yaml.load(code) as Record<string, any> | null
-    if (!doc || typeof doc !== 'object') return {}
-    const info = (doc.info as Record<string, any>) || {}
-    return {
-      title: typeof info.title === 'string' ? info.title : undefined,
-      apiVersion: typeof info.version === 'string' ? info.version : undefined,
-      schemaVersion: typeof doc.asyncapi === 'string' ? doc.asyncapi : undefined,
-      description: typeof info.description === 'string' ? info.description : undefined,
-    }
-  } catch {
-    return {}
-  }
-}
-
 const AsyncApiEmbedEditor: React.FC<AsyncApiEmbedEditorProps> = ({ onSelect, onCancel }) => {
   const [docs, setDocs] = useState<DocRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -67,29 +45,20 @@ const AsyncApiEmbedEditor: React.FC<AsyncApiEmbedEditorProps> = ({ onSelect, onC
         await globals.apWrapper.initializeContext()
         const results: ICustomContent[] = await globals.apWrapper.searchCustomContent()
         if (cancelled) return
-        const rows: DocRow[] = results
-          .map((entry: any) => {
-            const v = entry.value as { diagramType?: string; code?: string } | undefined
-            if (!v) return null
-            const dt = typeof v.diagramType === 'string' ? v.diagramType.toLowerCase() : ''
-            if (!dt.startsWith('async')) return null
-            const parsed = parseDocTitle(v.code)
-            const contentId = String(entry.id ?? '')
-            if (!contentId) return null
-            return {
-              contentId,
-              // Prefer the spec's `info.title` over the custom-content
-              // top-level title. The CC title lags behind on dashboard
-              // edits (the body code updates but the title write
-              // race-loses), so reading entry.title first surfaced a
-              // stale name. Mirrors AsyncApiDashboard.vue's precedence.
-              title: parsed.title || entry.title || 'Untitled AsyncAPI',
-              apiVersion: parsed.apiVersion,
-              schemaVersion: parsed.schemaVersion,
-              description: parsed.description,
-            }
+        // Same mapper as the dashboard; the embed macro only embeds AsyncAPI,
+        // so OpenAPI/Swagger rows are filtered out explicitly here.
+        const rows: DocRow[] = []
+        for (const entry of results) {
+          const doc = toSpecDocument(entry)
+          if (!doc || doc.format !== 'asyncapi' || !doc.contentId) continue
+          rows.push({
+            contentId: doc.contentId,
+            title: doc.displayTitle,
+            apiVersion: doc.apiVersion,
+            schemaVersion: doc.schemaVersion,
+            description: doc.description,
           })
-          .filter((d): d is DocRow => d !== null)
+        }
         setDocs(rows)
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to load AsyncAPI documents'

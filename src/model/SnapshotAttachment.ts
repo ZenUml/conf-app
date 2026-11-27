@@ -26,7 +26,7 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 import type { MacroTypeValue } from '@/utils/analytics/catalog';
 import { toMacroType } from '@/utils/byline/pageDiagrams';
 import { callRemote } from '@/utils/requestUtil';
-import { extractConfluenceMessage, parseConfluenceErrorClass } from '@/model/Attachment';
+import { extractConfluenceMessage, parseConfluenceErrorClass } from '@/model/attachment/confluenceErrors';
 import { isSnapshotWriteDenied, markSnapshotWriteDenied } from '@/utils/snapshot/denialMemo';
 
 const SNAPSHOT_TYPES: ReadonlyArray<DiagramType> = [

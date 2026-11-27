@@ -120,6 +120,9 @@ export function resetViewState(): void {
   drawnImage = null;
   userZoom = 1;
   pendingRequests.clear();
+  // A wheel gesture from before the reset must not swallow the next one's report.
+  wheelGestureStarts = createGestureGate();
+  wheelStep = newWheelStepper();
 }
 
 function isFullscreen(): boolean {
@@ -1151,11 +1154,14 @@ export function onKeyDown(e: KeyboardEvent): void {
 }
 
 /** One report per wheel gesture, as in the Confluence viewer. */
-const wheelGestureStarts = createGestureGate();
-const wheelStep = createWheelStepper((direction) => {
-  const action: ZoomAction = direction > 0 ? 'zoom_in' : 'zoom_out';
-  if (zoom(action) && wheelGestureStarts()) reportZoom(action, 'wheel');
-});
+let wheelGestureStarts = createGestureGate();
+function newWheelStepper() {
+  return createWheelStepper((direction) => {
+    const action: ZoomAction = direction > 0 ? 'zoom_in' : 'zoom_out';
+    if (zoom(action) && wheelGestureStarts()) reportZoom(action, 'wheel');
+  });
+}
+let wheelStep = newWheelStepper();
 
 /**
  * The wheel zooms a drawing with Ctrl/Cmd, which is also how a trackpad pinch

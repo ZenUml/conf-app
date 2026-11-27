@@ -43,11 +43,10 @@ describe('extension action production runtime', () => {
       expiresAt: '2026-08-26T23:59:59Z',
       activatedBy: 'support:auto:temp-7d-extension:ZEN-1234',
     });
-    expect(JSON.parse(licenses.values.get('license-index')!)).toContainEqual({
-      cloudId: 'cloud-example',
-      spaceKey: 'ENGINEERING',
-      userAccountId: '712020:example-account',
-    });
+    // The admin list reads license: keys directly; nothing may write the old index (#1075).
+    expect([...licenses.values.keys()]).toEqual([
+      'license:cloud-example:ENGINEERING:712020:example-account',
+    ]);
   });
 
   it('reads exact, case-sensitive Lite metrics from the server-side cache', async () => {

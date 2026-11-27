@@ -19,6 +19,24 @@ class MockKV {
     this.store.delete(key);
   }
 
+  // Mirrors Workers KV: lexicographic keys, at most `limit` (default and max
+  // 1000) per call, an opaque cursor, and list_complete on the last page.
+  async list(options: { prefix?: string; cursor?: string | null; limit?: number } = {}) {
+    const limit = Math.min(options.limit ?? 1000, 1000);
+    const all = [...this.store.keys()]
+      .filter((k) => k.startsWith(options.prefix ?? ''))
+      .sort();
+    const start = options.cursor ? Number(options.cursor) : 0;
+    const page = all.slice(start, start + limit);
+    const end = start + page.length;
+    const complete = end >= all.length;
+    return {
+      keys: page.map((name) => ({ name })),
+      list_complete: complete,
+      ...(complete ? {} : { cursor: String(end) }),
+    };
+  }
+
   // Helper for tests
   _getStore() {
     return this.store;
@@ -244,12 +262,11 @@ describe('space-license API', () => {
       });
       await onRequest(ctx);
 
-      const indexRaw = await kv.get('license-index');
-      const index = JSON.parse(indexRaw!);
-      expect(index).toEqual([{ cloudId: 'cloud-123', spaceKey: 'ENG' }]);
+      expect(await kv.get('license-index')).toBeNull();
+      expect(await kv.get('license:cloud-123:ENG')).not.toBeNull();
     });
 
-    it('does not duplicate index entries on upsert', async () => {
+    it('upserting twice writes one record and still no license-index', async () => {
       const makeCtx = () =>
         createMockContext({
           method: 'POST',
@@ -266,9 +283,8 @@ describe('space-license API', () => {
       await onRequest(makeCtx());
       await onRequest(makeCtx());
 
-      const indexRaw = await kv.get('license-index');
-      const index = JSON.parse(indexRaw!);
-      expect(index).toHaveLength(1);
+      expect(await kv.get('license-index')).toBeNull();
+      expect([...kv._getStore().keys()]).toEqual(['license:cloud-123:ENG']);
     });
   });
 
@@ -300,7 +316,7 @@ describe('space-license API', () => {
       expect(spaceRaw).toBeNull();
     });
 
-    it('records the userAccountId in the index alongside the space-level entries', async () => {
+    it('writes a user-scoped record under its own key and no license-index', async () => {
       const ctx = createMockContext({
         method: 'POST',
         headers: authHeaders(),
@@ -315,9 +331,8 @@ describe('space-license API', () => {
       });
       await onRequest(ctx);
 
-      const indexRaw = await kv.get('license-index');
-      const index = JSON.parse(indexRaw!);
-      expect(index).toEqual([{ cloudId: 'cloud-123', spaceKey: 'ENG', userAccountId: 'user-abc' }]);
+      expect(await kv.get('license-index')).toBeNull();
+      expect(await kv.get('license:cloud-123:ENG:user-abc')).not.toBeNull();
     });
 
     it('rejects an empty-string userAccountId (security invariant — never a placeholder grant)', async () => {
@@ -373,9 +388,7 @@ describe('space-license API', () => {
       expect(await kv.get('license:cloud-123:ENG')).not.toBeNull();
       expect(await kv.get('license:cloud-123:ENG:user-abc')).not.toBeNull();
 
-      const indexRaw = await kv.get('license-index');
-      const index = JSON.parse(indexRaw!);
-      expect(index).toHaveLength(2);
+      expect(await kv.get('license-index')).toBeNull();
     });
   });
 
@@ -483,6 +496,151 @@ describe('space-license API', () => {
       expect(body.total).toBe(2);
       expect(body.licenses.some((l: any) => l.userAccountId === 'user-abc')).toBe(true);
       expect(body.licenses.some((l: any) => l.userAccountId === undefined)).toBe(true);
+    });
+
+    describe('built from license: keys (#1075)', () => {
+      const ACTIVE_FUTURE = '2099-01-01T00:00:00Z';
+      const PAST = '2020-01-01T00:00:00Z';
+
+      function seed(key: string, record: Record<string, unknown>) {
+        return kv.put(key, JSON.stringify(record));
+      }
+
+      function record(spaceKey: string, over: Record<string, unknown> = {}) {
+        return {
+          cloudId: 'cloud-1',
+          spaceKey,
+          status: 'active',
+          activatedBy: 'ops-jane',
+          expiresAt: ACTIVE_FUTURE,
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+          ...over,
+        };
+      }
+
+      async function list(query = '') {
+        const response = await onRequest(
+          createMockContext({
+            method: 'GET',
+            url: `https://example.com/api/space-license${query}`,
+            headers: authHeaders(),
+            env: makeEnv(),
+          })
+        );
+        return response.json() as Promise<{ licenses: any[]; total: number }>;
+      }
+
+      it('lists two licences created at the same moment (no lost index entry)', async () => {
+        const post = (spaceKey: string) =>
+          onRequest(
+            createMockContext({
+              method: 'POST',
+              headers: authHeaders(),
+              env: makeEnv(),
+              body: { cloudId: 'cloud-1', spaceKey, expiresAt: ACTIVE_FUTURE, activatedBy: 'ops-jane' },
+            })
+          );
+        await Promise.all([post('ENG'), post('SALES')]);
+
+        const body = await list();
+        expect(body.licenses.map((l) => l.spaceKey).sort()).toEqual(['ENG', 'SALES']);
+      });
+
+      it('lists a licence that no license-index ever pointed at', async () => {
+        await seed('license:cloud-1:ENG', record('ENG'));
+        await kv.put('license-index', JSON.stringify([]));
+
+        const body = await list();
+        expect(body.total).toBe(1);
+        expect(body.licenses[0].spaceKey).toBe('ENG');
+      });
+
+      it('?status=active excludes a record that is active but past expiresAt', async () => {
+        // Written through the API so the pre-fix code indexes it too; the only
+        // thing left to exclude it is the expiry rule.
+        await onRequest(
+          createMockContext({
+            method: 'POST',
+            headers: authHeaders(),
+            env: makeEnv(),
+            body: { cloudId: 'cloud-1', spaceKey: 'EXPIRED', expiresAt: PAST, activatedBy: 'ops-jane' },
+          })
+        );
+        expect(await kv.get('license:cloud-1:EXPIRED')).not.toBeNull();
+
+        const body = await list('?status=active');
+        expect(body.total).toBe(0);
+      });
+
+      it('?status=active includes a record that is active and not expired', async () => {
+        await seed('license:cloud-1:LIVE', record('LIVE'));
+        await seed('license:cloud-1:EXPIRED', record('EXPIRED', { expiresAt: PAST }));
+
+        const body = await list('?status=active');
+        expect(body.licenses.map((l) => l.spaceKey)).toEqual(['LIVE']);
+      });
+
+      it('?status=active keeps a record with no expiresAt (same rule as space-status)', async () => {
+        const { expiresAt: _omit, ...noExpiry } = record('NOEXP');
+        await seed('license:cloud-1:NOEXP', noExpiry);
+
+        const body = await list('?status=active');
+        expect(body.licenses.map((l) => l.spaceKey)).toEqual(['NOEXP']);
+      });
+
+      it('?status=inactive still filters on the stored status', async () => {
+        await seed('license:cloud-1:OFF', record('OFF', { status: 'inactive' }));
+        await seed('license:cloud-1:LIVE', record('LIVE'));
+
+        const body = await list('?status=inactive');
+        expect(body.licenses.map((l) => l.spaceKey)).toEqual(['OFF']);
+      });
+
+      it('unfiltered list still shows an expired record with its stored status', async () => {
+        await seed('license:cloud-1:EXPIRED', record('EXPIRED', { expiresAt: PAST }));
+
+        const body = await list();
+        expect(body.licenses).toHaveLength(1);
+        expect(body.licenses[0].status).toBe('active');
+      });
+
+      it('ignores keys that are not licence records, including the stale license-index', async () => {
+        await seed('license:cloud-1:ENG', record('ENG'));
+        await kv.put('license-index', JSON.stringify([{ cloudId: 'cloud-1', spaceKey: 'GHOST' }]));
+        await kv.put('cohort:user:abc', JSON.stringify({ cohorts: ['x'] }));
+        await kv.put('targeted-survey:active', JSON.stringify({ id: 's1' }));
+
+        const body = await list();
+        expect(body.licenses.map((l) => l.spaceKey)).toEqual(['ENG']);
+      });
+
+      it('skips a record that is not valid JSON instead of failing the whole list', async () => {
+        await seed('license:cloud-1:ENG', record('ENG'));
+        await kv.put('license:cloud-1:BROKEN', '{not json');
+
+        const body = await list();
+        expect(body.licenses.map((l) => l.spaceKey)).toEqual(['ENG']);
+      });
+
+      it('filters by cloudId', async () => {
+        await seed('license:cloud-1:ENG', record('ENG'));
+        await seed('license:cloud-2:ENG', record('ENG', { cloudId: 'cloud-2' }));
+
+        const body = await list('?cloudId=cloud-2');
+        expect(body.licenses.map((l) => l.cloudId)).toEqual(['cloud-2']);
+      });
+
+      it('follows the KV cursor past the first 1000-key page', async () => {
+        for (let i = 0; i < 1001; i++) {
+          const spaceKey = `S${String(i).padStart(4, '0')}`;
+          await seed(`license:cloud-1:${spaceKey}`, record(spaceKey));
+        }
+
+        const body = await list();
+        expect(body.total).toBe(1001);
+        expect(new Set(body.licenses.map((l) => l.spaceKey)).size).toBe(1001);
+      });
     });
 
     it('returns empty list when no licenses exist', async () => {

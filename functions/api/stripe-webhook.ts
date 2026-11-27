@@ -93,15 +93,6 @@ async function activateLicense(
   }
 
   await kv.put(key, JSON.stringify(record))
-
-  const indexRaw = await kv.get('license-index')
-  const index: Array<{ cloudId: string; spaceKey: string }> = indexRaw
-    ? JSON.parse(indexRaw)
-    : []
-  if (!index.some((e) => e.cloudId === cloudId && e.spaceKey === spaceKey)) {
-    index.push({ cloudId, spaceKey })
-    await kv.put('license-index', JSON.stringify(index))
-  }
 }
 
 /**

@@ -1,7 +1,6 @@
-import { response, OkResponse } from "../OkResponse";
+import { response } from "../OkResponse";
 import { callDiagramly } from "../service/diagramlyService";
-import type { ForgeRequestData } from "../utils/authenticate";
-import { resolveDiagramlyIdentity } from "./context";
+import { diagramlyRoute } from "./route";
 
 const RETRYABLE_NETWORK_ERRORS = [
   'network connection lost',
@@ -43,42 +42,24 @@ async function callJobStatusWithRetry(context: any, jobId: string) {
   }
 }
 
-export const onRequest = async ({
-  request,
-  env,
-  data,
-}: {
-  request: Request;
-  env: any;
-  data: ForgeRequestData;
-}) => {
-  try {
-    const identity = resolveDiagramlyIdentity(data);
-    if (identity instanceof Response) {
-      return identity;
+export const onRequest = diagramlyRoute("job-status", {
+  parse: (body: { jobId?: string }) =>
+    body.jobId ? { jobId: body.jobId } : response(400, "Missing jobId"),
+  run: async (ctx, { jobId }) => {
+    let result;
+    try {
+      result = await callJobStatusWithRetry(ctx, jobId);
+    } catch (e: any) {
+      if (e.message?.includes('not found') || e.message?.includes('expired')) {
+        return response(404, e.message);
+      }
+      throw e;
     }
-
-    const body: { jobId: string } = await request.json();
-    if (!body.jobId) {
-      return response(400, "Missing jobId");
-    }
-
-    const result = await callJobStatusWithRetry(
-      { ...identity, env },
-      body.jobId
-    );
 
     if (!result || typeof result !== 'object') {
       return response(500, 'Invalid response from Diagramly API');
     }
 
-    return OkResponse(result);
-  } catch (e: any) {
-    if (e.message?.includes('not found') || e.message?.includes('expired')) {
-      return response(404, e.message);
-    }
-
-    console.error('[job-status] Error:', e.message);
-    return response(500, e.message || 'Internal server error');
-  }
-};
+    return result;
+  },
+});

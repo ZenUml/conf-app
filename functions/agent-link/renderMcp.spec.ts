@@ -161,7 +161,7 @@ describe('POST /mcp/render', () => {
     it('returns no warnings for a valid diagram without those patterns', async () => {
       const { body } = await call({ diagramType: 'sequence', source: 'group "Backend" {\n  B\n}\nA->B.m() {\n  B->C: x\n}' });
       expect(body.result.structuredContent.warnings).toBeUndefined();
-      expect(body.result.content[0].text).toBe('Rendered the sequence diagram. The source parsed.');
+      expect(body.result.content[0].text).toMatch(/^Rendered the sequence diagram\. The source parsed\.\n\nNext:\n- offer_to_save/);
     });
 
     it('puts a targeted fix before the parser errors and keeps the cheat sheet as fallback', async () => {
@@ -208,6 +208,9 @@ describe('POST /mcp/render', () => {
       source: 'A->B: hello',
       title: 'Greeting',
       valid: true,
+      attempt: 1,
+      revision: expect.stringMatching(/^r1\./),
+      nextActions: [expect.objectContaining({ action: 'offer_to_save' })],
     });
     expect(body.result.content[0].text).toMatch(/parsed/);
   });
@@ -247,6 +250,56 @@ describe('POST /mcp/render', () => {
     const { body } = await call({ diagramType: 'sequence', source: 'flowchart TD\n  A --> B' });
     expect(body.result.structuredContent.diagramType).toBe('sequence');
     expect(body.result.structuredContent.detected).toBeUndefined();
+  });
+
+  describe('attempt chain and next actions', () => {
+    const groupAfter = 'A->B: msg\ngroup "x" {\n  B->C: y\n}';
+
+    it('starts a chain: attempt 1, a revision in the text and the result', async () => {
+      const { body } = await call({ diagramType: 'sequence', source: 'A->B: hi' });
+      const r = body.result.structuredContent;
+      expect(r.attempt).toBe(1);
+      expect(body.result.content[0].text).toContain(`revision ${r.revision}`);
+    });
+
+    it('counts the next attempt when the revision comes back', async () => {
+      const first = (await call({ diagramType: 'sequence', source: 'A->B: hi' })).body.result.structuredContent;
+      const second = (await call({ diagramType: 'sequence', source: 'A->B: ho', revision: first.revision })).body.result.structuredContent;
+      expect(second.attempt).toBe(2);
+    });
+
+    it('tells the agent to apply the rewrite, and to confirm grouped participants with the user', async () => {
+      const r = (await call({ diagramType: 'sequence', source: groupAfter })).body.result;
+      expect(r.structuredContent.nextActions.map((a: any) => a.action)).toEqual(['apply_suggested_source', 'confirm_with_user']);
+      expect(r.content[0].text).toMatch(/Next:\n- /);
+    });
+
+    it('says fix and retry when there is no rewrite', async () => {
+      const r = (await call({ diagramType: 'sequence', source: 'A->B.m(' })).body.result.structuredContent;
+      expect(r.nextActions.map((a: any) => a.action)).toEqual(['fix_and_retry']);
+    });
+
+    it('offers to save only a clean render', async () => {
+      const r = (await call({ diagramType: 'mermaid', source: 'flowchart TD\n  A --> B' })).body.result.structuredContent;
+      expect(r.nextActions).toEqual([expect.objectContaining({ action: 'offer_to_save', detail: expect.stringMatching(/saves nothing/) })]);
+    });
+
+    it('names a repeated mistake and points at the rewrite', async () => {
+      const first = (await call({ diagramType: 'sequence', source: groupAfter })).body.result.structuredContent;
+      const again = (await call({ diagramType: 'sequence', source: `${groupAfter}\n`, revision: first.revision })).body.result;
+      expect(again.content[0].text).toMatch(/^Same mistake as the previous attempt/);
+    });
+
+    it('treats an unreadable revision as a first attempt and still renders', async () => {
+      const r = (await call({ diagramType: 'sequence', source: 'A->B: hi', revision: 'garbage' })).body.result;
+      expect(r.isError).toBeUndefined();
+      expect(r.structuredContent.attempt).toBe(1);
+    });
+
+    it('declares revision as optional input', () => {
+      expect((RENDER_TOOL.inputSchema.properties as any).revision.type).toBe('string');
+      expect(RENDER_TOOL.inputSchema.required).toEqual(['source']);
+    });
   });
 
   it('only requires source in the input schema', () => {
@@ -392,6 +445,24 @@ describe('POST /mcp/render', () => {
       expect(props[3]).toEqual(expect.objectContaining({ render_validation: 'invalid', render_issues: ['unrecognised'] }));
       expect(props[4].render_issues).toBeUndefined();
       expect(props[4].render_warnings_returned).toBeUndefined();
+    });
+
+    it('records the attempt chain, whether the rewrite was applied, and the next actions', async () => {
+      const events = captureEvents();
+      const env = { MIXPANEL_TOKEN: 't' };
+      const first = (await call({ diagramType: 'sequence', source: 'A->B: m\ngroup "x" { B }' }, env)).body.result.structuredContent;
+      await call({ diagramType: 'sequence', source: first.suggestedSource, revision: first.revision }, env);
+      await call({ diagramType: 'sequence', source: 'A->B: m', revision: 'garbage' }, env);
+      const props = events.filter((e) => e.event === 'agent_link_mcp_tool_called').map((e) => e.properties);
+      expect(props[0]).toEqual(expect.objectContaining({
+        render_attempt: 1, render_revision_state: 'none', render_next_actions: ['apply_suggested_source'],
+      }));
+      expect(props[0].render_fix_applied).toBeUndefined();
+      expect(props[1]).toEqual(expect.objectContaining({
+        render_attempt: 2, render_revision_state: 'valid', render_fix_applied: true, render_next_actions: ['offer_to_save'],
+      }));
+      expect(props[2]).toEqual(expect.objectContaining({ render_attempt: 1, render_revision_state: 'invalid' }));
+      expect(JSON.stringify(events)).not.toContain(first.revision);
     });
 
     it('records a refusal with its code', async () => {

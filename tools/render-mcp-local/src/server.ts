@@ -30,8 +30,9 @@ import {
   INSTRUCTIONS,
   RENDER_TOOL,
   RenderParamsError,
+  chainSummaryFor,
   renderDiagram,
-  summaryFor,
+  withChain,
 } from '../../../functions/agent-link/renderTool';
 
 export const DEFAULT_VIEW_ORIGIN = 'https://zenuml.com';
@@ -151,12 +152,13 @@ export function createLocalServer(options: LocalServerOptions = {}) {
         if (typeof params.name !== 'string') return fail(id, RPC_INVALID_PARAMS, 'params.name is required');
         if (params.name !== RENDER_TOOL.name) return fail(id, RPC_METHOD_NOT_FOUND, `Unknown tool: ${params.name.slice(0, 64)}`);
         try {
-          const value = await renderDiagram((params.arguments ?? {}) as Record<string, unknown>);
+          const args = (params.arguments ?? {}) as Record<string, unknown>;
+          const { result: value, chain } = await withChain(await renderDiagram(args), args.revision);
           // Same shape as the public server: the view reads structuredContent,
           // the model reads the summary. Both stay between host and this process.
           // `mcpMode` lets the view's enum-only events (viewEvent.ts) tell local
           // use from remote; it carries nothing about the diagram.
-          return ok(id, { content: [{ type: 'text', text: summaryFor(value) }], structuredContent: { ...value, mcpMode: 'local' } });
+          return ok(id, { content: [{ type: 'text', text: chainSummaryFor(value, chain) }], structuredContent: { ...value, mcpMode: 'local' } });
         } catch (e) {
           if (e instanceof RenderParamsError) {
             return ok(id, { content: [{ type: 'text', text: e.message }], isError: true });

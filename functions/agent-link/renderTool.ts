@@ -8,6 +8,7 @@
 import { parseDsl, type DslError } from './parseDsl';
 import { detectDiagramType } from './detectDiagramType';
 import { lintZenuml, suggestZenumlFix, ZENUML_RENDER_CHEAT_SHEET, zenumlFailureHints, type ZenumlIssue } from './zenumlDslGuide';
+import { decodeRevision, encodeRevision, hashSource, type RenderIssue, type RevisionDecode } from './renderRevision';
 
 /**
  * The types the view can draw (mcpApps.ts RENDERABLE_TYPES), under the names
@@ -54,6 +55,11 @@ export const RENDER_TOOL = {
       },
       source: { type: 'string', description: 'The complete diagram source.' },
       title: { type: 'string', description: 'Optional. Shown with the diagram.' },
+      revision: {
+        type: 'string',
+        description:
+          'Optional. The revision from the previous render_diagram result for this same diagram; pass it back on a retry so the result can tell a retry from a new diagram.',
+      },
     },
     required: ['source'],
   },
@@ -87,6 +93,25 @@ export interface RenderResult {
    * checked here to parse with no warnings. The agent's next call; never drawn.
    */
   suggestedSource?: string;
+  /** Position in the agent's chain of retries: 1 unless a readable revision came in. */
+  attempt?: number;
+  /** Pass back as `revision` on the next call for this diagram. Holds no source text. */
+  revision?: string;
+  /** What to do next, in order. */
+  nextActions?: NextAction[];
+}
+
+export type NextActionCode = 'apply_suggested_source' | 'fix_and_retry' | 'confirm_with_user' | 'offer_to_save';
+export interface NextAction {
+  action: NextActionCode;
+  detail: string;
+}
+
+/** What the analytics event records about the chain; never sent to the agent. */
+export interface ChainTelemetry {
+  revisionState: RevisionDecode['status'];
+  fixApplied?: boolean;
+  repeated: RenderIssue[];
 }
 
 export class RenderParamsError extends Error {
@@ -138,6 +163,60 @@ export async function renderDiagram(args: Record<string, unknown>): Promise<Rend
   };
 }
 
+/** The issue codes a result reports, as render_issues records them. */
+export function issueCodes(r: RenderResult): RenderIssue[] {
+  if (r.diagramType !== 'sequence') return [];
+  const codes = [...new Set([...(r.warnings ?? []), ...(r.hints ?? [])].map((i) => i.code))] as RenderIssue[];
+  if (!r.valid && codes.length === 0) codes.push('unrecognised');
+  return codes;
+}
+
+function nextActionsFor(r: RenderResult): NextAction[] {
+  const actions: NextAction[] = [];
+  if (r.suggestedSource) {
+    actions.push({ action: 'apply_suggested_source', detail: 'Call render_diagram again with suggestedSource and this revision.' });
+    // The rewrite guessed group members from the messages the group held.
+    if (lintZenuml(r.source).some((i) => i.code === 'group_with_messages')) {
+      actions.push({
+        action: 'confirm_with_user',
+        detail: 'The rewrite put the participants of those messages in the group; ask the user if a different grouping was meant.',
+      });
+    }
+  } else if (!r.valid || r.warnings?.length) {
+    actions.push({ action: 'fix_and_retry', detail: 'Fix the listed lines and call render_diagram again with this revision.' });
+  } else {
+    actions.push({
+      action: 'offer_to_save',
+      detail:
+        'The diagram drew. This server saves nothing: if the user wants to keep it, offer to save it with a Confluence diagram tool if one is connected (the ZenUML Confluence MCP has create_diagram).',
+    });
+  }
+  return actions;
+}
+
+/** Read the incoming revision, then add attempt, next actions and the outgoing revision. */
+export async function withChain(r: RenderResult, revisionArg: unknown): Promise<{ result: RenderResult; chain: ChainTelemetry }> {
+  const incoming = decodeRevision(revisionArg);
+  const prev = incoming.status === 'valid' ? incoming.state : undefined;
+  const codes = issueCodes(r);
+  const sourceHash = await hashSource(r.source);
+  const attempt = prev ? prev.n + 1 : 1;
+  const revision = encodeRevision({
+    n: attempt,
+    h: sourceHash,
+    c: codes,
+    ...(r.suggestedSource ? { f: await hashSource(r.suggestedSource) } : {}),
+  });
+  return {
+    result: { ...r, attempt, revision, nextActions: nextActionsFor(r) },
+    chain: {
+      revisionState: incoming.status,
+      ...(prev ? { fixApplied: prev.f !== undefined && prev.f === sourceHash } : {}),
+      repeated: prev ? codes.filter((c) => c !== 'unrecognised' && prev.c.includes(c)) : [],
+    },
+  };
+}
+
 /** suggestZenumlFix, kept only when the rewrite parses and lints clean. */
 async function checkedFix(source: string): Promise<{ suggestedSource: string } | undefined> {
   const fixed = suggestZenumlFix(source);
@@ -166,4 +245,13 @@ export function summaryFor(r: RenderResult): string {
     return `Rendered the ${r.diagramType} diagram${detected}. The source parsed, but it will not draw what you meant. Fix these and call render_diagram again:\n${r.warnings.map(at).join('\n')}${suggested(r)}`;
   }
   return `Rendered the ${r.diagramType} diagram${detected}. The source parsed.`;
+}
+
+/** Summary plus the chain lines: a repeated-mistake lead, the next actions and the revision. */
+export function chainSummaryFor(r: RenderResult, chain: ChainTelemetry): string {
+  const lead = chain.repeated.length
+    ? `Same mistake as the previous attempt (${chain.repeated.join(', ')}), now attempt ${r.attempt}: ${r.suggestedSource ? 'use the rewrite below rather than editing by hand' : 'check the lines below before editing again'}.\n\n`
+    : '';
+  const next = (r.nextActions ?? []).map((a) => `- ${a.action}: ${a.detail}`).join('\n');
+  return `${lead}${summaryFor(r)}\n\nNext:\n${next}\n\nPass revision ${r.revision} with the next render_diagram call for this diagram.`;
 }

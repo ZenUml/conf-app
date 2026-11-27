@@ -1,11 +1,13 @@
 ---
 name: engagement-review
-description: Run the recurring (every two weeks) customer engagement review for the ZenUML Confluence app — segment sites by authoring trend, compare with the previous baseline, check what shipped changes did, read the new-author funnel by entry, pick directions with the owner, and run each direction and each product proposal in its own named session. Use for "engagement review", "参与度复盘", "双周复盘", "did anything we shipped raise engagement", "哪些改动提升了 engagement", or when the previous review's baseline is two weeks old.
+description: Run the recurring (every two weeks) customer engagement review for the ZenUML Confluence app. Its goal is to find new improvement points and the next work direction (where new authors come from, who nearly became an author and what stopped them), not to report whether engagement went up — segment sites by authoring trend to know where to look, check what shipped changes did, read the new-author funnel by entry, pick directions with the owner, and run each direction and each product proposal in its own named session. Use for "engagement review", "参与度复盘", "双周复盘", "did anything we shipped raise engagement", "哪些改动提升了 engagement", or when the previous review's baseline is two weeks old.
 ---
 
 # Engagement review
 
-A review answers one question: **which of our changes moved authoring or reading, on which sites, and what do we do next.** It runs every two weeks. Every second month (8 weeks) it also judges which growing sites held.
+A review exists to **find causes and new improvement points, and from them the next work direction.** The owner's framing (2026-11-17): find where new authors come from, and who could have become an author but hit an obstacle and stopped. "Did engagement go up?" is a side check (step 2 and the 8-week rule), never the deliverable: a review that only reports a trend has missed its goal (2026-11-28: a run briefed as "did it improve" had to be redirected).
+
+It runs every two weeks. Every second month (8 weeks) it also judges which growing sites held. Do not repeat earlier directions; read their pages first and report only what has new evidence.
 
 This skill holds the method and the judgment rules. Mechanics live in other skills; findings and tenant names live in the private handbook, never here (this repo is public; see `docs/policies/client-privacy.md`).
 
@@ -15,7 +17,7 @@ This skill holds the method and the judgment rules. Mechanics live in other skil
 |---|---|
 | Input | End date (a Sunday, UTC); the previous baseline `research/<date>-engagement-by-site-baseline.json` on private `origin/main`; the open directions table on the previous review page |
 | Output 1 | New baseline JSON and a review page `research/<date>-engagement-by-site.md` in the private repo (`ZenUml/conf-app-private`), merged by PR |
-| Output 2 | In chat: segment change table, shipped-change readings, and a numbered list of direction candidates for the owner |
+| Output 2 | In chat: a ranked list of new improvement points (problem, evidence, size of the affected group, the event that would measure a fix) as numbered direction candidates for the owner; segment changes and shipped-change readings only as short context |
 | Output 3 | One named session (or one page section, see below) per direction the owner picks |
 
 ## Dependencies

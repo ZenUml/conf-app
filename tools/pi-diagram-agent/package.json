@@ -1,0 +1,23 @@
+{
+  "name": "pi-diagram-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test/run-offline.mjs",
+    "test:live": "node --test live/*.test.mjs",
+    "setup:browser": "playwright install chromium",
+    "doctor": "node cli.mjs doctor",
+    "refine": "node cli.mjs refine"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.5.2",
+    "@earendil-works/pi-coding-agent": "1.5.2",
+    "mermaid": "11.17.2",
+    "playwright": "1.65.1",
+    "typebox": "1.3.27"
+  }
+}

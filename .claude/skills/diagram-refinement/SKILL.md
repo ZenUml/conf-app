@@ -5,17 +5,17 @@ description: Refine a Mermaid flowchart from a local source file or an explicitl
 
 # Diagram Refinement
 
-Default to refinement and preview. Accept a local Mermaid file, or an explicit newest-diagram scope with client, product, environment and count (default one within that supplied scope). Do not infer a customer or production target. This skill provides a workflow and offline staging helper; generation requires an external verified runtime.
+Default to refinement and preview. Accept a local Mermaid file, or an explicit newest-diagram scope with client, product, environment and count (default one within that supplied scope). Do not infer a customer or production target. The generation runtime is bundled at `tools/pi-diagram-agent`; the staging helper remains offline.
 
 Honor a requested subtask such as review-only or handoff-only. Reuse supplied evidence after checking its hashes and relevance; run only the missing phases needed for that subtask.
 
-Example request: `Use $diagram-refinement on /absolute/source.mmd; preview only`. Expected deliverables: frozen source/hash, semantic plan, original and refined renders, a comparison page, and review evidence with tradeoffs or blockers. If the external runtime is unavailable, supply those reviewable artifacts to continue review; generation remains blocked.
+Example request: `Use $diagram-refinement on /absolute/source.mmd; preview only`. Expected deliverables: frozen source/hash, semantic plan, original and refined renders, a comparison page, and review evidence with tradeoffs or blockers. If dependencies or model access are unavailable, review supplied artifacts and report the specific generation blocker.
 
 ## Prepare
 
 Read repository rules. Keep customer diagram bodies, model outputs, SVGs and screenshots in gitignored `private/local-data` or private external run directories; never commit them, including in the private submodule. Verified customer identities and runbooks may be tracked only in the private submodule. Never commit real tenant data to public files. For newest-diagram selection use verified D1/Mixpanel evidence only; do not open customer Confluence pages/APIs, request access or bypass permissions. Private preview copies do not establish customer identity.
 
-Read [operations.md](references/operations.md#external-runtime-and-local-input) before choosing tools. The historical runtime is absent from main; accept a verified external package/Pi executable. If unavailable, report generation blocked and review supplied artifacts where possible. Do not restore historical branches automatically. Before any model call disclose the provider, billing channel, authentication, model, budget and cost/access implications; configured access does not establish consent for this task. Never silently change the provider or billing channel.
+Read [operations.md](references/operations.md#bundled-runtime-and-local-input) for `pnpm diagram:setup`, `pnpm diagram:doctor`, and `pnpm diagram:refine`. No external checkout or global Pi executable is needed. Before any model call disclose the provider, billing channel, authentication, model, budget and cost/access implications; configured access does not establish consent for this task. The bundled command uses `openai-codex` subscription OAuth and requires an explicit model. Never silently change provider or billing channel.
 
 ## Freeze source and plan meaning
 

@@ -1,20 +1,29 @@
 # Operational evidence and staging
 
-## External runtime and local input
+## Bundled runtime and local input
 
-This skill is a workflow and offline staging helper, not a standalone generation engine. For a local Mermaid file, freeze exact bytes/hash and render it without requiring customer identity queries. Selection and identity below applies only to an explicitly scoped newest-diagram request; staging adds all target checks.
-
-The generation runtime `tools/pi-diagram-agent` is absent from current main. Its CLI was inspected read-only at commit `f0607412f` on `origin/park/pi-semantic-layout-contract-2026-10-10`; do not restore that branch automatically. Accept a separately supplied, verified runtime/package and Pi executable. Record paths, commit, local changes, dependencies and CLI before use. If unavailable, report generation **BLOCKED_RUNTIME_UNAVAILABLE**; still inspect/review supplied source, SVG and evidence. Never claim a model generated or reviewed an artifact when no call ran.
-
-The inspected `bench/run-bench.mjs` accepts `--package`, `--fixtures`, `--reps`, `--concurrency`, `--out`, `--magic-options`, `--timeout-min`, `--pi-bin`, `--model`, `--auditor`, and repeatable `--env KEY=VALUE`. It starts real model calls and hardcodes the `openai-codex` provider and high thinking; it also contains machine-specific dependency defaults. Do not execute it merely to discover help. Read the actual supplied version, resolve Node/Mermaid/Playwright/Chromium and auditor paths, and override stale defaults. Before any call disclose provider, subscription/API billing, authentication, model, budget and known access/cost implications. Honor existing authorization and never silently switch providers or channels. Choose roles/models and time limits for the task, without a fixed model mandate.
-
-After disclosure and authorization, adapt this template to the supplied verified CLI:
+The runtime lives in `tools/pi-diagram-agent` with its own pinned dependencies and lockfile. Run these commands from the repository root with Node 24+, pnpm and Python 3:
 
 ```sh
-node <runtime>/bench/run-bench.mjs --package <verified-package> --fixtures <source.mmd> --reps 1 --concurrency 1 --timeout-min <authorized-minutes> --model <authorized-model> --pi-bin <verified-pi> --auditor <verified-auditor> --out <private-run-dir>
+pnpm diagram:setup
+pnpm diagram:doctor
 ```
 
-Output must be outside the repository for this CLI. Record roles actually called, semantic spec/caller brief and original render. A separately repaired/reviewed artifact needs a new external review receipt; never rewrite runtime manifests or claim native acceptance gates passed. Runtime defaults are not user choices.
+Setup installs package-local Pi, Mermaid, Playwright and Chromium; it does not call a model. Doctor exercises the local SDK and browser but does not verify OAuth or model access. It must pass before generation. No global Pi installation or parked branch is required.
+
+The refinement command uses the `openai-codex` provider through Pi's subscription OAuth. It consumes subscription allowance and has no paid API fallback. Before a call, disclose this choice, the explicit model and time budget. If authentication is missing, run `pnpm --dir tools/pi-diagram-agent exec pi auth login openai-codex`. A configured login is not proof that a model request succeeds; report actual results separately.
+
+For an authorized local refinement, pass absolute source/output paths:
+
+```sh
+pnpm diagram:refine --source /absolute/source.mmd --out /absolute/private-run-dir --model <authorized-model> --timeout-min 5
+```
+
+Output must be outside the repository. The command generates a candidate, runs deterministic checks and independent model review, and records `summary.md`, `summary.json`, candidate SVG/audit evidence and `quality.json`. Read the recorded status and errors: a candidate or process completion is not acceptance or certification. An incomplete gate exits nonzero. Preserve every candidate and its exact hashes; never claim a model generated or reviewed an artifact when no call ran.
+
+For a local Mermaid file, preserve exact bytes/hash without customer identity queries. Selection below applies only to an explicitly scoped newest-diagram request. Staging adds all target and compatibility checks; generation never stages a production write.
+
+Record the bundled runtime commit/local changes and actual model roles/budget. See `tools/pi-diagram-agent/README.md` for supported commands, dependencies and limitations. The optional benchmark CLI remains in `bench/run-bench.mjs`; inspect its current arguments before a batch, which makes real model calls. A separately repaired/reviewed artifact needs a new external review receipt; never rewrite runtime manifests or claim native acceptance gates passed.
 
 For product integration locate current `src/utils/magic/artifact.ts` (validation and sanitization), `tools/mermaid-highlights/src/mermaid-highlights.mjs` and the shared interaction runtime. Verify deployed exports and versions; current reference exports include `validateMagicArtifact`, `readMermaidFlowchartModel`, and `attachPreparedSvgHighlights`. Do not assume a local file matches deployed code.
 

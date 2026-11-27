@@ -1,0 +1,55 @@
+title Pi diagram agent v3: semantic layout contract before authoring
+@Actor Operator
+Orch as "Orchestrator"
+Author as "Author session"
+Reviewer as "Reviewer session"
+Judge as "Judge"
+
+// /magic src.mmd [--adjudication f]
+Operator -> Orch.magic(source) {
+  // parser + original render -> effective group paths
+  // an unresolved node or group conflict stops startup
+  Orch -> Orch.buildSourceFacts()
+  // LAYOUT_INTENT_PROMPT + source facts
+  // build, inspect, submit refused until frozen
+  Orch -> Author.plan(facts) {
+    // purpose, reading order, layers, peers,
+    // relations, ranked constraints, uncertainties
+    Author -> Orch.layoutIntent(intent) {
+      // coverage, membership, endpoints checked
+      // hash over intent + source + rules hashes
+      Orch -> Orch.validate()
+      return "ACCEPTED + hash"
+    }
+  }
+  while("round < budget") {
+    // author owns every position, port, route
+    Orch -> Author.draw(findings) {
+      // make.py -> candidate.svg; auditor + geometry
+      // result stamped with layoutIntentHash
+      Author -> Orch.buildCheck() {
+        return "CHECK_PASS | FAIL"
+      }
+      // revise: predecessorHash + reason
+      // resets ledger, cache, review, Judge receipts
+      opt("better design needed") {
+        Author -> Orch.layoutIntent(revised)
+      }
+      Author -> Orch.submit(hash)
+    }
+    // contract + facts + images; layout-intent violation blocks
+    Orch -> Reviewer.review(images) {
+      return findings
+    }
+    if("no blocking finding") {
+      // two blind passes; judgement.json sealed with layoutIntentHash
+      Orch -> Judge.score(images) {
+        return "IMPROVED | NOT"
+      }
+    }
+  }
+  // run.json: layoutIntent, history, events, finalLayoutIntentHash
+  return manifest
+}
+// VALIDATED only when judgement and manifest bind the final intent hash
+Operator -> Orch.accept(runDir, sha)

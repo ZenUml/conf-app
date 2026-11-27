@@ -1,0 +1,42 @@
+name: Pi diagram runtime
+
+on:
+  pull_request:
+    paths:
+      - 'tools/pi-diagram-agent/**'
+      - '.claude/skills/diagram-refinement/**'
+      - '.github/workflows/pi-diagram-runtime.yml'
+      - 'package.json'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/pi-diagram-agent/**'
+      - '.github/workflows/pi-diagram-runtime.yml'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pi-diagram-runtime-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  synthetic:
+    name: Synthetic runtime and browser checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: tools/pi-diagram-agent/pnpm-lock.yaml
+      - name: Install locked runtime dependencies
+        run: pnpm --dir tools/pi-diagram-agent install --ignore-workspace --frozen-lockfile
+      - name: Install Chromium and system libraries
+        run: pnpm --dir tools/pi-diagram-agent exec playwright install --with-deps chromium
+      - name: Run offline synthetic tests with real browser geometry
+        run: pnpm test:pi-diagram

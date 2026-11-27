@@ -6,7 +6,8 @@ import { assertCounts } from '../../functions/metrics-cache/snapshot/common';
 
 // Mock getClientDomain
 vi.mock('@/utils/ContextParameters/ContextParameters', () => ({
-  getClientDomain: vi.fn(() => 'test-domain')
+  getClientDomain: vi.fn(() => 'test-domain'),
+  NO_SPACE_CONTEXT: 'no_space_context',
 }));
 
 // Mock callRemote
@@ -274,6 +275,40 @@ describe('MacroMetrics', () => {
   });
 
   describe('reportMacroMetrics', () => {
+    // Mixpanel 2026-11-14..20: `HTTP 400: {"error":"Missing required fields"}` from
+    // POST /metrics-cache/update. Every affected event had
+    // confluence_space = no_space_context, i.e. the page has no space key. The
+    // backend requires a non-empty string `space`, so such a payload can never
+    // succeed; the client must not send it.
+    it.each([[undefined], [''], ['no_space_context']])(
+      'does not read, enumerate or write when the space key is %j',
+      async (key) => {
+        mockApWrapper.getCurrentSpace.mockResolvedValue({ key });
+
+        await macroMetrics.reportMacroMetrics();
+
+        expect(callRemote).not.toHaveBeenCalled();
+        expect(mockApWrapper.requestAllPaginatedData).not.toHaveBeenCalled();
+        expect(mockEventTracker).not.toHaveBeenCalled();
+      }
+    );
+
+    it('does not POST /metrics-cache/update from the gate path when the space key is missing', async () => {
+      mockApWrapper.getCurrentSpace.mockResolvedValue({ key: undefined });
+      (callRemote as any).mockResolvedValue(null);
+      mockApWrapper.requestAllPaginatedData.mockImplementation((url, consumer) => {
+        consumer({ results: [] });
+        return Promise.resolve({});
+      });
+
+      await macroMetrics.getMacroMetrics();
+
+      const updateCalls = (callRemote as any).mock.calls.filter(
+        ([url]: [string]) => url.startsWith('/metrics-cache/update')
+      );
+      expect(updateCalls).toHaveLength(0);
+    });
+
     it('does not enumerate or write in snapshot-managed mode', async () => {
       (callRemote as any).mockResolvedValueOnce({ mode: 'snapshot', metrics: null });
 

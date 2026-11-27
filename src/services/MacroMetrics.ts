@@ -3,7 +3,7 @@ import { getDiagramConfig } from "@/model/Diagram/DiagramTypeConfig";
 import globals from "@/model/globals";
 import { trackEvent, addonKey, serializeError } from "@/utils/window";
 import ApWrapper2 from "@/model/ApWrapper2";
-import { getClientDomain } from "@/utils/ContextParameters/ContextParameters";
+import { getClientDomain, NO_SPACE_CONTEXT } from "@/utils/ContextParameters/ContextParameters";
 import { callRemote } from "@/utils/requestUtil";
 
 export interface IMacroMetrics {
@@ -59,6 +59,15 @@ const EXTRA_METRIC_FIELDS: Partial<Record<DiagramType, keyof IMacroMetrics>> = {
   [DiagramType.AsyncApi]: 'asyncapi',
 };
 
+// The backend (POST /metrics-cache/update) answers 400 "Missing required fields"
+// unless `space` is a non-empty string. A page with no space key sends none
+// (undefined is dropped by JSON.stringify) or the NO_SPACE_CONTEXT sentinel, so
+// such a payload can never succeed. Mixpanel 2026-11-14..20: every such error
+// event carried confluence_space = no_space_context.
+function isUsableSpaceKey(key: unknown): key is string {
+  return typeof key === 'string' && key !== '' && key !== NO_SPACE_CONTEXT;
+}
+
 export class MacroMetrics {
   constructor(
     private readonly apWrapper: ApWrapper2 = globals.apWrapper,
@@ -70,6 +79,10 @@ export class MacroMetrics {
     try {
       const currentSpace = await this.apWrapper.getCurrentSpace();
       const space = currentSpace.key;
+      if (!isUsableSpaceKey(space)) {
+        console.debug('[metrics:report] skipped, no space key');
+        return;
+      }
       const domain = getClientDomain();
 
       // Snapshot-managed Lite installations have one authoritative backend
@@ -259,6 +272,7 @@ export class MacroMetrics {
   }
 
   private async writeToKV(domain: string, space: string, metrics: IMacroMetrics): Promise<void> {
+    if (!isUsableSpaceKey(space)) return;
     try {
       await callRemote(
         `/metrics-cache/update?addonKey=${encodeURIComponent(addonKey())}`,

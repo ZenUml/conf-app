@@ -6,6 +6,7 @@
  * See docs/superpowers/specs/2026-05-20-debug-bundle-download-design.md.
  */
 
+import { toClientDomain } from '@/lib/clientDomain.js';
 import { DiagramType } from '@/model/Diagram/Diagram';
 import { getCodeFromDiagram } from '@/model/Diagram/DiagramTypeConfig';
 
@@ -107,9 +108,7 @@ export async function collectIdentity(
   const hostname = (typeof window !== 'undefined' && window.location?.hostname) || '';
 
   // Strip the .atlassian.net suffix so this matches the Mixpanel/KV form.
-  const clientDomain = hostname && hostname.endsWith('.atlassian.net')
-    ? hostname.slice(0, -'.atlassian.net'.length)
-    : null;
+  const clientDomain = toClientDomain(hostname);
 
   const pageId = ext?.content?.id ? String(ext.content.id) : null;
 

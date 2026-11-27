@@ -1,5 +1,6 @@
 
 import api, { route, routeFromAbsolute } from '@forge/api';
+import { toClientDomain } from './lib/clientDomain.js';
 import { readPngDimensions } from './lib/pngDimensions.js';
 import { decideExportSample } from './lib/exportSampling.js';
 import { describePngStateFailure, readPngState, writePngState } from './lib/pngExportState.js';
@@ -111,14 +112,9 @@ export function extractExportContext(payload) {
   const cloudId = payload.context?.cloudId ?? 'unknown';
 
   const siteUrl = payload.context?.siteUrl;
-  let clientDomain = cloudId;
-  if (siteUrl) {
-    try {
-      const hostname = new URL(siteUrl).hostname.toLowerCase();
-      const match = /^([a-z0-9-_]+)\.atlassian\.net$/.exec(hostname);
-      clientDomain = match ? match[1] : hostname;
-    } catch (_) { clientDomain = siteUrl; }
-  }
+  // #955: analytics-only. No siteUrl (or an unparseable one) is `null`, never the
+  // cloudId: cloud_id travels as its own property (see joinKeyProps).
+  const clientDomain = toClientDomain(siteUrl);
 
   const spaceKey = payload.context?.spaceKey ?? payload.context?.extension?.space?.key ?? 'unknown';
 

@@ -37,6 +37,27 @@ if [[ -n "${JOINT_DEBUG_BACKEND_API_BASE_URL:-}" ]]; then
   esac
 fi
 
+# A development environment deployed with its own Connect key (so it can share
+# a site with another environment of the same app). The manifest templates
+# ${CONNECT_KEY}; dist/ must be built with the same key or every diagram read
+# and write targets a type the install does not own. docs/reference/dev-connect-key.md
+if [[ -n "${CONNECT_KEY_OVERRIDE:-}" ]]; then
+  export CONNECT_KEY="$CONNECT_KEY_OVERRIDE"
+fi
+case "${1:-}" in
+  deploy|tunnel)
+    MARKER="$BASE_DIR/dist/connect-key-override.txt"
+    if [[ -f "$MARKER" ]]; then
+      BUILT_KEY="$(cat "$MARKER")"
+      if [[ "$BUILT_KEY" != "${CONNECT_KEY_OVERRIDE:-}" ]]; then
+        echo "ERROR: dist/ was built with CONNECT_KEY_OVERRIDE='${BUILT_KEY}' but this ${1} uses '${CONNECT_KEY_OVERRIDE:-}'." >&2
+        echo "       Rebuild with the same value: CONNECT_KEY_OVERRIDE='${CONNECT_KEY_OVERRIDE:-}' pnpm build:<variant>" >&2
+        exit 1
+      fi
+    fi
+    ;;
+esac
+
 # Substitute {{VAR}} templates with env values
 args=()
 for arg in "$@"; do

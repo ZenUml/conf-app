@@ -17,6 +17,10 @@ type ForgeInstallationContext = {
 
 type ForgeFitApp = {
   id?: unknown;
+  module?: {
+    type?: unknown;
+    key?: unknown;
+  };
   apiBaseUrl?: unknown;
   installationId?: unknown;
   installation?: {
@@ -40,6 +44,53 @@ type ForgeFitPayload = jose.JWTPayload & {
   principal?: unknown;
   icLabel?: unknown;
 };
+
+const BACKEND_FIT_CONTEXT_KEYS = new Set(['cloudId']);
+
+// Docs say a non-UI invokeRemote FIT has module type `core:endpoint`. Hosted
+// functions send the module that actually called invokeRemote: a scheduled
+// trigger function is `core:scheduledTrigger`, a plain function module is
+// `core:function`, and older hosted compute sent an empty string (FRGE-1933).
+// UI modules (`xen:macro`, and anything else outside this set) stay frontend.
+const BACKEND_FIT_MODULE_TYPES = new Set([
+  'core:endpoint',
+  'core:scheduledTrigger',
+  'core:function',
+  '',
+]);
+
+/**
+ * A backend FIT (scheduled trigger, event, or a Forge function calling
+ * invokeRemote) carries only `context.cloudId` and no `principal`.
+ * A `context` object alone does not mean a frontend caller. Module type
+ * does: only the backend types above are accepted, so a Custom UI module
+ * still cannot call the snapshot write protocol.
+ */
+export function fitInvocationSource(
+  payload: Pick<ForgeFitPayload, 'app' | 'context' | 'principal'>,
+): 'backend' | 'frontend' {
+  if (payload.principal != null) return 'frontend';
+  const moduleType = payload.app?.module?.type;
+  if (typeof moduleType === 'string' && !BACKEND_FIT_MODULE_TYPES.has(moduleType)) return 'frontend';
+  const context = payload.context;
+  if (context == null) return 'backend';
+  return Object.keys(context).every((key) => BACKEND_FIT_CONTEXT_KEYS.has(key))
+    ? 'backend'
+    : 'frontend';
+}
+
+/** Names and booleans only. Never copy cloudId, account ids, or token claims. */
+export function fitDiagnosticShape(
+  payload: Pick<ForgeFitPayload, 'app' | 'context' | 'principal'> | undefined,
+): ForgeFitShape {
+  const moduleType = payload?.app?.module?.type;
+  const context = payload?.context;
+  return {
+    moduleType: typeof moduleType === 'string' ? moduleType : null,
+    contextKeys: context && typeof context === 'object' ? Object.keys(context).sort() : null,
+    hasPrincipal: payload?.principal != null,
+  };
+}
 
 export type VerifiedForgeFit = jose.JWTVerifyResult<ForgeFitPayload> & {
   apiBaseUrl: string;
@@ -198,6 +249,12 @@ export const validateContextToken = async (
 
 import { upsertAtlassianInstance } from './dbUtils';
 
+export interface ForgeFitShape {
+  moduleType: string | null;
+  contextKeys: string[] | null;
+  hasPrincipal: boolean;
+}
+
 export interface ForgeRequestContext {
   cloudId?: string;
   accountId?: string;
@@ -208,6 +265,7 @@ export interface ForgeRequestContext {
   environmentId?: string;
   environmentType?: string;
   invocationSource?: 'backend' | 'frontend';
+  fitShape?: ForgeFitShape;
 }
 
 export type ForgeRequestData = Record<string, unknown> & {
@@ -245,7 +303,8 @@ async function authenticateForgeRequest(jwt: string, env: any): Promise<ForgeReq
     installationId: payload.installationId,
     environmentId: payload.environmentId,
     environmentType: payload.environmentType,
-    invocationSource: payload.payload.context == null ? 'backend' : 'frontend',
+    invocationSource: fitInvocationSource(payload.payload),
+    fitShape: fitDiagnosticShape(payload.payload),
   };
 }
 

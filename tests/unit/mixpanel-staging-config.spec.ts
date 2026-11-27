@@ -29,15 +29,15 @@ describe('Mixpanel deployment config', () => {
 
   it('wires both staging preparation paths and staging-scoped Forge variables', () => {
     expect(prepareMixpanelConfig(readFileSync('wrangler-stg.toml', 'utf8'), 'stg')
-      .match(/^MIXPANEL_DISABLED = "true"$/gm)).toHaveLength(2);
+      .match(/^MIXPANEL_DISABLED = "true"$/gm)).toHaveLength(3);
     expect(readFileSync('.github/actions/wrangler-publish/action.yml', 'utf8'))
       .toContain('node scripts/ci/mixpanel-staging-config.mjs wrangler.toml "${{ inputs.environment }}"');
     expect(readFileSync('scripts/ci/lite-deploy-prepare.mjs', 'utf8'))
       .toContain('prepareMixpanelConfig(config, process.env.DEPLOY_ENVIRONMENT)');
     const stagingWorkflow = readFileSync('.github/workflows/staging-deploy.yml', 'utf8');
     expect(stagingWorkflow).toContain('mixpanel-staging-config.mjs; do');
-    expect(stagingWorkflow).toContain('forge variables set MIXPANEL_DISABLED true -e staging');
+    expect(stagingWorkflow).toContain('forge variables set MIXPANEL_DISABLED true -e "$FORGE_ENVIRONMENT"');
     expect(stagingWorkflow.indexOf('pnpm forge:deploy:disable-analytics'))
-      .toBeLessThan(stagingWorkflow.indexOf('forge variables set MIXPANEL_DISABLED true -e staging'));
+      .toBeLessThan(stagingWorkflow.indexOf('forge variables set MIXPANEL_DISABLED true -e "$FORGE_ENVIRONMENT"'));
   });
 });

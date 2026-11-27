@@ -30,8 +30,8 @@ export const Contact: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(canvas.getByLabelText('Present this diagram to others'))
-    await userEvent.click(canvas.getByRole('button', { name: 'Contact support' }))
-    await expect(canvas.getByRole('heading', { name: 'Contact support' })).toBeVisible()
+    await userEvent.click(canvas.getByRole('button', { name: 'Request temporary access' }))
+    await expect(canvas.getByRole('heading', { name: 'Request temporary access' })).toBeVisible()
   },
 }
 export const PendingActivation: Story = { args: { snapshot: pending } }
@@ -44,7 +44,7 @@ export const RequestError: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(canvas.getByLabelText('Present this diagram to others'))
-    await userEvent.click(canvas.getByRole('button', { name: 'Contact support' }))
+    await userEvent.click(canvas.getByRole('button', { name: 'Request temporary access' }))
     await userEvent.type(canvas.getByLabelText('Reply email'), 'reader@example.com')
     await userEvent.click(canvas.getByLabelText(/I agree that support may use this email/))
     await userEvent.click(canvas.getByRole('button', { name: 'Submit request' }))
@@ -68,9 +68,9 @@ export const EditContact: Story = {
   args: { feature: 'edit', snapshot: { ...editBase, state: 'not_requested' } },
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(canvas.getByLabelText('Fix or update this diagram'))
-    await userEvent.click(canvas.getByRole('button', { name: 'Contact support' }))
-    await expect(canvas.getByRole('heading', { name: 'Contact support' })).toBeVisible()
+    await userEvent.click(canvas.getByLabelText('Fix or update a diagram'))
+    await userEvent.click(canvas.getByRole('button', { name: 'Request temporary access' }))
+    await expect(canvas.getByRole('heading', { name: 'Request temporary access' })).toBeVisible()
   },
 }
 /** E2: request saved; the 7 days start at the first save. */

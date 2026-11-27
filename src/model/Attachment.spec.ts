@@ -122,6 +122,15 @@ describe('Attachment', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks keeps implementations and queued Once values; the suite
+    // runs in random order, so drop what an earlier test left on these.
+    for (const fn of [
+      mockRequestConfluence, mockForgeRequest, mockCallRemote, mockRenderPlantUmlLocally,
+      mockApWrapper._getCurrentPageId, mockApWrapper.getAttachmentsV2, mockApWrapper.request,
+      vi.mocked(captureBlob),
+    ]) {
+      fn.mockReset();
+    }
     // Reset window state
     delete (window as any).createAttachmentInProgress;
     // A 429 test leaves a site cooldown behind; never let it defer later tests.
@@ -1611,6 +1620,12 @@ describe('Attachment', () => {
           extension: { config: { customContentId: 'test-uuid' }, content: { id: 'page-123' } },
         };
         mockApWrapper._getCurrentPageId.mockResolvedValue('page-123');
+        mockRequestConfluence.mockResolvedValue({
+          ok: true,
+          status: 200,
+          text: vi.fn().mockResolvedValue(JSON.stringify({ results: [{ id: 'attachment-123' }] })),
+        });
+        mockForgeRequest.mockResolvedValue({});
 
         await createAttachmentIfContentChanged('test content', 'sequence');
 

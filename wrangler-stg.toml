@@ -120,3 +120,72 @@ binding = "AI"
 [[env.production.kv_namespaces]]
 binding = "OAUTH_GRANT_KV"
 id = "bd0839878af744eb8057c8d094456dcb"
+
+# Preview branch (`wrangler pages deploy --branch <not production>`): the PR
+# backend. Same storage as the production branch by decision (2026-11-21), so
+# every binding below must stay identical to its env.production twin;
+# tests/unit/pagesPreviewConfig.spec.ts enforces that. Pages ignores top-level
+# bindings once an environment overrides one, so the whole set is repeated.
+# The vars differ in three places: ENVIRONMENT; the Forge environment type,
+# because the PR Forge environment is a custom development environment; and
+# the OAuth callback host, because the PR slot has its own host.
+
+[env.preview.vars]
+MIXPANEL_DISABLED = "true"
+ATLASSIAN_OAUTH_CLIENT_ID = "f1Q7H7v2bf0ax9ThXvL8n3aewQENg6hp"
+# The PR slot serves this environment on its own host (the Pages branch
+# alias), and agent-link refuses a request whose host differs from the
+# callback host. The callback itself is not registered for this host, so
+# the full OAuth sign-in does not complete here; the discovery challenge does.
+ATLASSIAN_OAUTH_REDIRECT_URI = "https://conf-stg-lite-pr.zenuml.com/agent-link/oauth/callback"
+ENVIRONMENT = "preview"
+DIAGRAMLY_BACKEND_API_BASE_URL = "https://staging.diagramly.ai"
+ALLOWED_FORGE_APP_IDS = "8ad26115-211f-4216-971b-0540f606303d,d9e4002b-120b-426b-834b-402a4a5adce7,01ede8b1-4e88-451a-b9ef-89eeef93afaf,49017727-af19-4ab6-8d5a-7d28108936b6" # ZenUML Lite, Full, Diagramly and AsyncAPI
+EXPECTED_FORGE_ENVIRONMENT_TYPE = "DEVELOPMENT"
+OAUTH_ROOT_RESOURCE_METADATA = "off"
+
+[[ env.preview.d1_databases ]]
+binding = "DB"
+database_name = "conf-zenuml-stg"
+database_id = "5894387c-08be-43d7-b8dc-0b7b8eb7c264"
+migrations_dir = "functions/migrations"
+
+[[ env.preview.kv_namespaces ]]
+binding = "CLIENT_INSTALLATION_KV"
+id = "a1252fa9b51f4b87a462413bd4fd2f27"
+
+[[ env.preview.r2_buckets ]]
+binding = "EVENT_BUCKET"
+bucket_name = "atlassian-events"
+
+[[ env.preview.r2_buckets ]]
+binding = "MACRO_COUNT_SNAPSHOT_BUCKET"
+bucket_name = "conf-macro-count-snapshots-stg"
+
+[[env.preview.kv_namespaces]]
+binding = "confluence_plugin_features"
+id = "9531a58d3f5b47a6af77750240c09548"
+
+[[env.preview.kv_namespaces]]
+binding = "SPACE_LICENSE_KV"
+id = "8969e8528105403bb2d9adca9fc16567"
+
+[[env.preview.kv_namespaces]]
+binding = "DEEPLINK_KV"
+id = "55a29002d56e49f986abe122e8b2c947"
+
+[[env.preview.durable_objects.bindings]]
+name = "AGENT_LINK"
+class_name = "AgentLinkSession"
+script_name = "conf-agent-link-stg"
+
+[[env.preview.kv_namespaces]]
+binding = "KV_FEATURE_FLAGS"
+id = "fd87eed34f864190880a4b44d25c0e91"
+
+[env.preview.ai]
+binding = "AI"
+
+[[env.preview.kv_namespaces]]
+binding = "OAUTH_GRANT_KV"
+id = "bd0839878af744eb8057c8d094456dcb"

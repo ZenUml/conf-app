@@ -29,6 +29,11 @@ import {
 } from './authServer';
 import { loadClient, loadPending } from './asStore';
 import { loadGrantStore, type OAuthEnv } from './appConfig';
+import { mixpanelTrack } from '../../service/mixpanelService';
+
+interface Env extends OAuthEnv {
+  MIXPANEL_TOKEN?: string;
+}
 
 const EXPIRED = () =>
   htmlPage(
@@ -57,7 +62,7 @@ export const onRequestGet: PagesFunction<OAuthEnv> = async ({ request, env }) =>
   return renderConsent(client, pendingId, pending.scope, [], switchUrl);
 };
 
-export const onRequestPost: PagesFunction<OAuthEnv> = async ({ request, env }) => {
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const { store } = loadGrantStore(env);
   const form = await request.formData();
   const pendingId = String(form.get('auth') ?? '');
@@ -77,6 +82,24 @@ export const onRequestPost: PagesFunction<OAuthEnv> = async ({ request, env }) =
   };
 
   if (form.get('decision') !== 'allow') {
+    if (env.MIXPANEL_TOKEN) {
+      try {
+        await mixpanelTrack(
+          {
+            event: 'agent_link_oauth_failed',
+            user_account_id: pending.userId,
+            feature_area: 'agent_link',
+            surface: 'backend',
+            reason: 'consent_declined',
+            oauth_client_id: pending.clientId,
+          },
+          env.MIXPANEL_TOKEN,
+          env,
+        );
+      } catch {
+        // analytics must never block the decline
+      }
+    }
     return withClearedCookie(await denyAuthorization(deps, pendingId, pending));
   }
 

@@ -51,7 +51,7 @@ function setup(over: { stage?: string | null; count?: number; exemptions?: strin
   const env: RecoveryEnv = {
     DB: db, FULLSCREEN_RECOVERY_ENCRYPTION_KEY: KEY,
     KV_FEATURE_FLAGS: { get: async (k: string) => k === `paywall-enforcement:policy:${CLOUD}`
-      ? (stage === null ? null : JSON.stringify({ stage, effectiveAt: EFFECTIVE }))
+      ? (stage === null ? null : stage.startsWith('{') ? stage : JSON.stringify({ effects: LADDER[stage], effectiveAt: EFFECTIVE }))
       : k === `fullscreen-recovery:policy:${CLOUD}` ? (fullscreenPolicy ? JSON.stringify({ enabled: true }) : null)
       : k === 'PAYWALL_EXEMPTIONS' ? exemptions : null } as KVNamespace,
     SPACE_LICENSE_KV: { get: async (k: string) => licenses[k] ?? null } as KVNamespace,
@@ -61,6 +61,11 @@ function setup(over: { stage?: string | null; count?: number; exemptions?: strin
   };
   return { sqlite, env };
 }
+// Test shorthand: the effects that the old stage names stood for.
+const LADDER: Record<string, object> = {
+  notice: {}, watermark: { watermark: true }, block_create: { watermark: true, blockCreate: true },
+  block_edit: { watermark: true, blockCreate: true, requestEdit: true },
+};
 const snap = (env: RecoveryEnv, who: RecoveryIdentity, now: Date) => recoverySnapshot(env, who, now, 'ENG', 'edit');
 
 describe('edit request gate: examples E1-E9', () => {
@@ -99,13 +104,27 @@ describe('edit request gate: examples E1-E9', () => {
       data: { forgeContext: { ...alice, forgeAppId: FULL } } } as any);
     expect((await res.json() as any).snapshot).toMatchObject({ state: 'disabled', policyVersion: 'edit-contact-v1' });
   });
-  it('E7 a site at watermark or block_create has no edit gate; neither has one with no policy', async () => {
-    for (const stage of ['notice', 'watermark', 'block_create', null]) {
+  it('E7 a site at notice or watermark has no edit gate; neither has one with no policy', async () => {
+    for (const stage of ['notice', 'watermark', null]) {
       const { env } = setup({ stage });
       expect((await snap(env, alice, ACTIVATED)).state, String(stage)).toBe('disabled');
     }
     const { env } = setup({ stage: 'block_edit' });
     expect((await snap(env, alice, new Date('2026-12-07T23:59:59Z'))).state, 'before effectiveAt').toBe('disabled');
+  });
+  it('block_create: the same edit request gate covers creating, and one grant covers both', async () => {
+    const { env } = setup({ stage: 'block_create' });
+    expect((await snap(env, alice, BEFORE_ACTIVATION)).state).toBe('not_requested');
+    const c = await createRecoveryRequest(env, alice, edit(), BEFORE_ACTIVATION);
+    expect(c.snapshot.state).toBe('pending_activation');
+    await activateRecovery(env, alice, { action: 'activate', attemptId: edit().attemptId, requestId: c.snapshot.request!.id, spaceKey: 'ENG', feature: 'edit' }, ACTIVATED);
+    expect((await snap(env, alice, ACTIVATED)).state).toBe('active');
+  });
+  it('independent switches: edit blocked with create open still has the edit gate; watermark alone does not', async () => {
+    const editOnly = JSON.stringify({ effects: { requestEdit: true }, effectiveAt: EFFECTIVE });
+    expect((await snap(setup({ stage: editOnly }).env, alice, ACTIVATED)).state).toBe('not_requested');
+    const watermarkOnly = JSON.stringify({ effects: { watermark: true }, effectiveAt: EFFECTIVE });
+    expect((await snap(setup({ stage: watermarkOnly }).env, alice, ACTIVATED)).state).toBe('disabled');
   });
   it('E8 the grant is personal: a second user has no request', async () => {
     const { env } = setup();
@@ -125,7 +144,7 @@ describe('edit request gate: examples E1-E9', () => {
 });
 
 describe('edit gate rules', () => {
-  it('refuses a request when the site is not at block_edit', async () => {
+  it('refuses a request when the site is before block_create', async () => {
     const { env } = setup({ stage: 'watermark' });
     await expect(createRecoveryRequest(env, alice, edit(), BEFORE_ACTIVATION)).rejects.toMatchObject({ code: 'not_enforced' });
   });

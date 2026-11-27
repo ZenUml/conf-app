@@ -1305,6 +1305,10 @@ describe("trackAnalyticsEvent", () => {
           .mocked(mixpanel.track)
           .mock.calls.some(([name]) => name === "analytics_init_degraded"),
       ).toBe(false);
+      // jsdom queues a 0 ms storage-event timer when the account id is cached
+      // for the first time in a file; flush it so only a product timer can
+      // remain. Whether an earlier test cached the id used to decide this test.
+      await vi.advanceTimersByTimeAsync(0);
       // No dangling timer keeps the iframe or the test alive.
       expect(vi.getTimerCount()).toBe(0);
     });

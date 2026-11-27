@@ -9,3 +9,5 @@ tests/
 storybook-static/
 coverage/
 .git/
+# Local e-ink dashboard; never part of the Confluence app deployment.
+ink-display/

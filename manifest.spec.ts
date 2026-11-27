@@ -2,7 +2,26 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import yaml from "js-yaml";
 import { getManifestEditYqArgs } from "./scripts/forge-wizard.mjs";
+import { manifestEditsScript } from "./scripts/ci/manifest-edits.mjs";
 import { UNPLACED_PROPERTY_KEY } from "./src/utils/byline/unplacedProperty";
+
+// Staging and production no longer carry their own copies of the variant
+// edits: each workflow writes scripts/forge-wizard.mjs's list for its variant
+// with scripts/ci/manifest-edits.mjs and runs that script. So "the workflow
+// applies edit X for variant V" means: the workflow runs the generator with
+// its variant expression, and the generated script for V contains X.
+const workflowSteps = (file: string) => {
+  const workflow: any = yaml.load(readFileSync(`./.github/workflows/${file}`, "utf-8"));
+  return Object.values<any>(workflow.jobs).flatMap((job: any) => job.steps ?? []);
+};
+const CI_WORKFLOWS = [
+  ["staging-deploy.yml", "${{ needs.resolve.outputs.variant }}"],
+  ["release.yml", "${{ steps.properties.outputs.license }}"],
+] as const;
+const runsWizardEdits = (file: string, variantExpr: string) =>
+  workflowSteps(file).some(
+    (s: any) => typeof s.run === "string" && s.run.includes(`node scripts/ci/manifest-edits.mjs "${variantExpr}" manifest-edits.sh`),
+  );
 
 describe("manifest.yml embed deeplink autoConvert matcher", () => {
   it("default (lite/diagramly-inherited) matcher points at conf-lite.zenuml.com", () => {
@@ -16,42 +35,16 @@ describe("manifest.yml embed deeplink autoConvert matcher", () => {
     expect(exprs.some((e) => e.includes("conf-full.zenuml.com/d/*/*"))).toBe(true);
   });
 
-  it("the staging deploy workflow also overrides Full's matcher", () => {
-    const workflow: any = yaml.load(
-      readFileSync("./.github/workflows/staging-deploy.yml", "utf-8"),
-    );
-    const steps = workflow.jobs.deploy.steps;
-    const override = steps.find(
-      (step: any) => step.name === "Point Full embed deeplink matcher at conf-full",
-    );
-
-    // The gate reads the `resolve` job's output, not `inputs`, since
-    // staging-deploy.yml gained a workflow_dispatch entry point: dispatch
-    // supplies only `variant`, so `resolve` normalises both trigger shapes
-    // into one set of values. What matters is that the step stays gated on
-    // the full variant — assert the variant, not the expression's source.
-    expect(override?.if).toBe("needs.resolve.outputs.variant == 'full'");
-    expect(override?.with?.cmd).toContain("conf-full.zenuml.com/d/*/*");
-    expect(override?.with?.cmd).toContain("autoConvert.matchers[0].pattern");
-  });
-
-  // Regression: release.yml used to carry NO equivalent override — prod Full
-  // shipped the base (conf-lite) matcher while the viewer minted conf-full
-  // links, so minted links never autoconverted in production. Mirrors the
-  // staging-deploy.yml test above, on release.yml.
-  it("the PRODUCTION release workflow also overrides Full's matcher", () => {
-    const workflow: any = yaml.load(
-      readFileSync("./.github/workflows/release.yml", "utf-8"),
-    );
-    const steps = workflow.jobs.release.steps;
-    const override = steps.find(
-      (step: any) => step.name === "Point Full embed deeplink matcher at conf-full",
-    );
-
-    expect(override?.if).toBe("${{ steps.properties.outputs.license == 'full' }}");
-    expect(override?.with?.cmd).toContain("conf-full.zenuml.com/d/*/*");
-    expect(override?.with?.cmd).toContain("autoConvert.matchers[0].pattern");
-  });
+  // Regression: release.yml once carried NO Full override, so production Full
+  // shipped the conf-lite matcher while the viewer minted conf-full links.
+  for (const [file, variantExpr] of CI_WORKFLOWS) {
+    it(`${file} applies Full's matcher override from the wizard list`, () => {
+      expect(runsWizardEdits(file, variantExpr)).toBe(true);
+      const script = manifestEditsScript("full");
+      expect(script).toContain("conf-full.zenuml.com/d/*/*");
+      expect(script).toContain("autoConvert.matchers[0].pattern");
+    });
+  }
 
   it("lite ships no matcher-override edit (it inherits the default); diagramly ships the macro unmodified (no strip, no matcher override)", () => {
     const liteExprs = getManifestEditYqArgs("lite").map((e) => e.expr);
@@ -65,25 +58,20 @@ describe("manifest.yml embed deeplink autoConvert matcher", () => {
     expect(diagramlyExprs.some((e) => e.includes("zenuml-embed-macro"))).toBe(false);
   });
 
-  // Regression: release.yml and staging-deploy.yml each carry their OWN copy
-  // of the diagramly manifest edits, independent of scripts/forge-wizard.mjs
-  // (see the comment on diagramly's manifestEdits array there). Both used to
-  // carry a "Remove embed macro for Diagramly" step that silently undid the
-  // wizard's decision to ship it — verify neither CI workflow still does.
+  // Regression: both CI workflows once carried a "Remove embed macro for
+  // Diagramly" step that silently undid the wizard's decision to ship it.
   it("neither CI workflow strips the embed macro for Diagramly", () => {
-    const release: any = yaml.load(readFileSync("./.github/workflows/release.yml", "utf-8"));
-    const staging: any = yaml.load(readFileSync("./.github/workflows/staging-deploy.yml", "utf-8"));
-
-    const stepsMentioningEmbedMacroRemoval = (steps: any[]) =>
-      steps.filter(
+    for (const [file, variantExpr] of CI_WORKFLOWS) {
+      expect(runsWizardEdits(file, variantExpr), file).toBe(true);
+      const stripsEmbed = workflowSteps(file).filter(
         (step: any) =>
           typeof step?.with?.cmd === "string" &&
           step.with.cmd.includes("zenuml-embed-macro") &&
           step.with.cmd.trim().startsWith("yq eval 'del("),
       );
-
-    expect(stepsMentioningEmbedMacroRemoval(release.jobs.release.steps)).toEqual([]);
-    expect(stepsMentioningEmbedMacroRemoval(staging.jobs.deploy.steps)).toEqual([]);
+      expect(stripsEmbed, file).toEqual([]);
+    }
+    expect(manifestEditsScript("diagramly")).not.toContain("zenuml-embed-macro");
   });
 });
 
@@ -134,19 +122,13 @@ describe("unplaced-diagram banner — the property key both sides depend on", ()
     expect(exprs.some((e) => e.includes("zenuml-unplaced-banner"))).toBe(false);
   });
 
-  for (const [file, diagramlyGate, asyncapiGate] of [
-    [".github/workflows/staging-deploy.yml", "needs.resolve.outputs.variant == 'diagramly'", "needs.resolve.outputs.variant == 'asyncapi'"],
-    [".github/workflows/release.yml", "${{ steps.properties.outputs.license == 'diagramly' }}", "${{ steps.properties.outputs.license == 'asyncapi' }}"],
-  ] as const) {
+  for (const [file, variantExpr] of CI_WORKFLOWS) {
     it(`${file} strips it for Diagramly and re-keys it for AsyncAPI, like the wizard`, () => {
-      const workflow: any = yaml.load(readFileSync(`./${file}`, "utf-8"));
-      const steps = Object.values<any>(workflow.jobs).flatMap((job: any) => job.steps ?? []);
-      const strip = steps.find((s: any) => s.name === "Remove the unplaced-diagram page banner (Diagramly)");
-      expect(strip?.if).toBe(diagramlyGate);
-      expect(strip?.with?.cmd).toContain('select(.key == "zenuml-unplaced-banner")');
-      const rekey = steps.find((s: any) => s.name === "Gate the unplaced-diagram page banner on the AsyncAPI property key");
-      expect(rekey?.if).toBe(asyncapiGate);
-      expect(rekey?.with?.cmd).toContain('"zenuml-unplaced-diagrams-asyncapi"');
+      expect(runsWizardEdits(file, variantExpr)).toBe(true);
+      expect(manifestEditsScript("diagramly")).toContain('select(.key == "zenuml-unplaced-banner")');
+      const asyncapi = manifestEditsScript("asyncapi");
+      expect(asyncapi).toContain('select(.key == "zenuml-unplaced-banner")');
+      expect(asyncapi).toContain('"zenuml-unplaced-diagrams-asyncapi"');
     });
   }
 });
@@ -160,7 +142,16 @@ describe("workflows that install Playwright browsers", () => {
     const workflow: any = yaml.load(readFileSync(`${dir}/${file}`, "utf-8"));
     return Object.entries<any>(workflow.jobs ?? {})
       .filter(([, job]) => (job.steps ?? []).some((step: any) => /playwright install/.test(step.run ?? "")))
-      .map(([id, job]) => ({ job: `${file}#${id}`, runner: job["runs-on"] }));
+      .map(([id, job]) => {
+        // A reusable workflow may take the runner as an input. Its hosted default is
+        // what installs browsers; the gcp-conf pool skips the install and runs the
+        // shards in the Playwright noble (24.04) container instead.
+        const fromInput = /^\$\{\{\s*inputs\.([\w-]+)\s*\}\}$/.exec(String(job["runs-on"]));
+        const runner = fromInput
+          ? workflow.on?.workflow_call?.inputs?.[fromInput[1]]?.default
+          : job["runs-on"];
+        return { job: `${file}#${id}`, runner };
+      });
   });
 
   it("finds the jobs that install browsers", () => {

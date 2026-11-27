@@ -6,7 +6,7 @@ Full no longer waits for Lite, and the optional Full lane switch is removed.
 See [ADR-0007's superseding decision](../adr/0007-release-order-aware-pipeline.md#superseding-decision--all-four-staging-variants-are-peers-2026-10-09)
 and [pipeline graphs](pipeline-graphs.md). The measurements below describe the
 historical configurations; the new main runtime needs observation after merge.
-Production release order remains Diagramly → Lite → Full after the seven-day soak.
+Production release order remains Diagramly → Lite → Full after the 8-hour Lite soak with an error-growth check.
 
 What a release costs in wall-clock, where the minutes go, and which of them
 were cut on 2026-09-11 (ADR-0006). Re-measure before changing anything here;
@@ -317,7 +317,7 @@ Each row lands as its own PR and gets its measurement added here.
 | Tag taxonomy (`tests/e2e-tests/config/tags.ts`: surface × diagram type × concern) on all 53 top-level blocks of the 52 specs, policed by `tests/unit/e2eTags.spec.ts` | landed (the PR after #673) | no timing change by itself — `--grep @smoke` still selects the same 7 tests |
 | Path→tag map (`impact-map.mjs`) + `scripts/e2e-select.mjs`; the `select` job narrows the Lite E2E on PR runs; `select-ai` logs only | landed (the PR after #674); see *PR test selection* below | 18 of the last 40 merged PRs would have run a selection instead of the full suite |
 | Release `@smoke` counts as PVT (release-app skill) | landed | one browser session fewer per release |
-| 7-day Full soak | unchanged | revisit with data |
+| Full soak | 7 days → 24 h → 8 h with an error-growth check (2026-11-25) | `release-app/scripts/soak_errors.py` |
 
 ## Open questions (not decided by ADR-0006)
 

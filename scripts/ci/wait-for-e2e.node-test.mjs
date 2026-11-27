@@ -4,7 +4,7 @@ import { createApi, dispatchBody, findChild, closeChild, discoverChild, discover
 import { largeRunListing, withFakeGh } from './fake-gh.mjs';
 
 test('dispatch serializes regex without changing its escapes', () => {
-  const env = { GITHUB_REF_NAME: 'main', GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '2', SOURCE_SHA: 'abc', GREP: '(?:^|\\s)@smoke' };
+  const env = { CHILD_KIND: 'pr', MODE: 'selected', GITHUB_REF_NAME: 'main', GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '2', SOURCE_SHA: 'abc', GREP: '(?:^|\\s)@smoke' };
   const body = JSON.parse(JSON.stringify(dispatchBody(env)));
   assert.equal(body.inputs.grep, env.GREP);
   assert.equal(body.inputs['source-sha'], 'abc');
@@ -26,6 +26,19 @@ test('PR dispatch uses branch ref and only the PR child inputs', () => {
   assert.equal('suite' in body.inputs, false);
 });
 
+test('PR dispatch forwards dedicated-slot overrides only when set', () => {
+  const base = { CHILD_KIND: 'pr', DISPATCH_REF: 'main', GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '1', SOURCE_SHA: 'abc', MODE: 'selected', PR_NUMBER: '7', DECISION_ID: 'd1' };
+  const unset = dispatchBody(base);
+  for (const key of ['app', 'auth-artifact', 'backend-url']) assert.equal(key in unset.inputs, false);
+  assert.deepEqual(dispatchBody({ ...base, CHILD_APP: '', CHILD_AUTH_ARTIFACT: '', CHILD_BACKEND_URL: '' }), unset, 'empty overrides leave the body byte-identical');
+  const slot = dispatchBody({ ...base, CHILD_APP: 'zenuml-lite@dev', CHILD_AUTH_ARTIFACT: 'auth-state-pre-lite-dev', CHILD_BACKEND_URL: 'https://conf-stg-lite-pr.zenuml.com' });
+  assert.equal(slot.inputs.app, 'zenuml-lite@dev');
+  assert.equal(slot.inputs['auth-artifact'], 'auth-state-pre-lite-dev');
+  assert.equal(slot.inputs['backend-url'], 'https://conf-stg-lite-pr.zenuml.com');
+  const other = dispatchBody({ CHILD_KIND: 'phase', VERSION: 'v1', CHILD_APP: 'x', CHILD_BACKEND_URL: 'y' });
+  assert.equal('app' in other.inputs, false, 'only the PR child receives slot inputs');
+});
+
 test('phase dispatch carries version and exact producing run IDs without E2E inputs', () => {
   const body = dispatchBody({ CHILD_KIND: 'phase', VERSION: 'v1', ARTIFACT_RUN_ID: '42', STAGING_RUN_ID: '43' });
   assert.equal(body.inputs.version, 'v1');
@@ -35,15 +48,25 @@ test('phase dispatch carries version and exact producing run IDs without E2E inp
   assert.equal('suite' in body.inputs, false);
 });
 
-test('phase E2E requires an active root and matching source provenance', () => {
+test('only phase and PR children are dispatched', () => {
+  // Staging E2E lanes are called workflows inside the staging run (#1294).
+  for (const kind of [undefined, '', 'staging']) {
+    assert.throws(() => dispatchBody({ CHILD_KIND: kind, GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '2', SOURCE_SHA: 'abc' }), /Unknown child kind/);
+  }
+});
+
+test('the staging run is never a dispatching parent', () => {
   const parent = { status: 'in_progress', run_attempt: 1, path: '.github/workflows/main-staging-validation.yml', display_title: 'Staging validation · parent 12 · attempt 2 · source abc' };
   const jobs = [{ name: 'Validate: Lite', status: 'in_progress' }];
   const provenance = { sourceSha: 'abc', rootId: '12', rootAttempt: '2', root: { status: 'in_progress', run_attempt: 2, path: '.github/workflows/build-test-deploy.yml', head_sha: 'abc' }, rootJobs: [{ name: 'Staging validation', status: 'in_progress' }] };
-  verifyParent(parent, '1', jobs, ['Validate: Lite'], provenance);
-  assert.throws(() => verifyParent(parent, '1', jobs, ['Validate: Lite']), /root/);
-  assert.throws(() => verifyParent(parent, '1', jobs, ['Validate: Lite'], { ...provenance, sourceSha: 'other' }), /source/);
-  assert.throws(() => verifyParent(parent, '1', jobs, ['Validate: Lite'], { ...provenance, rootJobs: [] }), /active staging parent/);
-  assert.throws(() => verifyParent(parent, '1', jobs, ['Validate: Lite'], { ...provenance, rootAttempt: '1' }), /active staging parent/);
+  assert.throws(() => verifyParent(parent, '1', jobs, ['Validate: Lite'], provenance), /active staging parent/);
+});
+
+test('a phase child of the root checks the root source', () => {
+  const parent = { status: 'in_progress', run_attempt: 2, path: '.github/workflows/build-test-deploy.yml', head_sha: 'abc' };
+  const jobs = [{ name: 'Staging validation', status: 'in_progress' }];
+  verifyParent(parent, '2', jobs, ['Staging validation'], { sourceSha: 'abc' });
+  assert.throws(() => verifyParent(parent, '2', jobs, ['Staging validation'], { sourceSha: 'other' }), /Phase source/);
 });
 
 test('children reject manual dispatch and reruns before verifying their parent', () => {
@@ -237,7 +260,7 @@ test('CLI records the actual gh missing-ref response across workflow steps', asy
     chmodSync(gh, 0o755);
     const env = { ...process.env, PATH: `${dir}${delimiter}${process.env.PATH}`, FAKE_GH_CALLS: calls,
       RUNNER_TEMP: dir, GITHUB_REPOSITORY: 'example/repo', GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '1',
-      CHILD_WORKFLOW: 'child.yml', CHILD_TITLE: 'Child', SOURCE_SHA: 'abc', DISPATCH_REF: 'deleted' };
+      CHILD_KIND: 'phase', CHILD_WORKFLOW: 'child.yml', CHILD_TITLE: 'Child', SOURCE_SHA: 'abc', DISPATCH_REF: 'deleted' };
     const script = new URL('./wait-for-e2e.mjs', import.meta.url).pathname;
     const dispatch = spawnSync(process.execPath, [script], { env, encoding: 'utf8', timeout: 3000 });
     assert.equal(dispatch.status, 1);

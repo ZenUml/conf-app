@@ -2,7 +2,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 
-import { confirm, input, select } from '@inquirer/prompts'
+// Loaded in main() only: CI imports this module for its manifest edits
+// (scripts/ci/manifest-edits.mjs) without installing dependencies.
+let confirm, input, select
 
 /**
  * Single source of truth for all (app, environment) configuration required by Forge.
@@ -201,15 +203,14 @@ export const APPS = {
     },
     // Diagramly includes licensing; remove only the global UI modules. The
     // embed macro ships in Diagramly (task 6 deeplink productization) — do
-    // NOT add a "remove embed macro" edit here. CI (.github/workflows/
-    // release.yml + staging-deploy.yml) maintains its OWN parallel copy of
-    // these manifest edits, independent of this array — if you change what
-    // this wizard strips/keeps for diagramly, change both CI workflows too.
+    // NOT add a "remove embed macro" edit here. Staging and production CI
+    // apply these same edits (scripts/ci/manifest-edits.mjs).
     manifestEdits: [
       {
-        description: 'Remove globalSettings + globalPage + spacePage',
+        // Diagramly keeps its own admin page (diagramly-admin-create-demo-page).
+        description: 'Remove ZenUML-only globalSettings entry, globalPage and spacePage',
         yqEvalExpr:
-          'del(.modules["confluence:globalSettings"]) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:spacePage"])',
+          'del(.modules["confluence:globalSettings"][] | select(.key == "zenuml-get-started-settings")) | del(.modules["confluence:globalPage"]) | del(.modules["confluence:spacePage"])',
       },
       {
         // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and
@@ -679,6 +680,12 @@ function getForgeEnvVarsForApp({ app, backendApiBaseUrl, appEnvironmentChoice, d
       appEnvVars.DIAGRAMLY_BACKEND_API_BASE_URL =
         devEnvVars.DIAGRAMLY_BACKEND_API_BASE_URL
     }
+    // A development environment that shares a site with another environment
+    // of the same app needs its own Connect key; build dist/ with the same
+    // CONNECT_KEY_OVERRIDE. See docs/reference/dev-connect-key.md.
+    if (devEnvVars.CONNECT_KEY_OVERRIDE) {
+      appEnvVars.CONNECT_KEY = devEnvVars.CONNECT_KEY_OVERRIDE
+    }
   }
 
   return appEnvVars
@@ -734,6 +741,7 @@ async function isAppInstalledOnSite({ site, forgeEnv, appEnvVars }) {
 }
 
 async function main() {
+  ;({ confirm, input, select } = await import('@inquirer/prompts'))
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
     console.log([
       'Forge wizard (deterministic, command-logging)',

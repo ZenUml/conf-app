@@ -1,0 +1,13 @@
+[Unit]
+Description=reMarkable board: pull the Mac-rendered dashboard and draw it
+After=xochitl.service
+Conflicts=remarkable-dashboard-direct.service
+
+[Service]
+Type=simple
+ExecStart=/bin/sh /home/root/.local/share/remarkable-dashboard-runtime/board_pull.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

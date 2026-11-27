@@ -129,7 +129,8 @@ Full rules, artifact routing table, pre-commit grep, and background: [docs/polic
 | Email to an ordinary user we found in Confluence, Forge, Mixpanel or D1 data, who did not contact us | No |
 
 - The privacy policy is not a blocker for the first-touch email (owner, 2026-11-17).
-- The other contact rules still apply: owner's yes for each send, no repeat when there is no reply, no internal telemetry in the message, no contact with inactive payers. See `.claude/skills/customer-followup/references/contact-policy.md`.
+- **The first-install welcome email needs no per-send approval (owner, 2026-11-25).** Once its template is approved, send it to each new install's Marketplace contact without asking. This standing approval covers only that one email per install; a follow-up or any other message still needs the owner's yes.
+- The other contact rules still apply: owner's yes for each other send, no repeat when there is no reply, no internal telemetry in the message, no contact with inactive payers. See `.claude/skills/customer-followup/references/contact-policy.md`.
 
 ### Never commit directly to `main`
 
@@ -209,6 +210,41 @@ multiple worktrees run concurrently. The shared Portless proxy uses plain HTTP o
 the non-privileged port 1355 so agents can start it without sudo or certificate
 prompts; application processes still receive independent random internal ports.
 
+### Pre-push lint hook (optional, local)
+
+Run `pnpm hooks:install` once per worktree. It sets `core.hooksPath` to `scripts/git-hooks` with `git config --worktree`, so it changes this worktree only and never the shared `.git/config` (a shared value would switch hooks for every worktree, including branches that do not have the directory). Before each push the hook runs oxlint (`.oxlintrc.json`) on only the lintable files (`.ts .tsx .js .mjs .cjs .vue` under `src/ functions/ scripts/ tests/unit/`) changed versus `origin/main`, and fails the push on errors. It prints its elapsed time and fails if it takes more than 9 s (a step over its budget fails). It does not run typecheck (baseline is red) or a formatter (none in the repo). Not part of `prepare`/`postinstall`, so CI installs are unchanged. It fails when `origin/main` is missing (run `git fetch origin main`). Bypass once with `git push --no-verify`.
+
+### Unit test cleanup rules
+
+`pnpm test:unit` runs with `isolate: false`, random file and test order, and one jsdom per worker
+(`vite.config.mjs`, `tests/setup/`). A worker runs many spec files in one module graph, so a spec
+must leave no state behind. A failure that appears only for some seeds is a leak, not a flaky test.
+
+- **One shared module graph per worker.** Before each file, `tests/setup/shared-graph-reset.ts` drops the
+  vite-node module cache and the mock registry, so a `vi.mock()` from another file never reaches yours and
+  module-level state is rebuilt per file. Inside one file nothing resets it: `vi.resetModules()` keeps `vi.mock`
+  factories, and a re-imported module still gets the same mock object.
+- **What setup resets after each file:** fake timers, pending timers (`setTimeout`/`setInterval`), `vi.stubGlobal`
+  and `vi.stubEnv` values, `localStorage` and `sessionStorage`, `document.body` and `document.head`, properties
+  added to or changed on `window`, `document`, `navigator` and the DOM prototypes, jsdom globals that a spec
+  assigned (`globalThis.CSS = ...`), the Vue vnode transformer and Vue Test Utils `config.global`. A timer left
+  running is cleared because a 60 s production deadline would otherwise keep the worker alive for a minute after
+  the last file. Still clear timers a test depends on inside the test.
+- **What a spec must undo itself (between tests):**
+  - Mock implementations and queued `Once` values. `vi.clearAllMocks()` keeps both; use `mockReset()` and set the
+    default again in `beforeEach`.
+  - Spies on objects the file does not own: restore in `afterEach` or a `finally`.
+  - Mutable fixtures, module singletons, store state and `localStorage` keys that one test writes and another reads.
+  - Mounted wrappers: call `enableAutoUnmount(afterEach)` once at module level, or unmount in `afterEach`.
+  - Anything set in `beforeAll` and changed by a test.
+- **Reproduce an order failure.** Vitest prints `Running tests with seed "N"`. Re-run with
+  `pnpm exec vitest --run <file> --sequence.seed=N`; for a failure across files, run the whole suite with the same
+  seed (or pass the files with `--poolOptions.forks.singleFork`). Fix the leaking spec, then try several seeds.
+- **Not allowed:** retries, longer timeouts, `skip`/`todo`, or a weaker assertion to get past an order failure.
+- **Isolated project.** A file may move to a project with `isolate: true` only when it cannot share a module graph,
+  for example it replaces a native global that cannot be restored, or it loads a module with unrestorable
+  import-time side effects. Write the concrete reason next to the file in the project config.
+
 ### Database setup
 
 ```bash
@@ -283,15 +319,15 @@ So when checking a PR before merge:
 - The authoritative signal is the surviving **`pull_request`** run for the head SHA. Verify with: `gh run list --json event,headSha,conclusion` — the `pull_request` run's `conclusion: success` is what matters. The `CANCELLED` `push` run is noise; `gh run view <id> --log-failed` on it is empty because it was cancelled, not failed. **Do not spend rounds diagnosing it.**
 - Documentation, skill, PR-panel and isolated Render MCP changes retain their previous unit/build exclusions through the independent basic-scope gate. Complete file discovery includes both rename paths; uncertainty runs basic checks. PR metadata and E2E authorization still observe every PR. Missing decisions enter Draft/triage; documentation-only PRs can request the mandatory smoke floor after a current decision is published.
 
-**PR jobs are in two workflows.** `PR checks` (four `Unit tests` shards, `AsyncAPI build and CI script tests`, the `Build and Unit Test` result job, `E2E: Viewer preview`) takes no staging lock, and a newer push cancels its older run, so a `CANCELLED` run there is also normal. `PR validation` holds `conf-app-staging`; a run that a newer push overtook skips its staging jobs and ends green. Only jobs that need staging belong in `PR validation`, because the lock holds back the whole run. See [docs/ops/pipeline-graphs.md](docs/ops/pipeline-graphs.md).
+**PR jobs are in two workflows.** `PR checks` (four `Unit tests` shards, `AsyncAPI build`, `MCP app build and CI script tests`, `Lint` (oxlint, no project install, 5 s budget; `pnpm lint` runs the same command), the `Build and Unit Test` result job, `E2E: Viewer preview`) takes no staging lock, and a newer push cancels its older run, so a `CANCELLED` run there is also normal. `PR validation` holds `conf-app-pr-slot`, the lock of the PR slot (Forge environment `pr` on `lite-dev.atlassian.net`, backend `conf-stg-lite-pr.zenuml.com` = Pages preview branch `pr` of `conf-stg-lite`, with staging's D1, KV and R2); it does not wait behind `main` or the daily regression. A run that a newer push overtook skips its slot jobs and ends green. So does a duplicate run: when an earlier run of the same head already passed E2E under the test decision that is still the newest, the later run (from `test:run` or Ready for Review) skips with a link to that run (`scripts/ci/pr-run-covered.mjs`); a manual dispatch or a re-run always validates again. Only jobs that need the slot belong in `PR validation`, because the lock holds back the whole run. Keep one Forge environment of the app on `lite-dev`: do not install `development` there and do not tunnel on `pr`. With the fixed Connect key a second install fails (409); with its own dev Connect key (PR #1284) it installs, but both environments still expose the same macro module keys (`zenuml-sequence-macro-lite`), so a bare-key macro may render with the other one (2026-11-22: PR #1297's agent-link E2E hit `pr-1284`). E2E pages pin the full Forge key of the environment under test (`tests/e2e-tests/utils/forge-extension.ts`); bare-key fixtures run only where one environment is installed. Dev Connect keys and the per-PR environments on whimet6: [docs/reference/dev-connect-key.md](docs/reference/dev-connect-key.md). See [docs/ops/pipeline-graphs.md](docs/ops/pipeline-graphs.md).
 
 ### Release order — diagramly → lite → full
 
-Production releases go **Diagramly first** (canary), then **Lite** for the same commit SHA, then **Full** no sooner than 24 hours after Lite; AsyncAPI is independent. Never offer Lite or Full as the first release step. Gates and scripts: the **release-app** skill, "Variants & gates".
+Production releases go **Diagramly first** (canary), then **Lite** for the same commit SHA, then **Full** no sooner than 8 hours after Lite and only if Lite's errors did not grow in those hours; AsyncAPI is independent. Never offer Lite or Full as the first release step. Gates and scripts: the **release-app** skill, "Variants & gates".
 
 ### Release pipeline time budget
 
-Where the minutes of a release go, what was cut and why: [docs/ops/release-pipeline-time-budget.md](docs/ops/release-pipeline-time-budget.md) and [ADR-0006](docs/adr/0006-release-pipeline-optimised-for-wall-clock.md) / [ADR-0007](docs/adr/0007-release-order-aware-pipeline.md). Two consequences that look like mistakes: the staging E2E jobs do **not** wait for the unit tests (the drafts do), and the production release smoke runs only the `@smoke` tier (the nightly smoke keeps the full suite) and is the PVT. All four staging E2E lanes on `main`, and all four daily regression transactions, run independently after one shared D1 migration gate; each main validator requires its own successful deploy and authentication. `main`, PR staging validation, and daily regression share the `conf-app-staging` concurrency group with `queue: max`: one run owns staging at a time, and up to 100 runs can wait. A run can start long after it was created; inspect the concurrency group and measure from its first job's `created_at`. `e2e-rerun.yml` can re-run a cancelled pending main push if it is still the tip and no other run covers that SHA. PR E2E requires a collaborator decision tied to the current head/base and complete diff (`docs/policies/pr-test-decisions.md`). Use `pr-labeling` at creation/update: select exact Feature × Interface pairs from `IMPACT-MAP.md`, retaining smoke, directly changed specs and known dependencies. Missing, stale or unresolved decisions enter `test:triage` and block PR E2E; full coverage requires explicit manual `pr-triage`. Labels display the decision and do not authorize execution. Unit/build checks remain independent; preview/export and staging E2E recheck trusted authorization. Main selects smoke, directly changed E2E specs and known helper dependencies, plus Jev-selected categories from each complete variant inventory. Public CI and selector paths also go to Jev on main; sensitive or incomplete diffs and missing or invalid decisions retain full coverage. Re-measure before changing shard counts — layouts are in the job comments, not derivable by hand.
+Where the minutes of a release go, what was cut and why: [docs/ops/release-pipeline-time-budget.md](docs/ops/release-pipeline-time-budget.md) and [ADR-0006](docs/adr/0006-release-pipeline-optimised-for-wall-clock.md) / [ADR-0007](docs/adr/0007-release-order-aware-pipeline.md). Two consequences that look like mistakes: the staging E2E jobs do **not** wait for the unit tests (the drafts do), and the production release smoke runs only the `@smoke` tier (the nightly smoke keeps the full suite) and is the PVT. All four staging E2E lanes on `main`, and all four daily regression transactions, run independently after one shared D1 migration gate; each main validator requires its own successful deploy and authentication. `main` and daily regression share the `conf-app-staging` concurrency group with `queue: max`: one run owns staging at a time, and up to 100 runs can wait. PR validation queues separately in `conf-app-pr-slot`. A run can start long after it was created; inspect the concurrency group and measure from its first job's `created_at`. `e2e-rerun.yml` can re-run a cancelled pending main push if it is still the tip and no other run covers that SHA. PR E2E requires a collaborator decision tied to the current head and complete diff (`docs/policies/pr-test-decisions.md`); a `selected` decision survives `main` commits that touch none of the PR's files, and `PR validation` deploys only after the decision check passes. Use `pr-labeling` at creation/update: select exact Feature × Interface pairs from `IMPACT-MAP.md`, retaining smoke, directly changed specs and known dependencies. Missing, stale or unresolved decisions enter `test:triage` and block PR E2E; full coverage requires explicit manual `pr-triage`. Labels display the decision and do not authorize execution. Unit/build checks remain independent; preview/export and staging E2E recheck trusted authorization. Main selects smoke, directly changed E2E specs and known helper dependencies, plus Jev-selected categories from each complete variant inventory. Public CI and selector paths also go to Jev on main; sensitive or incomplete diffs and missing or invalid decisions retain full coverage. Re-measure before changing shard counts — layouts are in the job comments, not derivable by hand.
 
 ### Feature rollout and customer operations
 

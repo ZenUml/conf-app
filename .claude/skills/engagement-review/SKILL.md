@@ -49,6 +49,8 @@ Read private files with `git -C private fetch origin main` and `git show origin/
 - Never read the net fleet trend. Growth and decline cancel out; segment first.
 - A growing site counts only after it holds 8+ weeks (B-window saves ≥67% of the earlier B window). A two-week review tracks; it does not judge.
 - Many feature events are sampled from 2026-10-12. Extrapolate with `1 / sample_rate` inside the query; distinct-user counts of sampled events are floors.
+- A week with almost no events is a missing-data gap until the code says otherwise. Before reading it as a behaviour change, check `sampleRateFor()` in `src/utils/analytics/eventSampling.ts` and the event's history in that file (`git log -G'<event>' -- src/utils/analytics/eventSampling.ts`). An event in `OCTOBER_STOP_EVENTS` gets rate 0: the browser drops it and stamps nothing. Map each change to its first release with `git tag --contains <commit>`.
+- Known gap: `viewport_control_used` (Fullscreen, viewer and editor zoom) was stopped from 2026-10-12 (commit `8655d99f7`, first Lite `v2026.10.121121-lite`) to 2026-11-18 (commit `3d3367751`, first Lite `v2026.11.190129-lite`, the same release as wheel zoom). The few rows inside the gap come from builds older than the stop, and from `v2026.10.271752-full`, which sent everything from 2026-11-01 to about 11-04 because its budget window still ended with October. For zoom before and after comparisons, use September as the "before" period, not October or early November.
 - A late-December week low in every segment is the holiday period, not an effect.
 - Label any inference as an inference. A sub-session note is a report, not proof: check the PR state or `origin/main` before relaying it.
 

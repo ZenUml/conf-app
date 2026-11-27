@@ -2,24 +2,7 @@
  * Sequence diagram validation utilities
  */
 import { SyntaxValidationResult } from '../validate/types';
-
-interface ZenumlErrorDetail {
-  line: number;
-  column: number;
-  msg: string;
-}
-
-interface ZenumlParseResult {
-  pass: boolean;
-  errorDetails: ZenumlErrorDetail[];
-}
-
-// Headless, reentrant parser entry. `new ZenUml(el).parse()` mounts a React
-// root and appends a headlessui portal root to document.body on every call,
-// and neither is ever torn down.
-const loadZenumlParser = () =>
-  // @ts-expect-error -- root tsconfig `moduleResolution: "node"` cannot see `exports` subpaths
-  import('@zenuml/core/parser') as Promise<{ validate(code: string): ZenumlParseResult }>;
+import { loadZenumlParser } from './parser';
 
 /**
  * Function to validate sequence syntax and return validation result

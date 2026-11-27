@@ -1,7 +1,7 @@
 import { reactive } from 'vue';
 import { describe, it, expect } from 'vitest';
 import { DiagramType, NULL_DIAGRAM } from '@/model/Diagram/Diagram';
-import Example from '@/utils/sequence/Example';
+import Example, { LegacyMermaid } from '@/utils/sequence/Example';
 import OpenApiExample from '@/model/OpenApi/OpenApiExample';
 import { EMPTY_GRAPH } from '@/utils/graph/emptyGraph';
 import { compress } from '@/utils/compress';
@@ -57,6 +57,11 @@ describe('classifyContentState', () => {
 
   it('does not treat the sequence sample as default for another type', () => {
     expect(classifyContentState({ code: Example.Sequence }, DiagramType.OpenApi)).toBe('authored');
+  });
+
+  it('still counts the pre-flowchart Mermaid seed as default, for Mermaid only', () => {
+    expect(classifyContentState({ mermaidCode: LegacyMermaid }, DiagramType.Mermaid)).toBe('default');
+    expect(classifyContentState({ plantUmlCode: LegacyMermaid }, DiagramType.PlantUml)).toBe('authored');
   });
 
   it('recognises an lzutf8-compressed legacy graph body of the seed (best effort)', () => {

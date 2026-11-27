@@ -38,6 +38,17 @@ vi.mock('@/model/globals', () => ({
 
 vi.mock('@/utils/cohorts/userCohorts', () => ({ refreshUserCohortsIfStale: vi.fn() }))
 
+// Mock factories survive vi.resetModules(), and the suite runs in random order,
+// so put the shared mocks back to their defaults before every test.
+beforeEach(async () => {
+  const getFeatureFlags = (await import('@/apis/featureFlags')).default
+  vi.mocked(getFeatureFlags).mockReset()
+  vi.mocked(getFeatureFlags).mockResolvedValue({ PAYWALL_EXEMPT: false })
+  const globals = await import('@/model/globals')
+  vi.mocked(globals.default.apWrapper.isLite).mockReset()
+  vi.mocked(globals.default.apWrapper.isLite).mockReturnValue(true)
+})
+
 describe('useCustomerSuccessService - Paid Space Detection', () => {
   beforeEach(async () => {
     // Clear localStorage before each test

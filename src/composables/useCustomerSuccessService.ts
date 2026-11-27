@@ -66,6 +66,8 @@ export function useCustomerSuccessService() {
   const shouldBlockActions = computed(() => false)
   // Server-decided: the site is at `block_edit` and this space is enforced. Never compare a count here.
   const editRequestGateApplies = computed(() => siteEnforcement.value?.effects.requestEdit === true)
+  // Server-decided: the site is at `block_create` or later. Creating asks for the same `edit` request.
+  const createRequestGateApplies = computed(() => siteEnforcement.value?.effects.blockCreate === true)
 
   const severity = computed(() => {
     if (macrosCreated.value >= MACROS_LIMIT) return 'critical'
@@ -296,6 +298,7 @@ export function useCustomerSuccessService() {
     actionRequired,
     shouldBlockActions,
     editRequestGateApplies,
+    createRequestGateApplies,
     severity,
     upgradeUrl,
     enterpriseBundleUrl,

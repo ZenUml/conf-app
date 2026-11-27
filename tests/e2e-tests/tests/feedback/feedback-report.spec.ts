@@ -94,6 +94,11 @@ import {
 import { openFullscreenViewer, viewerFrame } from '../../helpers/ViewerActionsHelper.js';
 import { frameWithTestId } from '../../helpers/byline.js';
 
+// Each test builds its own page, so the planner may place tests of this
+// file on different shards (scripts/test-selection/plan.mjs splits a
+// file per test only when it declares parallel mode).
+test.describe.configure({ mode: 'parallel' });
+
 test.describe('Feedback reporting', { tag: ['@test:feedback-report', '@variant:lite', '@variant:full', '@variant:diagramly', '@modal', '@editor', '@viewer', '@fullscreen', '@feedback', '@feature:feedback-report', '@interface:editor', '@scenario:feedback-report:editor', '@interface:fullscreen-viewer', '@scenario:feedback-report:fullscreen-viewer', '@interface:inline-viewer', '@scenario:feedback-report:inline-viewer', '@interface:export-workspace', '@scenario:feedback-report:export-workspace'] }, () => {
   test.skip(!testConfig.isForge, 'Feedback reporting is Forge-only');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence macro required');

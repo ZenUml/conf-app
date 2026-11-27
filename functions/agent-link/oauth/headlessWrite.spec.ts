@@ -756,7 +756,12 @@ describe('write analytics', () => {
         guardrail_reason: 'data_loss',
         macro_type: 'sequence',
         client_domain: 'one',
+        input_len: CURRENT_DSL.length,
+        output_len: 'A.one()'.length,
       });
+      expect(e.properties.guardrail_kept_pct).toBeLessThan(80);
+      expect(e.properties.guardrail_error_kind).toBeUndefined();
+      expect(e.properties.guardrail_dsl_kind).toBeUndefined();
     }
     expect(toolCalls[0].properties.mcp_tool_outcome).toBe('tool_error');
   }, GUARD_TIMEOUT_MS);
@@ -769,6 +774,10 @@ describe('write analytics', () => {
     });
     expect(toolCalls[0].properties.guardrail_reason).toBe('parse_error');
     expect(events[0].properties.guardrail_reason).toBe('parse_error');
+    for (const e of [events[0], toolCalls[0]]) {
+      expect(e.properties).toMatchObject({ guardrail_error_kind: expect.any(String), output_len: dsl.length });
+      expect(e.properties.guardrail_kept_pct).toBeUndefined();
+    }
     expect(JSON.stringify([events, toolCalls])).not.toContain('secret-text');
   }, GUARD_TIMEOUT_MS);
 

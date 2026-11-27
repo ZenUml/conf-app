@@ -10,7 +10,7 @@
         </p>
       </div>
     </section>
-    <FullscreenRecoveryGate v-if="!hasOpened || showRequest" :snapshot="snapshot" :feature="feature" :context="context"
+    <FullscreenRecoveryGate v-if="!hasOpened || showRequest" :snapshot="snapshot" :feature="feature" :edit-target="editTarget" :context="context"
       :initial-view="showRequest ? 'request' : undefined" @update:snapshot="snapshot = $event"
       @open-fullscreen="open" @return-inline="returnInline" @plan-usage="goToPlanUsage" />
     <p v-if="openError" class="recovery-error" role="alert">Could not complete that action. Please try again.</p>
@@ -31,6 +31,8 @@ import { trackAnalyticsEvent } from '@/utils/analytics/trackAnalyticsEvent';
 const props = withDefaults(defineProps<{
   initialSnapshot: RecoverySnapshot;
   feature?: RecoveryFeature;
+  /** `edit` only: the editor opens an existing diagram or a new one. */
+  editTarget?: 'existing_diagram' | 'new_diagram';
   content: Component;
   contentProps?: Record<string, unknown>;
   context?: { contentId?: string; customContentId?: string; spaceKey?: string };
@@ -50,7 +52,7 @@ let serverClockOffset = Date.parse(snapshot.value.serverNow) - Date.now();
 const attemptId = crypto.randomUUID();
 const common = () => ({ feature_area: 'upgrade' as const, surface: props.feature === 'edit' ? 'editor' as const : 'viewer' as const,
   feature: props.feature, policy_version: RECOVERY_FEATURE_DEFINITIONS[props.feature].policyVersion,
-  attempt_id: attemptId, recovery_state: snapshot.value.state,
+  attempt_id: attemptId, recovery_state: snapshot.value.state, edit_target: props.editTarget,
   recovery_request_id: snapshot.value.request?.id, recovery_grant_id: snapshot.value.grant?.id });
 
 // setup runs before any child renderer mounts and reports success. The editor has no such

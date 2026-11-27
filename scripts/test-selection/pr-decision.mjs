@@ -10,7 +10,7 @@ import { EXECUTION_SELECTOR_CATALOG_VERSION } from '../../tests/e2e-tests/config
 import { POLICY_VERSION, EXECUTION_SELECTOR_CATALOG_FINGERPRINT } from './classify.mjs';
 import { selectAgentFloor } from '../e2e-select.mjs';
 import { resolveSelection } from './resolve.mjs';
-import { SCENARIO_COVERAGE, API_LANES, hasPrCoverage } from '../../tests/e2e-tests/config/scenario-coverage.mjs';
+import { SCENARIO_COVERAGE, SCENARIO_COVERAGE_FINGERPRINT, API_LANES, hasPrCoverage } from '../../tests/e2e-tests/config/scenario-coverage.mjs';
 import { FEATURES, INTERFACES, SCENARIOS, scenarioKey, validScenarios, PRODUCT_IMPACT_FINGERPRINT } from '../../tests/e2e-tests/config/product-impact.mjs';
 
 export const MARKER = '<!-- pr-test-decision:v2 -->';
@@ -24,7 +24,7 @@ export const catalog = {
   category_version: CATEGORY_VERSION,
   category_catalog_fingerprint: createHash('sha256').update(JSON.stringify(CATEGORIES)).digest('hex'),
   product_impact_fingerprint: PRODUCT_IMPACT_FINGERPRINT,
-  scenario_coverage_fingerprint: createHash('sha256').update(JSON.stringify({ browser: SCENARIO_COVERAGE, api: API_LANES })).digest('hex'),
+  scenario_coverage_fingerprint: SCENARIO_COVERAGE_FINGERPRINT,
   policy_version: POLICY_VERSION,
   selector_catalog_version: EXECUTION_SELECTOR_CATALOG_VERSION,
   selector_catalog_fingerprint: EXECUTION_SELECTOR_CATALOG_FINGERPRINT,
@@ -78,9 +78,36 @@ export async function readContext(api, number) {
   return { pr, files, paths, removed_paths, diff_fingerprint };
 }
 
-export function validateDecision(decision, context) {
+// The target branch moves many times an hour. A decision, or a tested merge,
+// made on an older target commit stays usable when that commit is in the
+// current tip's history and nothing merged since touches a path the PR
+// changes. The head, the diff fingerprint and the catalogs are still bound
+// exactly. Anything unclear fails closed: the caller treats `false` as stale.
+const MAX_COMPARE_FILES = 300; // GitHub returns at most 300 files; a full list may be truncated.
+export async function baseCarriesOver(api, from, context) {
+  const tip = context.pr.base.sha;
+  if (!sha(from) || !sha(tip)) return false;
+  if (from === tip) return true;
+  const cache = context.base_carry ??= new Map();
+  if (!cache.has(from)) cache.set(from, (async () => {
+    try {
+      const compared = await api(`/compare/${from}...${tip}`);
+      if (compared?.status !== 'ahead' || compared.merge_base_commit?.sha !== from) return false;
+      const files = compared.files;
+      if (!Array.isArray(files) || files.length >= MAX_COMPARE_FILES || files.some(f => typeof f?.filename !== 'string' || !f.filename)) return false;
+      const touched = new Set(files.flatMap(f => [f.filename, ...(f.previous_filename ? [f.previous_filename] : [])]));
+      return !context.paths.some(path => touched.has(path));
+    } catch { return false; }
+  })());
+  return cache.get(from);
+}
+
+export function validateDecision(decision, context, { baseCarries = false } = {}) {
   const fail = reason => ({ valid: false, reason });
-  if (!decision || decision.schema_version !== 2 || !sameIdentity(decision, identity(context.pr))) return fail('missing-or-stale-decision');
+  const current = identity(context.pr);
+  // Only a selected decision carries over a moved base; full approval is per base.
+  const sameBase = decision?.base_sha === current.base_sha || (baseCarries && decision?.mode === 'selected');
+  if (!decision || decision.schema_version !== 2 || decision.pr_number !== current.pr_number || decision.head_sha !== current.head_sha || !sameBase) return fail('missing-or-stale-decision');
   if (Object.entries(catalog).some(([key, value]) => decision[key] !== value)) return fail('stale-policy-or-catalog');
   if (decision.diff_fingerprint !== context.diff_fingerprint) return fail('changed-diff');
   if (!['selected', 'all', 'triage'].includes(decision.mode) || !['labeling', 'triage'].includes(decision.source) || !text(decision.reason) || !validScenarios(decision.scenarios) || 'categories' in decision) return fail('invalid-decision');
@@ -165,7 +192,8 @@ export async function findDecision(api, context) {
     const decision = parseComment(comment);
     // Editing a decision invalidates it; never revive an older approval.
     if (!decision) return { valid: false, reason: 'edited-or-malformed-decision', comment_id: comment.id };
-    const result = validateDecision(decision, context);
+    const moved = decision.mode === 'selected' && decision.pr_number === context.pr.number && decision.head_sha === context.pr.head.sha && decision.base_sha !== context.pr.base.sha;
+    const result = validateDecision(decision, context, { baseCarries: moved && await baseCarriesOver(api, decision.base_sha, context) });
     return { ...result, decision, comment_id: comment.id, author: login, url: comment.html_url };
   }
   return { valid: false, reason: 'missing-collaborator-decision' };
@@ -237,15 +265,18 @@ export async function publish(api, context, input) {
   return synchronize(api, latest, await findDecision(api, latest));
 }
 
-export function selectionFromDecision(context, result, candidate, tree) {
+export function selectionFromDecision(context, result, candidate, tree, testedBase = context.pr.base.sha) {
   if (!result.valid || !sha(candidate) || !sha(tree)) throw new Error(`E2E blocked: ${result.reason}`);
   const { decision: d, comment_id } = result;
   return {
     schema_version: 1, ...catalog, selection_scope: 'pr', decision_source: 'agent', decision_id: comment_id,
-    pr_number: context.pr.number, pr_head_sha: context.pr.head.sha, base_sha: context.pr.base.sha,
+    pr_number: context.pr.number, pr_head_sha: context.pr.head.sha, base_sha: testedBase,
     head_sha: candidate, tested_tree: tree, source_paths: context.paths, removed_paths: context.removed_paths, source: d.source,
     mode: d.mode, execution_mode: 'enabled', decision_schema_version: 2, scenarios: d.scenarios, categories: Object.fromEntries(CATEGORIES.map(c => [c.id, { selected: false }])),
     required: ['smoke'], full_reason: d.full_reason ?? null, reason: d.reason, evidence: d.evidence,
+    // The exact preimage of scenario_coverage_fingerprint, so a candidate that
+    // only adds scenario tests can prove it is a superset (see resolve.mjs).
+    trusted_scenario_coverage: { browser: SCENARIO_COVERAGE, api: API_LANES },
     model: null, request: { outcome: 'not-requested', source: 'agent-skill' }, fallback_reason: null, diff_complete: true,
   };
 }
@@ -261,8 +292,10 @@ export async function authorize(api, number, { candidate, expectedDecision, expe
   const commit = await api(`/git/commits/${source}`);
   const parents = commit.parents?.map(p => p.sha) ?? [];
   const isHead = source === context.pr.head.sha;
-  if (!isHead && (parents.length !== 2 || parents[0] !== context.pr.base.sha || parents[1] !== context.pr.head.sha)) throw new Error('E2E blocked: stale or unrelated candidate');
-  const selection = selectionFromDecision(context, result, source, commit.tree?.sha);
+  // The merge may have been built before the target moved; its base must still carry over.
+  if (!isHead && (parents.length !== 2 || parents[1] !== context.pr.head.sha || !await baseCarriesOver(api, parents[0], context))) throw new Error('E2E blocked: stale or unrelated candidate');
+  // Record the base that was tested, so later rechecks of this candidate agree after the target moves.
+  const selection = selectionFromDecision(context, result, source, commit.tree?.sha, isHead ? context.pr.base.sha : parents[0]);
   const resolved = resolveSelection({ selection, files: context.paths, head: source, tree: commit.tree.sha });
   if (!['selected', 'all'].includes(resolved.mode)) throw new Error('E2E blocked: invalid resolution');
   if (expectedMode && expectedMode !== resolved.mode || expectedGrep !== undefined && expectedGrep !== resolved.grep) throw new Error('E2E blocked: dispatch differs from decision');

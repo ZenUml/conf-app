@@ -4,7 +4,10 @@ import { scenarioKey, validScenarios } from './product-impact.mjs';
 
 // Pair matching never selects a whole legacy category. Only its established
 // dependencies form an additional floor, retaining the existing safety policy.
-export function dependencyTagsForScenarios(scenarios, { directFiles = [], floorTags = [] } = {}) {
+// `coverage` lets a candidate resolve against the trusted catalog it was
+// authorized with; its tests are the categorized union of that catalog.
+export function dependencyTagsForScenarios(scenarios, { directFiles = [], floorTags = [], coverage = SCENARIO_COVERAGE } = {}) {
+  const tests = coverage === SCENARIO_COVERAGE ? SCENARIO_TESTS : coverage.flatMap(item => item.tests);
   if (!validScenarios(scenarios)) throw new Error('Invalid product impact scenarios');
   const keys = new Set(scenarios.map(scenarioKey));
   const byId = new Map(CATEGORIES.map(category => [category.id, category]));
@@ -17,8 +20,8 @@ export function dependencyTagsForScenarios(scenarios, { directFiles = [], floorT
       visit(dependency);
     }
   };
-  for (const item of SCENARIO_TESTS) if (directFiles.includes(item.file)) item.categories.forEach(visit);
+  for (const item of tests) if (directFiles.includes(item.file)) item.categories.forEach(visit);
   for (const tag of floorTags) if (tag.startsWith('@test:')) visit(tag.slice(6));
-  for (const item of SCENARIO_COVERAGE) if (item.scenarios.some(pair => keys.has(scenarioKey(pair)))) visit(item.category);
+  for (const item of coverage) if (item.scenarios.some(pair => keys.has(scenarioKey(pair)))) visit(item.category);
   return [...dependencies].sort().map(id => `@test:${id}`);
 }

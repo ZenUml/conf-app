@@ -7,6 +7,7 @@ import copy from 'rollup-plugin-copy'
 import { visualizer } from 'rollup-plugin-visualizer'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import { fileURLToPath } from 'url';
+import { zenumlCoreClosureGuard } from './scripts/build/zenumlCoreClosureGuard.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -91,6 +92,28 @@ function getHtmlFiles(dir, { isBuild = false } = {}) {
   return htmlFiles;
 }
 
+// A development environment's own Connect key must be the variant's fixed key
+// plus a suffix (`com.zenuml.confluence-addon-lite-<name>`): the backend
+// recognises dev keys by that convention (functions/magic-writeback.ts), and a
+// key belongs to the LONGEST fixed key it extends, so a Full build may not use
+// a `…-lite-…` key. See docs/reference/dev-connect-key.md.
+const FIXED_CONNECT_KEYS = {
+  full: 'com.zenuml.confluence-addon',
+  lite: 'com.zenuml.confluence-addon-lite',
+  diagramly: 'gptdock-confluence',
+  asyncapi: 'my-api',
+}
+const CONNECT_KEY_OVERRIDE = process.env.CONNECT_KEY_OVERRIDE || ''
+if (CONNECT_KEY_OVERRIDE) {
+  const fixed = FIXED_CONNECT_KEYS[process.env.PRODUCT_TYPE || 'full']
+  const suffix = fixed && CONNECT_KEY_OVERRIDE.startsWith(`${fixed}-`) ? CONNECT_KEY_OVERRIDE.slice(fixed.length + 1) : ''
+  const claimedByLonger = Object.values(FIXED_CONNECT_KEYS).some((other) => other.length > (fixed || '').length
+    && (CONNECT_KEY_OVERRIDE === other || CONNECT_KEY_OVERRIDE.startsWith(`${other}-`)))
+  if (!/^[a-z0-9][a-z0-9.-]{0,40}$/.test(suffix) || claimedByLonger) {
+    throw new Error(`CONNECT_KEY_OVERRIDE "${CONNECT_KEY_OVERRIDE}" must be "${fixed}-<suffix>" (suffix lowercase [a-z0-9.-], up to 41 chars) for PRODUCT_TYPE=${process.env.PRODUCT_TYPE || 'full'}`)
+  }
+}
+
 export default defineConfig(({ command }) => ({
   base: './',
   define: {
@@ -102,6 +125,13 @@ export default defineConfig(({ command }) => ({
     // variant can render, which is how a malformed key once rendered as an
     // unknown extension on a customer's page.
     'import.meta.env.SEQUENCE_MACRO_KEY': JSON.stringify(process.env.SEQUENCE_MACRO_KEY || 'zenuml-sequence-macro'),
+    // Non-default Connect key for a development environment, the same env var
+    // the manifest templates as ${CONNECT_KEY}. Empty means "use the variant's
+    // fixed key" (ApWrapper2.getCustomContentTypePrefix). It must match the key
+    // the environment was deployed with, or every custom-content read and write
+    // targets a type this install did not register. See
+    // docs/reference/dev-connect-key.md.
+    'import.meta.env.CONNECT_KEY_OVERRIDE': JSON.stringify(CONNECT_KEY_OVERRIDE),
     'import.meta.env.VITE_MIXPANEL_TOKEN': JSON.stringify(mixpanelToken),
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
     'import.meta.env.VITE_APP_COMMIT': JSON.stringify(process.env.VITE_APP_GIT_HASH || 'unknown'),
@@ -161,7 +191,17 @@ export default defineConfig(({ command }) => ({
   },
   build: {
     rollupOptions: {
-      input: getHtmlFiles('./', { isBuild: command === 'build' })
+      input: getHtmlFiles('./', { isBuild: command === 'build' }),
+      treeshake: {
+        // @zenuml/codemirror-extensions' index re-exports its linter, whose
+        // module body runs `new ZenUml(div)` and so imports all of
+        // @zenuml/core statically. We use our own lazy linter
+        // (src/components/Editor/zenumlLinter.ts); marking that module
+        // side-effect free lets Rollup drop it, keeping the 3.5 MB core out
+        // of every editor's static imports. zenumlCoreClosureGuard (below)
+        // fails the build if this path stops matching.
+        moduleSideEffects: (id) => !/@zenuml[/+]codemirror-extensions.*[/]extensions[/]zenuml-linter\.js$/.test(id),
+      },
     },
 
     // @asyncapi/parser's transitive deps (qs, avsc, readable-stream, …)
@@ -193,7 +233,12 @@ export default defineConfig(({ command }) => ({
       // server, so joint-debug starts that server with FORGE_TUNNEL=1 to retain
       // the real bridge. `vite build` (command === 'build', every
       // `pnpm build:*` / production bundle) is untouched.
-      ...(command === 'serve' && process.env.FORGE_TUNNEL !== '1'
+      // BRIDGE_STUB=1 opts a `vite build` into the stub too, so a production
+      // bundle can boot outside Confluence for local diagnosis, e.g.
+      // `BRIDGE_STUB=1 PRODUCT_TYPE=lite npx vite build --outDir /tmp/d` then
+      // serve it and open index.html?sandbox=graph-view&outputType=display.
+      // Never set it for a bundle that is deployed.
+      ...(((command === 'serve' && process.env.FORGE_TUNNEL !== '1') || process.env.BRIDGE_STUB === '1')
         ? { '@forge/bridge': resolve(__dirname, './src/stubs/forge-bridge.ts') }
         : {}),
       // AsyncAPI variant: @asyncapi/parser pulls in Node's `fs` for its
@@ -304,6 +349,18 @@ export default defineConfig(({ command }) => ({
   // If a refactor renames these entry chunks the family silently drops out of
   // the manifest — the renderer-prefetch unit test on family presence guards
   // a built dist (see docs/features/renderer-prefetch.md).
+  // Records which Connect key this dist/ was built for, so scripts/forgex can
+  // refuse to deploy it to an environment with a different key (every
+  // custom-content read and write would then name types the install does not
+  // own). Empty for every staging and production build.
+  {
+    name: 'connect-key-marker',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'connect-key-override.txt', source: CONNECT_KEY_OVERRIDE });
+    },
+  },
+  zenumlCoreClosureGuard(),
   {
     name: 'prefetch-manifest',
     apply: 'build',
@@ -400,9 +457,14 @@ export default defineConfig(({ command }) => ({
   },
   ],
   test: {
-    environment: 'jsdom',
+    environment: './tests/setup/persistent-jsdom-environment.ts',
     globals: true,
-    setupFiles: ['./tests/test-setup.ts'],
+    // One module graph and one jsdom per worker; see "Unit test cleanup rules"
+    // in AGENTS.md. Random order exposes leaks between files and tests.
+    // Vitest prints the seed; reproduce a failure with `--sequence.seed=<seed>`.
+    isolate: false,
+    sequence: { shuffle: { files: true, tests: true } },
+    setupFiles: ['./tests/setup/shared-graph-reset.ts', './tests/test-setup.ts'],
     coverage: {
       provider: 'v8',
     },

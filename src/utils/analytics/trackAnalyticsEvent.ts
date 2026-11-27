@@ -1,6 +1,6 @@
 // src/utils/analytics/trackAnalyticsEvent.ts
 
-import mixpanel from "mixpanel-browser";
+import mixpanel, { MIXPANEL_RECORDER_SRC } from "./mixpanelClient";
 import {
   getClientDomain,
   getSpaceKey,
@@ -11,6 +11,7 @@ import type { AnalyticsProperties } from "./types";
 import type { SpaceAdmin } from "@/model/SpaceAdmin";
 import { isCurrentPageDemoPage } from "./demoPageStatus";
 import { getSessionReplayConfig } from "./sessionReplayFlags";
+import { startClarityReplay } from "./clarityReplay";
 import { decideSample } from "./eventSampling";
 import { normalizeProductType } from "./productType";
 import {
@@ -382,6 +383,9 @@ function _initMixpanel(): Promise<void> {
         // headers, no bodies — so diagram content never enters the recording.
         record_console: true,
         record_network: true,
+        // Load the replay recorder from our bundle, and only when a recording
+        // starts (see mixpanelClient.ts).
+        recorder_src: MIXPANEL_RECORDER_SRC,
       });
       mixpanel.register({ analytics_init_ms: performance.now() - startedAt });
       // Stamp every event with the resolved rate + why, so the throttle and
@@ -389,6 +393,16 @@ function _initMixpanel(): Promise<void> {
       mixpanel.register({
         session_replay_percent: percent,
         session_replay_source: source,
+      });
+      // Clarity replay (editor + fullscreen, flag- and geo-gated). Not awaited:
+      // its flag and geo checks must not delay Mixpanel. Events sent before it
+      // settles carry no clarity_* property.
+      void startClarityReplay().then(({ outcome, sessionId }) => {
+        mixpanel.register(
+          sessionId
+            ? { clarity_replay_outcome: outcome, clarity_session_id: sessionId }
+            : { clarity_replay_outcome: outcome },
+        );
       });
       if (replayConfigTimedOut) {
         // Fired after init so it actually leaves; not awaited because it

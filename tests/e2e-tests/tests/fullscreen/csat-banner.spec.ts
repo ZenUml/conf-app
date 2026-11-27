@@ -79,6 +79,11 @@ async function prepareCsatBannerFlow(page: Page): Promise<void> {
 // Tests
 // ---------------------------------------------------------------------------
 
+// Each test builds its own page, so the planner may place tests of this
+// file on different shards (scripts/test-selection/plan.mjs splits a
+// file per test only when it declares parallel mode).
+test.describe.configure({ mode: 'parallel' });
+
 test.describe('CSAT pageBanner', { tag: ['@test:csat-banner', '@variant:lite', '@variant:full', '@variant:diagramly', '@page-banner', '@fullscreen', '@csat', '@feature:csat', '@interface:page-banner', '@scenario:csat:page-banner'] }, () => {
   test.skip(!testConfig.isForge, 'pageBanner is Forge-only');
   test.skip(!testConfig.macros.includes('sequence'), 'sequence macro required');

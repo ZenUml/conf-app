@@ -4,9 +4,9 @@
       <div class="text-4xl mb-3">🌿</div>
       <div class="text-sm font-semibold text-emerald-700 mb-1">Start with Mermaid</div>
       <div class="text-xs text-gray-400 mb-4">Type or paste Mermaid syntax in the editor</div>
-      <pre class="text-left text-xs font-mono bg-gray-900 text-emerald-300 rounded-lg px-5 py-4 leading-relaxed">sequenceDiagram
-    Alice-&gt;&gt;John: Hello John!
-    John--&gt;&gt;Alice: Hi Alice!</pre>
+      <pre class="text-left text-xs font-mono bg-gray-900 text-emerald-300 rounded-lg px-5 py-4 leading-relaxed">flowchart TD
+    Start([Start]) --&gt; Step[Do something]
+    Step --&gt; Done([Done])</pre>
     </div>
     <DiagramViewport
       v-else
@@ -36,6 +36,7 @@ import { awaitSvgTextLayout } from '@/utils/renderGate/documentLayout';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import DiagramViewport from '@/components/Viewer/DiagramViewport.vue';
 import { attachMermaidHighlights } from '../../tools/mermaid-highlights/src/mermaid-highlights.mjs';
+import { MERMAID_INLINE_EDIT_SURFACE, reportInlineIntroRender } from '@/features/mermaidInlineEdit/ui/surface';
 
 // A wait for a measurable layout that outlasts this reports one
 // viewer_render_deferred, so a hidden macro is told apart from a broken one (#706).
@@ -49,6 +50,11 @@ export default {
     readOnly: { type: Boolean, default: false },
   },
   emits: ['highlight-ready', 'highlight-used'],
+  // True only under Workspace.vue (the editor preview). See ui/surface.ts.
+  inject: {
+    inlineEditSurface: { from: MERMAID_INLINE_EDIT_SURFACE, default: false },
+    reportInlineIntroRender: { from: reportInlineIntroRender, default: null },
+  },
   data() {
     return {
       svg: null,
@@ -58,6 +64,10 @@ export default {
       currentFlowchartModel: null,
       renderGeneration: 0,
       layoutWaitController: null,
+      // Mermaid sequence inline edit (src/features/mermaidInlineEdit).
+      inlineEdit: null,
+      inlineEditRenderedCode: null,
+      inlineEditViewKeeper: null,
     }
   },
   computed: {
@@ -71,6 +81,10 @@ export default {
     isDisplayMode() {
       return this.$store.getters.isDisplayMode;
     },
+    inlineEditAllowed() {
+      return this.inlineEditSurface === true && !this.isDisplayMode && !this.readOnly
+        && window.forgeGlobal?.forgeContext?.extension?.modal?.openExport !== true;
+    },
     highlightSurfaceAllowed() {
       // Export-entry renders are photographed at native size, never interactive.
       return this.isDisplayMode && !this.readOnly && !this.captureMode
@@ -78,6 +92,7 @@ export default {
     },
   },
   async mounted() {
+    void this.startInlineEdit();
     const code = this.mermaidCode;
     if (!code) {
       // #113: an empty body is the wipe signal. Report the view, with the
@@ -104,6 +119,9 @@ export default {
     this.clearHighlights();
     this.layoutWaitController?.abort();
     this.layoutWaitController = null;
+    this.inlineEdit?.destroy();
+    this.inlineEdit = null;
+    this.inlineEditRenderedCode = null;
   },
   watch: {
     readOnly() {
@@ -122,6 +140,7 @@ export default {
       if (this.relationshipHighlights && this.highlightSurfaceAllowed && this.mermaidCode) this.renderAndApply(this.mermaidCode);
     },
     async mermaidCode(newVal) {
+      this.inlineEdit?.onCodeChanged(newVal);
       if (!newVal) {
         this.renderGeneration++;
         this.layoutWaitController?.abort();
@@ -138,6 +157,7 @@ export default {
     /** Synchronous capture boundary: call before ExportModal starts cloning DOM. */
     setCaptureMode(active) {
       this.captureMode = !!active;
+      this.inlineEdit?.setSuspended(this.captureMode);
       this.clearHighlights();
       if (!this.captureMode && this.relationshipHighlights && this.highlightSurfaceAllowed) {
         if (this.currentFlowchartModel) this.installHighlights();
@@ -192,6 +212,18 @@ export default {
         this.clearHighlights();
       }
     },
+    /** Editor preview only; the module (and its parser) loads only there. */
+    async startInlineEdit() {
+      if (!this.inlineEditAllowed) return;
+      const { mountMermaidInlineEdit } = await import('@/features/mermaidInlineEdit');
+      if (this.inlineEdit || !this.$el?.isConnected) return;
+      this.inlineEdit = mountMermaidInlineEdit(this.$el, this.$store, {
+        renderPreview: (code) => this.renderPreview(code),
+        setViewKeeper: (fn) => { this.inlineEditViewKeeper = fn; },
+        viewport: () => this.$refs.viewport ?? null,
+      });
+      if (this.svg && this.inlineEditRenderedCode === this.mermaidCode) this.inlineEdit.onRendered(this.inlineEditRenderedCode);
+    },
     /** Re-bind the pan/zoom viewport after the slotted SVG changes. */
     initializeViewport() {
       return this.$refs.viewport?.attach();
@@ -212,7 +244,9 @@ export default {
       }
       // Latest request wins. This also prevents a queued result from writing
       // into a component that changed diagram type or was unmounted.
-      if (!svg || generation !== this.renderGeneration || this.mermaidCode !== code) {
+      if (generation !== this.renderGeneration || this.mermaidCode !== code) return false;
+      if (!svg) {
+        this.inlineEdit?.onRenderFailed(code);
         return false;
       }
       this.currentFlowchartModel = typeof svg === 'string' ? null : svg.flowchartModel;
@@ -223,8 +257,40 @@ export default {
       }
       await this.initializeViewport();
       if (generation !== this.renderGeneration || this.mermaidCode !== code) return false;
+      // Inline edit: puts zoom and pan back in the same task as the swap.
+      this.inlineEditViewKeeper?.(code);
       this.installHighlights();
+      this.inlineEditRenderedCode = code;
+      this.inlineEdit?.onRendered(code);
+      if (this.inlineEditAllowed) {
+        this.reportInlineIntroRender?.(code, this.$el.querySelector('.mermaid-diagram svg[aria-roledescription]'));
+      }
       reportDiagramReady(this.$el, 'mermaid');
+      return true;
+    },
+    /**
+     * Inline edit: render a candidate source WITHOUT writing the store.
+     * Latest-wins with renderAndApply (shared renderGeneration). No crash or
+     * layout-wait telemetry, no ready receipt, no highlights, no onRendered:
+     * a candidate that fails to render is simply not shown. Resolves true when
+     * the candidate's SVG is in the DOM and the viewport is re-attached.
+     */
+    async renderPreview(code) {
+      if (!this.mermaidCode) return false;
+      const generation = ++this.renderGeneration;
+      let svg;
+      try {
+        svg = await this.runMermaid(code);
+      } catch {
+        return false;
+      }
+      if (!svg || generation !== this.renderGeneration || !this.mermaidCode) return false;
+      this.svg = typeof svg === 'string' ? svg : svg.svg;
+      await this.$nextTick();
+      if (generation !== this.renderGeneration) return false;
+      await this.initializeViewport();
+      if (generation !== this.renderGeneration) return false;
+      this.inlineEditViewKeeper?.(code);
       return true;
     },
     async runMermaid(code) {

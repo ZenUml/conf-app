@@ -27,6 +27,9 @@ import type {
   PlantUmlRenderer,
   McpViewPlantUmlRenderer,
   McpViewFullscreenOutcome,
+  McpViewAction,
+  McpViewDownloadFormat,
+  McpViewActionOutcome,
   PlantUmlLocalFailureReason,
   PlantUmlUnresolvedInclude,
   PlantUmlPngPurpose,
@@ -41,6 +44,8 @@ import type {
   AgentLinkExpiryCause,
   AgentLinkRenderOutcome,
   AgentLinkGuardrailRejectReason,
+  AgentLinkGuardrailErrorKind,
+  AgentLinkGuardrailDslKind,
   AgentLinkSessionSuspendReason,
   AgentLinkListScope,
   AgentLinkMacroKeySource,
@@ -66,8 +71,13 @@ import type {
   ActivationPath,
   GalleryOpenTrigger,
   CodePanelToggleTrigger,
+  InlineEditDiagram,
+  InlineEditKind,
+  InlineEditRejection,
+  InlineEditUnavailableReason,
   SessionReplayEventSource,
   SessionReplayStartCallOutcome,
+  ClarityReplayOutcome,
   GraphEditorModeValue,
   EditorReplaceScope,
   EditorInputMethod,
@@ -123,6 +133,8 @@ export type AnalyticsProperties = {
   attempt_id?: string;
   recovery_request_id?: string;
   recovery_grant_id?: string;
+  /** `edit` only: the gated editor opens an existing diagram or creates a new one (one shared grant). */
+  edit_target?: 'existing_diagram' | 'new_diagram';
   recovery_state?: 'disabled' | 'not_requested' | 'pending_activation' | 'active' | 'expired' | 'unavailable';
   recovery_action?: 'contact_support' | 'plan_usage' | 'return_inline' | 'continue_request' | 'dismiss_notice';
   recovery_outcome?: 'created' | 'reused' | 'activated' | 'already_active' | 'extended' | 'already_applied';
@@ -264,6 +276,12 @@ export type AnalyticsProperties = {
   session_replay_source?: SessionReplayEventSource;
   session_replay_percent?: number;
   session_replay_start_call_outcome?: SessionReplayStartCallOutcome;
+  // Microsoft Clarity replay (editor + fullscreen iframes, behind the
+  // `clarity-replay-enabled` Forge flag). Registered as super-properties once
+  // per iframe, so no new event is sent. `clarity_session_id` joins a Mixpanel
+  // event to its Clarity recording; set only when the outcome is 'started'.
+  clarity_replay_outcome?: ClarityReplayOutcome;
+  clarity_session_id?: string;
   // Milliseconds from the first retained track call to Mixpanel init completion.
   // Registered once per iframe as a super-property (#707).
   analytics_init_ms?: number;
@@ -423,6 +441,10 @@ export type AnalyticsProperties = {
   fullscreen_outcome?: McpViewFullscreenOutcome;
   // agent_link_app_view_zoomed: whether the view was in fullscreen.
   fullscreen_active?: boolean;
+  // agent_link_app_view_action_used only.
+  view_action?: McpViewAction;
+  download_format?: McpViewDownloadFormat;
+  action_outcome?: McpViewActionOutcome;
   plantuml_failure_reason?: PlantUmlLocalFailureReason;
   plantuml_unresolved_include?: PlantUmlUnresolvedInclude;
   // ADR-0010: a GitHub C4-PlantUML URL include was rewritten to the hosted C4
@@ -472,6 +494,27 @@ export type AnalyticsProperties = {
   preview_source_changed_in_window?: boolean;
   preview_window_completed?: boolean;
   preview_ms_since_editor_open?: number;
+  // editor_inline_edit_* and editor_source_selection_hint_shown identify the Mermaid label kind. Bounded values:
+  // never the edited text, the actor or node id, or the message index.
+  inline_edit_kind?: InlineEditKind;
+  /**
+   * Diagram type being edited or demonstrated in the introduction. Optional
+   * because events sent before flowchart inline edit carry none (read absent
+   * as 'sequence').
+   */
+  inline_edit_diagram?: InlineEditDiagram;
+  /** mermaid_inline_edit_intro_shown: the example starts in its final state. */
+  inline_edit_intro_reduced_motion?: boolean;
+  /** editor_inline_edit_unavailable: why it is read-only (absent on events sent before 2026-11-21). */
+  inline_edit_unavailable_reason?: InlineEditUnavailableReason;
+  /** editor_inline_edit_rejected: the EditRejection reason. */
+  inline_edit_rejection?: InlineEditRejection;
+  /** editor_inline_edit_cancelled: Esc, or the box closed with unchanged text. */
+  inline_edit_cancel_reason?: "escape" | "unchanged";
+  /** Participant edits only: the participant has an alias (`participant A as Alice`). */
+  inline_edit_had_alias?: boolean;
+  /** Time the text box was open, on succeeded / rejected / cancelled. */
+  inline_edit_ms_open?: number;
   change_kind?: "request" | "syntax_repair" | "undo" | "rollback";
   version_id?: string;
   version_number?: number;
@@ -630,6 +673,8 @@ export type AnalyticsProperties = {
   // Advertised annual price on the bundle CTA at click time (USD, per space).
   // Recorded on the event so a later price change stays comparable.
   bundle_price_usd?: number;
+  /** Seasonal offer advertised on the CTA or forwarded to Stripe. */
+  bundle_offer?: 'black_friday_2026';
   /** Confirmed unpaid rows offering a one-space checkout on Plan and usage. */
   purchasable_space_count?: number;
   /** Per-space Lite limit at the time of a checkout action. */
@@ -657,6 +702,18 @@ export type AnalyticsProperties = {
   // Stripe returns it verbatim on the Checkout Session, so a $299 payment
   // joins back to the exact bundle CTA click without manual reconciliation.
   client_reference_id?: string;
+  // Bundle checkout funnel join key: a random id made when the checkout link is
+  // built, sent on paywall_bundle_cta_clicked and on every bundle_checkout_* event.
+  checkout_click_id?: string;
+  // Which Bundle CTA built the checkout link.
+  checkout_surface?: 'plan_usage' | 'upgrade_prompt';
+  // bundle_checkout_redirected: whether the handoff page was served.
+  handoff_outcome?: 'served' | 'invalid_ref';
+  // bundle_checkout_continued: what sent the buyer to Stripe.
+  checkout_trigger?: 'auto' | 'button';
+  countdown_stopped?: boolean;
+  // bundle_checkout_open_result: why router.open did not open the handoff page.
+  checkout_open_outcome?: 'declined' | 'error';
   // Cohort targeting (cohorts_refreshed). `cohorts` = comma-joined cohort list
   // the refresh resolved; empty string = user in no cohort (still a successful
   // refresh). `cohort_count` = same list's length, for numeric filtering.
@@ -969,6 +1026,11 @@ export type AnalyticsProperties = {
   // 'swr_cache' (id-keyed content cache, the revisit fast path). Distinct from
   // cache_source (rendered-SVG cache). Absent when no content fetch was involved.
   content_source?: ContentSource;
+  // macro_viewed: the page that owns the custom content loaded by id. Differs
+  // from `page_id` (the page the macro is rendered on) for a macro on a copied
+  // page that still points at the source page's content. Absent when no by-id
+  // fetch completed before the event (e.g. a render from the content cache).
+  content_page_id?: string;
   duration_ms?: number;
   // Graph Diagram/Board chrome switch (graph_editor_mode_switch_*).
   // `from_mode` / `to_mode` are the chrome values, never document types.
@@ -1233,6 +1295,17 @@ export type AnalyticsProperties = {
   // `guardrail_rejected` call. `reason` there is only that code, which cannot
   // tell a source that did not parse from a suspected truncation.
   guardrail_reason?: AgentLinkGuardrailRejectReason;
+  // The same refusals, in enough detail to judge whether the guard was right
+  // (2026-11: 10% of headless update_diagram calls were refused and the
+  // reason alone could not separate false alarms from real ones).
+  // `guardrail_kept_pct` = new non-whitespace length as a % of the current
+  // (data_loss only; the threshold is 80). `guardrail_error_kind` = class of
+  // the first parse error (parse_error only). `guardrail_dsl_kind` = the
+  // Mermaid diagram keyword of the refused source (Mermaid only). Sizes ride
+  // the shared `input_len` (current) / `output_len` (proposed) above.
+  guardrail_kept_pct?: number;
+  guardrail_error_kind?: AgentLinkGuardrailErrorKind;
+  guardrail_dsl_kind?: AgentLinkGuardrailDslKind;
   // agent_link_diagram_updated only: true when the call renamed the diagram
   // (a non-blank `title` that differs from the stored one, #789).
   title_changed?: boolean;
@@ -1415,6 +1488,9 @@ export type AnalyticsProperties = {
   // `error_class` is 'structured' for a Confluence `{ errors: [...] }` body
   // and 'malformed' for a body with no `body.raw.value`. `http_status` /
   // `error_code` come from the first structured error.
+  // `page_id` is the page the macro is rendered on, when the Forge context
+  // has one; join it with `content_page_id` on macro_viewed for the same
+  // content id to tell a cross-page reference from a same-page one.
   load_status?: 'not_found' | 'other_error';
   // load_failed_shown (GenericViewer) reuses `error_class`, `http_status` and
   // `direct_fetch_status` from the store's load error, and adds 'thrown' for a

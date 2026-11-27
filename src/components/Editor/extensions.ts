@@ -1,10 +1,10 @@
 import {
   zenumlHighlighter,
-  zenumlLinter,
   zenumlCompletions,
   zenumlCompletionKeyMaps,
   zenumlParticipantStateField,
 } from '@zenuml/codemirror-extensions';
+import { zenumlLinter } from './zenumlLinter';
 import { mermaidLinter } from '@/utils/mermaid/linter';
 import { plantumlLinter } from '@/utils/plantuml/linter';
 import { toast } from '@/utils/toast';

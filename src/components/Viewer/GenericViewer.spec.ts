@@ -1,4 +1,4 @@
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { h, ref } from 'vue'
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -159,6 +159,10 @@ vi.mock('@/utils/viewerLoadOutcome', async (importOriginal) => {
     getForgeCustomContentId: vi.fn(() => 'content-123'),
   }
 })
+
+// A wrapper left mounted keeps watching the shared store and fires analytics
+// and callRemote into whichever test runs next.
+enableAutoUnmount(afterEach)
 
 const mountViewer = () => mount(GenericViewer, { global: { plugins: [store] } })
 
@@ -2661,8 +2665,22 @@ describe('GenericViewer (chrome-less)', () => {
     let originalClipboard: PropertyDescriptor | undefined
     let originalIsSecureContext: PropertyDescriptor | undefined
     let writeText: ReturnType<typeof vi.fn>
+    let contextBefore: typeof forgeRuntime.forgeContext
+    let viewBefore: typeof forgeRuntime.view
 
-    beforeEach(() => {
+    beforeEach(async () => {
+      // getView() imports '@forge/bridge' dynamically. The first import in a
+      // worker takes longer than one flushPromises(), so the test that happens
+      // to run first (the order is random) would assert before the copy
+      // settles. Load the module here so every test starts from the same state.
+      await import('@forge/bridge')
+      // These tests need cloudId to come from the lazy getContext() path, so
+      // the memoized context left by earlier tests must not be there.
+      // getView() also returns early once `view` is cached.
+      contextBefore = forgeRuntime.forgeContext
+      viewBefore = forgeRuntime.view
+      forgeRuntime.forgeContext = undefined
+      forgeRuntime.view = undefined
       originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
       originalIsSecureContext = Object.getOwnPropertyDescriptor(window, 'isSecureContext')
       writeText = vi.fn(() => Promise.resolve())
@@ -2671,6 +2689,8 @@ describe('GenericViewer (chrome-less)', () => {
     })
 
     afterEach(() => {
+      forgeRuntime.forgeContext = contextBefore
+      forgeRuntime.view = viewBefore
       vi.unstubAllEnvs()
       if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard)
       else delete (navigator as any).clipboard
@@ -2743,8 +2763,10 @@ describe('GenericViewer (chrome-less)', () => {
     // every other test's fixture.
     it('surfaces a toast (never a thrown error) when cloudId cannot be resolved, and fires deeplink_copied with outcome unavailable', async () => {
       vi.stubEnv('PRODUCT_TYPE', 'lite')
-      const originalCloudId = (forgeRuntime as any).forgeContext?.cloudId
-      ;(forgeRuntime as any).forgeContext = { ...(forgeRuntime as any).forgeContext, cloudId: undefined }
+      // Restore the object itself: rebuilding it from a possibly-undefined
+      // original leaves a truthy context without a cloudId for later tests.
+      const previousContext = (forgeRuntime as any).forgeContext
+      ;(forgeRuntime as any).forgeContext = { ...previousContext, cloudId: undefined }
       try {
         const wrapper = mountViewer()
         await flushPromises()
@@ -2766,7 +2788,7 @@ describe('GenericViewer (chrome-less)', () => {
           outcome: 'unavailable',
         })
       } finally {
-        (forgeRuntime as any).forgeContext = { ...(forgeRuntime as any).forgeContext, cloudId: originalCloudId }
+        (forgeRuntime as any).forgeContext = previousContext
       }
     })
   })
@@ -3361,6 +3383,14 @@ describe('GenericViewer — Export PNG routes through Fullscreen', () => {
   // a 24px scroller over 312px of form. Rendering it in flow instead grows the
   // iframe but pushes the preview out of view while the controls are edited, so
   // the export UI belongs on the surface that has room — the Fullscreen modal.
+  beforeEach(() => {
+    // This describe sits outside 'GenericViewer (chrome-less)', so it does not
+    // get that block's context reset; start from the inline (non-modal) one.
+    window.forgeGlobal = {
+      forgeContext: { extension: { config: { customContentId: 'content-123' } } },
+    } as any
+  })
+
   it('opens Fullscreen carrying openExport instead of the inline dialog', async () => {
     const wrapper = mountViewer()
     const emitted: unknown[] = []
@@ -3746,11 +3776,12 @@ describe('GenericViewer license notice (Lite, per-site enforcement)', () => {
     expect(wrapper.find('.screen-capture-content').element.contains(watermark)).toBe(false)
     expect(wrapper.find('.license-notice-title').text()).toBe('Lite diagram limit reached')
     expect(wrapper.find('[data-testid="license-notice-upgrade"]').exists()).toBe(false)
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_evaluated', expect.objectContaining({
-      license_notice_basis: 'site_policy_limit_reached', enforcement_stage: 'watermark', macro_count: 2282, license_notice_outcome: 'shown',
-    }))
-    expect(trackAnalyticsEvent).toHaveBeenCalledWith('license_notice_shown', expect.objectContaining({
-      license_notice_basis: 'site_policy_limit_reached', enforcement_stage: 'watermark',
+    // One exposure event: the strip's `shown`. No duplicate `evaluated`.
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('license_notice_evaluated', expect.anything())
+    const shown = vi.mocked(trackAnalyticsEvent).mock.calls.filter(([name]) => name === 'license_notice_shown')
+    expect(shown).toHaveLength(1)
+    expect(shown[0][1]).toEqual(expect.objectContaining({
+      license_notice_basis: 'site_policy_limit_reached', enforcement_stage: 'watermark', macro_count: 2282,
     }))
     wrapper.unmount()
   })
@@ -3779,6 +3810,17 @@ describe('GenericViewer license notice (Lite, per-site enforcement)', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(false)
     expect(wrapper.find('.screen-capture-content').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('keeps the watermark but leaves the strip out in the Fullscreen viewer', async () => {
+    // The reader saw the strip on the inline macro before opening Fullscreen.
+    window.forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } } as any
+    siteEnforcement.value = enforcement(true)
+    const wrapper = mountViewer()
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="license-watermark"]').exists()).toBe(true))
+    expect(wrapper.find('[data-testid="license-notice-strip"]').exists()).toBe(false)
+    expect(trackAnalyticsEvent).not.toHaveBeenCalledWith('license_notice_shown', expect.anything())
     wrapper.unmount()
   })
 

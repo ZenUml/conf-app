@@ -36,6 +36,12 @@ const global = {
 // workflow already sets BACKEND_API_BASE_URL=conf-stg-lite, so client and
 // manifest now agree. The tradeoff is that dev traffic reads/writes the staging
 // D1 + KV; that was already true of anything routed through the manifest remote.
+//
+// A bundle can also be built for a dedicated slot (the PR validation slot has
+// its own Pages preview alias, https://conf-stg-lite-pr.zenuml.com). Its
+// manifest remote then differs from the map entry for its environmentType, so
+// CI passes VITE_REMOTE_BASE_URL_OVERRIDE at build time; see
+// remoteBaseUrlBuildOverride below. Unset (every other build) = the map above.
 const REMOTE_BASE_URL_MAP = {
   DEVELOPMENT_LITE: 'https://conf-stg-lite.zenuml.com',
   STAGING_LITE: 'https://conf-stg-lite.zenuml.com',
@@ -63,6 +69,17 @@ function remoteUrlVariant(flags: {
   return 'FULL';
 }
 
+// Build-time backend override. Accepts only an https://<name>.zenuml.com origin
+// (no path, port or credentials); anything else is ignored, so a bad value can
+// never redirect traffic to a foreign host.
+const REMOTE_BASE_URL_OVERRIDE_PATTERN = /^https:\/\/[a-z0-9.-]+\.zenuml\.com$/;
+
+function remoteBaseUrlBuildOverride(): string | undefined {
+  const value = import.meta.env.VITE_REMOTE_BASE_URL_OVERRIDE;
+  if (typeof value !== 'string' || value === '') return undefined;
+  return REMOTE_BASE_URL_OVERRIDE_PATTERN.test(value) ? value : undefined;
+}
+
 // Pure, exported for unit testing: resolve the backend origin for a given Forge
 // environmentType ('DEVELOPMENT' | 'STAGING' | 'PRODUCTION') and product-variant
 // flags. Returns undefined for an unknown environment key.
@@ -82,6 +99,8 @@ export function resolveZenumlRemoteBaseUrl(
     }
     return url.origin;
   }
+  const buildOverride = remoteBaseUrlBuildOverride();
+  if (buildOverride) return buildOverride;
   const key = `${environmentType}_${remoteUrlVariant(flags)}` as keyof typeof REMOTE_BASE_URL_MAP;
   return REMOTE_BASE_URL_MAP[key];
 }
@@ -269,9 +288,35 @@ export async function isConfiguring() {
 export async function openUrl(url: string) {
   if (global.isForge) {
     const { router } = await import("@forge/bridge");
-    router.open(url);
+    // router.open rejects with "cancelled" when the user cancels Atlassian's
+    // external-page dialog. Callers here do not need the outcome; keep the
+    // rejection from surfacing as unhandled. Use openUrlForOutcome to read it.
+    router.open(url).catch(() => undefined);
   } else {
     window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}
+
+export type OpenUrlOutcome = 'opened' | 'declined' | 'error';
+
+/**
+ * Open a URL in a new tab and report what happened. Never throws.
+ * `declined`: the user cancelled Atlassian's "Opening external page" dialog
+ * (router.open rejects with "cancelled"; observed 2026-11-20). Hosts in the
+ * manifest's external.fetch.client (zenuml.com, *.zenuml.com) open without
+ * that dialog.
+ */
+export async function openUrlForOutcome(url: string): Promise<OpenUrlOutcome> {
+  try {
+    if (global.isForge) {
+      const { router } = await import("@forge/bridge");
+      await router.open(url);
+      return 'opened';
+    }
+    return window.open(url, '_blank', 'noopener,noreferrer') ? 'opened' : 'error';
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return /cancel/i.test(message) ? 'declined' : 'error';
   }
 }
 

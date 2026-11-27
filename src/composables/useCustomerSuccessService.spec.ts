@@ -38,6 +38,17 @@ vi.mock('@/model/globals', () => ({
 
 vi.mock('@/utils/cohorts/userCohorts', () => ({ refreshUserCohortsIfStale: vi.fn() }))
 
+// Mock factories survive vi.resetModules(), and the suite runs in random order,
+// so put the shared mocks back to their defaults before every test.
+beforeEach(async () => {
+  const getFeatureFlags = (await import('@/apis/featureFlags')).default
+  vi.mocked(getFeatureFlags).mockReset()
+  vi.mocked(getFeatureFlags).mockResolvedValue({ PAYWALL_EXEMPT: false })
+  const globals = await import('@/model/globals')
+  vi.mocked(globals.default.apWrapper.isLite).mockReset()
+  vi.mocked(globals.default.apWrapper.isLite).mockReturnValue(true)
+})
+
 describe('useCustomerSuccessService - Paid Space Detection', () => {
   beforeEach(async () => {
     // Clear localStorage before each test
@@ -459,17 +470,19 @@ describe('useCustomerSuccessService - enterprise bundle attribution', () => {
     ;(useCustomerSuccessService as any).__resetForTests()
   })
 
-  it('rides a tenant__space client_reference_id on the Stripe Payment Link', () => {
+  it('opens the checkout handoff page with a tenant__space ref (the Stripe client_reference_id)', () => {
     const { enterpriseBundleUrl } = useCustomerSuccessService()
     const url = new URL(enterpriseBundleUrl.value)
-    expect(`${url.origin}${url.pathname}`).toBe('https://buy.stripe.com/cNifZifkN7hzavK12H7IY05')
-    expect(url.searchParams.get('client_reference_id')).toBe('test-domain__ENG')
+    expect(url.pathname).toBe('/bundle-checkout')
+    expect(url.hostname.endsWith('.zenuml.com')).toBe(true)
+    expect(url.searchParams.get('ref')).toBe('test-domain__ENG')
+    expect(url.searchParams.get('surface')).toBe('upgrade_prompt')
   })
 
   it('sanitises characters Stripe rejects — a personal space key ("~…") must not void the parameter', () => {
     vi.mocked(getSpaceKey).mockReturnValue('~7120201234abc')
     const { enterpriseBundleUrl } = useCustomerSuccessService()
-    const reference = new URL(enterpriseBundleUrl.value).searchParams.get('client_reference_id')
+    const reference = new URL(enterpriseBundleUrl.value).searchParams.get('ref')
     expect(reference).toBe('test-domain___7120201234abc')
     expect(reference).toMatch(/^[A-Za-z0-9_-]+$/)
   })

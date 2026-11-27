@@ -77,6 +77,18 @@ describe('POST /mcp/render', () => {
     expect(body.result.contents[0].text.length).toBeGreaterThan(100);
   });
 
+  it('serves guides and guide descriptions that name render_diagram, not the Confluence edit tools', async () => {
+    const list = await rpc('resources/list');
+    for (const r of list.body.result.resources) {
+      if (!String(r.uri).endsWith('://dsl-guide')) continue;
+      expect(r.description).not.toMatch(/update_diagram|read_diagram/);
+      const read = await rpc('resources/read', { uri: r.uri });
+      const text = read.body.result.contents[0].text;
+      expect(text).not.toMatch(/update_diagram|read_diagram|bound diagram/);
+      expect(text).toContain('render_diagram');
+    }
+  });
+
   it('serves the view from its own origin, with absolute asset URLs', async () => {
     const fetchImpl = vi.fn(async () => new Response(VIEW_HTML, { status: 200 }));
     const { body } = await rpc('resources/read', { uri: DIAGRAM_VIEW_URI }, {}, { fetchImpl });

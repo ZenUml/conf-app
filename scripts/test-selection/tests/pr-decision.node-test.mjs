@@ -15,10 +15,10 @@ const comment = (decision, id = 10, overrides = {}) => ({
   created_at: '2026-10-27T00:00:00Z', updated_at: '2026-10-27T00:00:00Z', html_url: `https://github.com/example/repo/pull/42#issuecomment-${id}`, ...overrides,
 });
 
-async function fixture() {
+async function fixture(files = [{ filename: 'docs/guide.md', status: 'modified', sha: 'blob' }]) {
   const state = {
-    pr: { number: 42, state: 'open', node_id: 'PR_example', draft: true, changed_files: 1, head: { sha: HEAD }, base: { sha: BASE, ref: 'main' }, merge_commit_sha: MERGE },
-    files: [{ filename: 'docs/guide.md', status: 'modified', sha: 'blob' }], comments: [], labels: [],
+    pr: { number: 42, state: 'open', node_id: 'PR_example', draft: true, changed_files: files.length, head: { sha: HEAD }, base: { sha: BASE, ref: 'main' }, merge_commit_sha: MERGE },
+    files, comments: [], labels: [],
     permissions: { maintainer: 'write', visitor: 'read' }, actor: 'maintainer', calls: [],
     commit: { parents: [{ sha: BASE }, { sha: HEAD }], tree: { sha: TREE } },
   };
@@ -46,6 +46,7 @@ async function fixture() {
     if (route === '/check-runs' && method === 'POST') return body;
     if (route === 'graphql' && method === 'POST') { state.pr.draft = true; return {}; }
     if (route.startsWith('/git/commits/')) return structuredClone(state.commit);
+    if (route.startsWith('/compare/') && state.compare?.[route.slice('/compare/'.length)]) return structuredClone(state.compare[route.slice('/compare/'.length)]);
     throw new Error(`Unexpected API call: ${method} ${path}`);
   };
   const context = await readContext(api, 42);
@@ -383,6 +384,125 @@ test('published full approval survives a candidate product and coverage catalog 
 });
 
 
+// A candidate tree that differs from the trusted controller only by `mutate`.
+// The controller (this checkout) authorizes; the candidate resolves and plans.
+const NEW_SPEC = 'tests/e2e-tests/tests/render/additive-catalog.spec.ts';
+const SEQUENCE = 'tests/e2e-tests/tests/render/sequence.spec.ts';
+async function authorizeAdditive(filename = NEW_SPEC) {
+  const f = await fixture([{ filename, status: filename === NEW_SPEC ? 'added' : 'modified', sha: 'blob' }]);
+  const decision = { ...f.decision, scenarios: [pair], evidence: [{ ...f.decision.evidence[0], scenarios: [pair], reason: 'Adds a rendering test.' }] };
+  assert.equal((await publish(f.api, f.context, decision)).executable, true);
+  return authorize(f.api, 42);
+}
+async function runCandidate(mutate, filename) {
+  const { selection, resolved } = await authorizeAdditive(filename);
+  const temp = mkdtempSync(join(tmpdir(), 'pr-candidate-additive-'));
+  try {
+    const root = resolve('.');
+    for (const path of ['scripts/test-selection', 'scripts/e2e-select.mjs', 'tests/e2e-tests/config', 'tests/e2e-tests/tests', 'IMPACT-MAP.md']) {
+      mkdirSync(join(temp, path, '..'), {recursive:true});
+      cpSync(join(root, path), join(temp, path), {recursive:true});
+    }
+    mutate(temp);
+    const script = `
+      import { resolveSelection } from './scripts/test-selection/resolve.mjs';
+      import { scopedPlan } from './scripts/test-selection/scoped-plan.mjs';
+      import { SCENARIO_TESTS, SCENARIO_COVERAGE, API_LANES } from './tests/e2e-tests/config/scenario-coverage.mjs';
+      import { createHash } from 'node:crypto';
+      let input=''; for await (const chunk of process.stdin) input+=chunk;
+      const {selection, resolved}=JSON.parse(input), files=selection.source_paths, head=selection.head_sha, tree=selection.tested_tree;
+      const tagged=SCENARIO_TESTS.filter(t=>t.categories.length);
+      const specs=tagged.map((t,i)=>({id:'t'+i,file:t.file,line:1,title:t.title,tags:[...t.categories.map(c=>'@test:'+c),...t.variants.map(v=>'@variant:'+v),...t.scenarios.map(p=>'@scenario:'+p.feature+':'+p.interface)],tests:[{projectName:t.file.split('/')[0]}]}));
+      specs.push({id:'smoke',file:'fullscreen/example.spec.ts',line:1,title:'example',tags:['@test:sequence','@variant:lite','@smoke'],tests:[{projectName:'fullscreen'}]});
+      const discovery={config:{projects:[]},suites:[{title:'tests',specs}]};
+      const out={candidateCoverage:createHash('sha256').update(JSON.stringify({ browser: SCENARIO_COVERAGE, api: API_LANES })).digest('hex')};
+      try {
+        out.resolved=resolveSelection({selection,files,head,tree});
+        const plan=scopedPlan({discover:()=>discovery,selection,resolved,head,tree,policy:selection.policy_version,variant:'lite',scope:'all',shards:1,grep:resolved.grep,sourcePaths:files,selectionScope:'pr',requireAgentDecision:true});
+        out.planFiles=[...new Set(plan.tests.map(t=>t.file))];
+      } catch(e) { out.error=e.message; }
+      process.stdout.write(JSON.stringify(out));
+    `;
+    // Round-trip the artifacts as CI writes (pretty-printed) and reads them.
+    const input = JSON.stringify({ selection: JSON.parse(JSON.stringify(selection, null, 2)), resolved: JSON.parse(JSON.stringify(resolved, null, 2)) });
+    return { selection, controller: resolved, ...JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script], {cwd:temp, input, encoding:'utf8'})) };
+  } finally { rmSync(temp, {recursive:true, force:true}); }
+}
+const addSpec = temp => writeFileSync(join(temp, NEW_SPEC), `import { test } from '@playwright/test';\n\ntest('additive catalog check', { tag: ['@test:embed-deeplink-autoconvert', '@variant:lite', '@feature:rendering', '@interface:inline-viewer', '@scenario:rendering:inline-viewer'] }, async () => {});\n`);
+const editFile = (temp, path, from, to) => {
+  const file = join(temp, path);
+  const original = readFileSync(file, 'utf8'), changed = original.replace(from, to);
+  assert.notEqual(changed, original, `${path}: ${from}`);
+  writeFileSync(file, changed);
+};
+
+test('a selected decision stays valid when the candidate only adds scenario tests', async () => {
+  const result = await runCandidate(addSpec);
+  assert.equal(result.error, undefined);
+  assert.notEqual(result.candidateCoverage, result.selection.scenario_coverage_fingerprint);
+  // Dependencies come from the trusted catalog: the new spec's own category
+  // (embed-deeplink-autoconvert -> embed-render) does not change the grep.
+  assert.equal(result.resolved.grep, result.controller.grep);
+  assert.equal(result.resolved.agent_categories.includes('@test:embed-render'), false);
+  assert.ok(result.planFiles.includes('render/additive-catalog.spec.ts'), 'new spec runs through the direct-spec floor');
+  assert.ok(result.planFiles.includes('render/sequence.spec.ts'), 'trusted paired tests still run');
+});
+
+test('a selected decision stays valid when the candidate adds a test to an existing spec', async () => {
+  const result = await runCandidate(temp => editFile(temp, SEQUENCE, "test.describe('Sequence Diagram Tests'",
+    "test('additive sibling', { tag: ['@test:sequence-render', '@variant:lite', '@feature:rendering', '@interface:inline-viewer', '@scenario:rendering:inline-viewer'] }, async () => {});\n\ntest.describe('Sequence Diagram Tests'"), SEQUENCE);
+  assert.equal(result.error, undefined);
+  assert.equal(result.resolved.grep, result.controller.grep);
+});
+
+test('an unchanged candidate catalog resolves exactly as before', async () => {
+  const result = await runCandidate(() => {}, SEQUENCE);
+  assert.equal(result.error, undefined);
+  assert.equal(result.candidateCoverage, result.selection.scenario_coverage_fingerprint);
+  assert.equal(result.resolved.grep, result.controller.grep);
+});
+
+test('a selected decision is rejected when the candidate removes, renames or retags a trusted test', async () => {
+  const cases = {
+    removal: temp => { addSpec(temp); rmSync(join(temp, SEQUENCE)); },
+    rename: temp => { addSpec(temp); editFile(temp, SEQUENCE, "'Sequence Diagram Tests'", "'Sequence Diagram Tests (renamed)'"); },
+    'scenario retag': temp => { addSpec(temp); editFile(temp, SEQUENCE, "'@scenario:rendering:inline-viewer'", "'@scenario:rendering:inline-viewer', '@scenario:feedback-report:inline-viewer'"); },
+    'variant retag': temp => { addSpec(temp); editFile(temp, SEQUENCE, "'@variant:diagramly', ", ''); },
+  };
+  for (const [name, mutate] of Object.entries(cases)) {
+    const result = await runCandidate(mutate);
+    assert.match(result.error ?? '', /invalid-agent-decision/, name);
+  }
+});
+
+test('a selected decision is rejected when the candidate changes API lanes or categories', async () => {
+  const api = await runCandidate(temp => {
+    addSpec(temp);
+    editFile(temp, 'tests/e2e-tests/config/api-lanes.mjs', "    { feature: 'agent-authorization', interface: 'external-agent' },\n", '');
+  });
+  assert.match(api.error ?? '', /invalid-agent-decision/);
+  const categories = await runCandidate(temp => {
+    addSpec(temp);
+    editFile(temp, 'tests/e2e-tests/config/categories.mjs', 'Verifies pasting a /d/ deeplink', 'Checks pasting a /d/ deeplink');
+  });
+  // CATEGORY_VERSION is static, so only the category catalog fingerprint catches this.
+  assert.match(categories.error ?? '', /invalid-agent-decision/);
+});
+
+test('an embedded trusted catalog must hash to the approved fingerprint', async () => {
+  const { selection } = await authorizeAdditive();
+  const { trustedScenarioCoverage } = await import('../resolve.mjs');
+  assert.ok(trustedScenarioCoverage(selection));
+  const forged = structuredClone(selection);
+  forged.scenario_coverage_fingerprint = 'f'.repeat(64);
+  assert.equal(trustedScenarioCoverage(forged), null);
+  forged.trusted_scenario_coverage.browser[0].tests = [];
+  assert.equal(trustedScenarioCoverage(forged), null);
+  delete forged.trusted_scenario_coverage;
+  assert.equal(trustedScenarioCoverage(forged), null);
+});
+
+
 test('removing a triage comment marker leaves a durable blocker before old approval can revive', async () => {
   const f = await fixture();
   const old = comment(f.decision);
@@ -503,4 +623,73 @@ test('synchronization and publication reject a target that moved after inspectio
   await assert.rejects(synchronize(f.api, f.context, { valid: false, reason: 'triage-requested' }), /PR changed before synchronization/);
   await assert.rejects(publish(f.api, f.context, f.decision), /PR changed before publication/);
   assert.equal(f.state.comments.length, 0);
+});
+
+// --- A decision survives target-branch commits that do not touch the PR's files ---
+const TIP = 'e'.repeat(40), MID = '9'.repeat(40);
+const ahead = (from, files = [{ filename: 'src/unrelated.ts' }]) => ({ status: 'ahead', ahead_by: 2, merge_base_commit: { sha: from }, files });
+async function movedBase(compare) {
+  const f = await fixture();
+  f.state.targetSha = TIP; f.state.compare = compare; f.state.comments = [comment(f.decision)];
+  return f;
+}
+
+test('a selected decision carries over target commits that touch none of the PR files', async () => {
+  const f = await movedBase({ [`${BASE}...${TIP}`]: ahead(BASE) });
+  const found = await findDecision(f.api, await readContext(f.api, 42));
+  assert.equal(found.valid, true);
+  // The merge GitHub built on the decision's base is still an accepted candidate.
+  const authorized = await authorize(f.api, 42);
+  assert.equal(authorized.candidate, MERGE);
+  assert.equal(authorized.selection.base_sha, BASE, 'records the base that was tested, not the moving tip');
+});
+
+test('a merge candidate built on any carried-over target commit is accepted', async () => {
+  const f = await movedBase({ [`${BASE}...${TIP}`]: ahead(BASE), [`${MID}...${TIP}`]: ahead(MID) });
+  f.state.commit.parents = [{ sha: MID }, { sha: HEAD }];
+  assert.equal((await authorize(f.api, 42)).selection.base_sha, MID);
+  // A decision published at the tip also accepts the older merge.
+  f.state.comments = [comment({ ...f.decision, base_sha: TIP }, 11)];
+  assert.equal((await authorize(f.api, 42)).selection.base_sha, MID);
+});
+
+test('target commits that touch a PR file, by name or by rename source, make the decision stale', async () => {
+  for (const files of [[{ filename: 'docs/guide.md' }], [{ filename: 'docs/moved.md', previous_filename: 'docs/guide.md' }]]) {
+    const f = await movedBase({ [`${BASE}...${TIP}`]: ahead(BASE, files) });
+    await assert.rejects(authorize(f.api, 42), /missing-or-stale-decision/);
+  }
+});
+
+test('base carry-over fails closed', async () => {
+  const many = Array.from({ length: 300 }, (_, i) => ({ filename: `src/f${i}.ts` }));
+  for (const [name, response] of [
+    ['diverged history', { ...ahead(BASE), status: 'diverged' }],
+    ['decision base ahead of the target', { ...ahead(BASE), status: 'behind' }],
+    ['different merge base', ahead(MID)],
+    ['truncated file list', ahead(BASE, many)],
+    ['missing file list', { ...ahead(BASE), files: undefined }],
+    ['invalid file entry', ahead(BASE, [{}])],
+  ]) {
+    const f = await movedBase({ [`${BASE}...${TIP}`]: response });
+    await assert.rejects(authorize(f.api, 42), /missing-or-stale-decision/, name);
+  }
+  const unavailable = await movedBase({});
+  await assert.rejects(authorize(unavailable.api, 42), /missing-or-stale-decision/);
+});
+
+test('a full approval never carries over a moved base', async () => {
+  const f = await movedBase({ [`${BASE}...${TIP}`]: ahead(BASE) });
+  f.state.comments = [comment({ ...f.decision, mode: 'all', source: 'triage', full_reason: 'Shared runtime change.' })];
+  await assert.rejects(authorize(f.api, 42), /missing-or-stale-decision/);
+});
+
+test('carry-over never changes the head, diff or candidate-head binding', async () => {
+  const f = await movedBase({ [`${BASE}...${TIP}`]: ahead(BASE) });
+  f.state.commit.parents = [{ sha: BASE }, { sha: MID }];
+  await assert.rejects(authorize(f.api, 42), /stale or unrelated candidate/);
+  f.state.commit.parents = [{ sha: BASE }, { sha: HEAD }];
+  f.state.comments = [comment({ ...f.decision, head_sha: MID })];
+  await assert.rejects(authorize(f.api, 42), /missing-or-stale-decision/);
+  f.state.comments = [comment({ ...f.decision, diff_fingerprint: 'other' })];
+  await assert.rejects(authorize(f.api, 42), /changed-diff/);
 });

@@ -155,3 +155,37 @@ describe('resolveZenumlRemoteBaseUrl — DEVELOPMENT targets a maintained backen
     expect(resolveZenumlRemoteBaseUrl('DEVELOPMENT', { isAsyncApi: true })).not.toContain('full')
   })
 })
+
+// CI builds the PR validation slot with its own backend alias. The override is
+// build-time only and accepts nothing but a *.zenuml.com https origin.
+describe('resolveZenumlRemoteBaseUrl — VITE_REMOTE_BASE_URL_OVERRIDE', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('uses a valid override instead of the map entry', () => {
+    vi.stubEnv('VITE_REMOTE_BASE_URL_OVERRIDE', 'https://conf-stg-lite-pr.zenuml.com')
+    expect(resolveZenumlRemoteBaseUrl('DEVELOPMENT', { isLite: true }))
+      .toBe('https://conf-stg-lite-pr.zenuml.com')
+  })
+
+  it.each([
+    'http://conf-stg-lite-pr.zenuml.com',
+    'https://evil.example.com',
+    'https://conf-stg-lite-pr.zenuml.com/path',
+    'https://conf-stg-lite-pr.zenuml.com:8443',
+    'https://user@conf-stg-lite-pr.zenuml.com',
+    'https://zenuml.com.evil.com',
+    'not a url',
+  ])('ignores the invalid override %s', (value) => {
+    vi.stubEnv('VITE_REMOTE_BASE_URL_OVERRIDE', value)
+    expect(resolveZenumlRemoteBaseUrl('DEVELOPMENT', { isLite: true }))
+      .toBe('https://conf-stg-lite.zenuml.com')
+  })
+
+  it('keeps the existing map when the override is unset or empty', () => {
+    vi.stubEnv('VITE_REMOTE_BASE_URL_OVERRIDE', '')
+    expect(resolveZenumlRemoteBaseUrl('STAGING', { isLite: true })).toBe('https://conf-stg-lite.zenuml.com')
+    expect(resolveZenumlRemoteBaseUrl('PRODUCTION', { isLite: true })).toBe('https://conf-lite.zenuml.com')
+  })
+})

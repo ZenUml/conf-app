@@ -154,7 +154,7 @@ describe('space-status decisionKnown', () => {
 
 describe('space-status enforcement', () => {
   const LITE = '8ad26115-211f-4216-971b-0540f606303d';
-  const policy = JSON.stringify({ stage: 'watermark', effectiveAt: '2026-12-08T00:00:00Z' });
+  const policy = JSON.stringify({ effects: { watermark: true }, effectiveAt: '2026-12-08T00:00:00Z' });
   const expired = JSON.stringify({ status: 'active', expiresAt: '2026-11-06T00:00:00.000Z' });
 
   // SQL-aware D1 fake: domain lookup returns the example tenant; paid-rail hit is switchable.

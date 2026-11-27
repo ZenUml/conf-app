@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../architecture-tokens/service', () => ({
   relatedDiagrams: vi.fn(async () => ({ indexedAt: 't', contentVersion: 1, participants: [] })),
@@ -20,6 +20,9 @@ const ctx = (url: string, extra: Partial<any> = {}) => ({
 } as any);
 
 describe('GET /api/architecture-tokens/related', () => {
+  // Call history from one test must not satisfy or break another's assertions.
+  beforeEach(() => vi.clearAllMocks());
+
   it('scopes by the authenticated cloudId and resolves pages as the user', async () => {
     const res = await onRequest(ctx('https://x/api/architecture-tokens/related?customContentId=42'));
     expect(res.status).toBe(200);

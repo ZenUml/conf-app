@@ -70,6 +70,26 @@ describe('parseViewEvent', () => {
   });
 });
 
+describe('parseViewEvent — mcp_mode', () => {
+  it('keeps the local mode on every kind of event', () => {
+    expect(parseViewEvent('{"macro_type":"sequence","mcp_mode":"local","render_outcome":"rendered"}')).toEqual({
+      event: 'agent_link_app_view_rendered', macro_type: 'sequence', mcp_mode: 'local', render_outcome: 'rendered',
+    });
+    expect(parseViewEvent('{"kind":"fullscreen","macro_type":"graph","mcp_mode":"local","fullscreen_outcome":"entered"}')).toMatchObject({
+      event: 'agent_link_app_view_fullscreen_requested', mcp_mode: 'local',
+    });
+    expect(parseViewEvent('{"kind":"zoom","macro_type":"mermaid","mcp_mode":"local","viewport_action":"fit","viewport_input":"toolbar","fullscreen_active":false}')).toMatchObject({
+      event: 'agent_link_app_view_zoomed', mcp_mode: 'local',
+    });
+  });
+
+  it('leaves the mode out when none is sent, and refuses one it does not know', () => {
+    expect(parseViewEvent('{"macro_type":"sequence","render_outcome":"rendered"}')).not.toHaveProperty('mcp_mode');
+    expect(parseViewEvent('{"macro_type":"sequence","mcp_mode":"headless","render_outcome":"rendered"}')).toBeNull();
+    expect(parseViewEvent('{"macro_type":"sequence","mcp_mode":true,"render_outcome":"rendered"}')).toBeNull();
+  });
+});
+
 describe('parseViewEvent — fullscreen', () => {
   it('keeps whether the host offered fullscreen on a render report', () => {
     expect(parseViewEvent('{"macro_type":"sequence","render_outcome":"rendered","fullscreen_available":true}')).toEqual({
@@ -95,6 +115,30 @@ describe('parseViewEvent — zoom', () => {
     ['an unknown action', '{"kind":"zoom","macro_type":"mermaid","viewport_action":"zoom_to_400","viewport_input":"toolbar","fullscreen_active":false}'],
     ['an unknown input', '{"kind":"zoom","macro_type":"mermaid","viewport_action":"fit","viewport_input":"voice","fullscreen_active":false}'],
     ['no fullscreen_active', '{"kind":"zoom","macro_type":"mermaid","viewport_action":"fit","viewport_input":"toolbar"}'],
+  ])('refuses %s', (_label, text) => {
+    expect(parseViewEvent(text)).toBeNull();
+  });
+});
+
+describe('parseViewEvent — action', () => {
+  it('reads a copy as its own event, with no format, dropping anything else', () => {
+    expect(parseViewEvent('{"kind":"action","macro_type":"sequence","view_action":"copy_source","action_outcome":"done","title":"x"}')).toEqual({
+      event: 'agent_link_app_view_action_used', macro_type: 'sequence', view_action: 'copy_source', action_outcome: 'done',
+    });
+  });
+
+  it('reads a download with its format and mode', () => {
+    expect(parseViewEvent('{"kind":"action","macro_type":"openapi","mcp_mode":"local","view_action":"download","download_format":"source","action_outcome":"failed"}')).toEqual({
+      event: 'agent_link_app_view_action_used', macro_type: 'openapi', mcp_mode: 'local', view_action: 'download', download_format: 'source', action_outcome: 'failed',
+    });
+  });
+
+  it.each([
+    ['an unknown action', '{"kind":"action","macro_type":"mermaid","view_action":"share","action_outcome":"done"}'],
+    ['an unknown outcome', '{"kind":"action","macro_type":"mermaid","view_action":"copy_source","action_outcome":"maybe"}'],
+    ['a download with no format', '{"kind":"action","macro_type":"mermaid","view_action":"download","action_outcome":"done"}'],
+    ['a download in an unknown format', '{"kind":"action","macro_type":"mermaid","view_action":"download","download_format":"pdf","action_outcome":"done"}'],
+    ['a copy with a format', '{"kind":"action","macro_type":"mermaid","view_action":"copy_source","download_format":"svg","action_outcome":"done"}'],
   ])('refuses %s', (_label, text) => {
     expect(parseViewEvent(text)).toBeNull();
   });

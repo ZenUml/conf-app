@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import ApWrapper2 from './ApWrapper2';
-import { trackEvent } from '@/utils/window';
+import { trackEvent, connectKeyOverride } from '@/utils/window';
 import { forgeRequest } from '@/utils/requestUtil';
 import { requestConfluence } from '@forge/bridge';
 
 vi.mock('@/utils/window', () => ({
   trackEvent: vi.fn(),
   addonKey: 'test-addon',
+  connectKeyOverride: vi.fn(() => ''),
 }));
 
 vi.mock('@/utils/requestUtil', () => ({
@@ -122,6 +123,26 @@ describe('ApWrapper2', () => {
         expect(wrapper.getMacroContentTypes()).toEqual(['ac:my-api:async-api-doc']);
       } finally {
         (forgeGlobalMod.default as any).isAsyncApi = false;
+      }
+    });
+
+    // A development environment deployed with its own Connect key registers
+    // its types under that key; the variant's fixed key would name types this
+    // install does not own (docs/reference/dev-connect-key.md).
+    it('uses the build-time Connect key override for every type when one is set', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).isLite = true;
+      vi.mocked(connectKeyOverride).mockReturnValue('com.zenuml.confluence-addon-lite-alt');
+      try {
+        expect(wrapper.getMacroContentTypes()).toEqual([
+          'ac:com.zenuml.confluence-addon-lite-alt:zenuml-content-sequence',
+          'ac:com.zenuml.confluence-addon-lite-alt:zenuml-content-graph',
+        ]);
+        expect(wrapper.getCustomContentType()).toBe('ac:com.zenuml.confluence-addon-lite-alt:zenuml-content-sequence');
+      } finally {
+        vi.mocked(connectKeyOverride).mockReset();
+        vi.mocked(connectKeyOverride).mockReturnValue('');
+        (forgeGlobalMod.default as any).isLite = false;
       }
     });
 
@@ -420,6 +441,45 @@ describe('ApWrapper2', () => {
         http_status: 404,
         error_code: 'NOT_FOUND',
       });
+    });
+
+    // A 404 on a copied page (the macro still points at the source page's
+    // custom content) could not be told from any other 404: the event had no
+    // host page. `page_id` is the page the macro is rendered on.
+    it('adds the host page id to the missing event when the Forge context has one', async () => {
+      const forgeGlobalMod = await import('@/model/globals/forgeGlobal');
+      (forgeGlobalMod.default as any).forgeContext = { extension: { content: { id: 4242 } } };
+      try {
+        vi.mocked(forgeRequest).mockResolvedValueOnce({
+          errors: [{ status: 404, code: 'NOT_FOUND', title: 'Not Found' }],
+        });
+
+        await wrapper.getCustomContentByIdV2('80');
+
+        expect(trackEvent).toHaveBeenCalledWith('80', 'load_custom_content_v2_missing', 'warning', {
+          load_status: 'not_found',
+          error_class: 'structured',
+          http_status: 404,
+          error_code: 'NOT_FOUND',
+          page_id: '4242',
+        });
+      } finally {
+        (forgeGlobalMod.default as any).forgeContext = null;
+      }
+    });
+
+    it('records the owner page of a loaded custom content for macro_viewed', async () => {
+      const renderPerf = await import('@/utils/analytics/renderPerf');
+      renderPerf._resetForTesting();
+      vi.mocked(forgeRequest).mockResolvedValueOnce({
+        id: '81',
+        pageId: 9001,
+        body: { raw: { value: JSON.stringify({ diagramType: 'mermaid', mermaidCode: 'graph TD; A-->B' }) } },
+      });
+
+      await wrapper.getCustomContentByIdV2('81', { copyCheckMode: 'cross-page-only' });
+
+      expect(renderPerf.getTimings().content_page_id).toBe('9001');
     });
 
     it('records other_error for a structured non-404 error', async () => {

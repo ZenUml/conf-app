@@ -56,7 +56,7 @@ Publication creates a new comment; edited comments cannot authorize tests. The h
 
 ## When only the base moved
 
-`PR validation` checks the decision after it gets the staging lock, often 30+ minutes after the push. A merge to `main` in that window fails "Select E2E for this PR" with `missing-or-stale-decision`, although the PR diff did not change. When that is the only problem and the user asks to refresh it, run the script instead of repeating the steps by hand. It reuses a previous collaborator `selected` decision only if the diff fingerprint and the catalogs are unchanged; `all`, `triage`, a changed diff or changed catalogs exit 2 and need the manual flow above.
+`PR validation` checks the decision after it gets the staging lock, often 30+ minutes after the push. A merge to `main` in that window that touches a file the PR changes (or changes a catalog) fails "Select E2E for this PR" with `missing-or-stale-decision`, although the PR diff did not change. Other merges to `main` leave a `selected` decision valid. When that is the only problem and the user asks to refresh it, run the script instead of repeating the steps by hand. It reuses a previous collaborator `selected` decision only if the diff fingerprint and the catalogs are unchanged; `all`, `triage`, a changed diff or changed catalogs exit 2 and need the manual flow above.
 
 ```bash
 node .claude/skills/pr-triage/scripts/refresh-decision.mjs --pr <PR_NUMBER>            # dry run, changes nothing
@@ -69,7 +69,15 @@ node .claude/skills/pr-triage/scripts/refresh-decision.mjs --pr <PR_NUMBER> --co
 
 Before closing resolved triage, update IMPACT-MAP.md with the reusable product relation, caller/dependency boundary and source evidence that made the decision possible. Update the relevant test's literal `@feature:`, `@interface:` and `@scenario:feature:interface` tags only when its assertions cover that pair; check the derived coverage inventory in `tests/e2e-tests/config/scenario-coverage.mjs` (it reads literal metadata without executing tests). Record infrastructure/retired journeys as unclassified rather than inventing product coverage. Run the map/metadata policy checks. Keep source-confirmed wiring and actual UI verification distinct; preserve pending UI questions explicitly.
 
-Map and coverage changes invalidate older decisions. Subset decisions require the maintained catalog to be available in the trusted controller. For a catalog-changing PR, explicitly requested manual triage may approve full coverage for the current commit against the existing trusted catalog; the candidate runs its complete configured inventory and retains the controller fingerprints. This is the reviewed catalog upgrade path; candidate metadata cannot authorize a new subset. If the lesson cannot be verified, leave the specific gap in triage rather than claiming the map is complete.
+Map and coverage changes invalidate older decisions. Subset decisions require the maintained catalog to be available in the trusted controller. A catalog change that is additive only still allows a subset:
+
+| PR change to the scenario catalog | `selected` decision |
+| --- | --- |
+| None | Valid |
+| Only adds scenario-tagged tests and/or new pairs; every test entry and pair in the trusted (`main`) catalog is unchanged | Valid. Pairs are checked against the trusted catalog; the new spec runs through the direct-spec floor |
+| Removes, renames or retags an existing scenario test, or changes `API_LANES`, `product-impact.mjs` (IMPACT-MAP.md) or `categories.mjs` | Invalid; triage (manual full approval) |
+
+For any other catalog-changing PR, explicitly requested manual triage may approve full coverage for the current commit against the existing trusted catalog; the candidate runs its complete configured inventory and retains the controller fingerprints. This is the reviewed catalog upgrade path; candidate metadata cannot authorize a new subset. If the lesson cannot be verified, leave the specific gap in triage rather than claiming the map is complete.
 
 ## Execute and finish
 

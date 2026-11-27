@@ -1,4 +1,4 @@
-import {trackEvent, addonKey} from '@/utils/window';
+import {trackEvent, addonKey, connectKeyOverride} from '@/utils/window';
 import time from '@/utils/timer';
 import * as renderPerf from '@/utils/analytics/renderPerf';
 import { describeThrownFetchError } from '@/utils/fetchErrorDiagnostics';
@@ -270,6 +270,12 @@ export default class ApWrapper2 {
   }
 
   getCustomContentTypePrefix() {
+    // A development environment deployed with its own Connect key (so it can
+    // sit next to another environment of the same app on one site) registers
+    // its custom-content types under that key. Staging and production builds
+    // never set it. See docs/reference/dev-connect-key.md.
+    const override = connectKeyOverride();
+    if (override) return `ac:${override}`;
     let key;
     if (forgeGlobal.isDiagramly) {
       key = 'gptdock-confluence';
@@ -618,6 +624,7 @@ export default class ApWrapper2 {
         error_class: 'structured',
         http_status: httpStatus,
         error_code: errorCode,
+        ...this.hostPageTelemetry(),
       });
       return {
         customContent: undefined,
@@ -633,6 +640,7 @@ export default class ApWrapper2 {
       trackEvent(String(id), 'load_custom_content_v2_missing', 'warning', {
         load_status: 'other_error',
         error_class: 'malformed',
+        ...this.hostPageTelemetry(),
       });
       return {
         customContent: undefined,
@@ -647,6 +655,14 @@ export default class ApWrapper2 {
       status: parsed ? 'ok' : 'other_error',
       errorClass: parsed ? undefined : 'malformed',
     };
+  }
+
+  // The page the macro is rendered on, for load_custom_content_v2_missing.
+  // Read synchronously from the Forge context (no extra request on a failure
+  // path); omitted when the context has no usable page id (e.g. a draft).
+  private hostPageTelemetry(): { page_id?: string } {
+    const pageId = forgeGlobal.forgeContext?.extension?.content?.id ?? this.currentPageId;
+    return isUsablePageId(pageId) ? { page_id: String(pageId) } : {};
   }
 
   private async parseCustomContentByIdV2Response(id: string, customContent: any, opts?: LoadCustomContentOpts): Promise<ICustomContentV2 | undefined> {
@@ -667,9 +683,11 @@ export default class ApWrapper2 {
         load_status: status,
         error_class: structured ? 'structured' : 'malformed',
         ...(structured ? { http_status: httpStatus, error_code: errorCode } : {}),
+        ...this.hostPageTelemetry(),
       });
       return undefined;
     }
+    renderPerf.markContentPageId(customContent?.pageId);
     let diagram = JSON.parse(rawValue);
     diagram.source = DataSource.CustomContent;
 

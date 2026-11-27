@@ -21,6 +21,11 @@ import {
 } from '../../helpers/ViewerActionsHelper.js';
 import { expectFullscreenLayout } from '../../helpers/FullscreenModalHelper.js';
 
+// Each test builds its own page, so the planner may place tests of this
+// file on different shards (scripts/test-selection/plan.mjs splits a
+// file per test only when it declares parallel mode).
+test.describe.configure({ mode: 'parallel' });
+
 test.describe('Viewer toolbar actions', { tag: ['@test:viewer-actions', '@variant:lite', '@variant:full', '@variant:diagramly', '@viewer', '@fullscreen', '@sequence', '@export', '@feature:fullscreen-navigation', '@interface:inline-viewer', '@scenario:fullscreen-navigation:inline-viewer', '@feature:export-image', '@scenario:export-image:inline-viewer'] }, () => {
   test.skip(!testConfig.isForge && !testConfig.isLite, 'Forge-only chrome');
 

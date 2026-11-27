@@ -13,7 +13,7 @@ One variant per command. No variant named: ask which one. Do not release a varia
 
 Script: `.claude/skills/release-app/scripts/release.sh`
 
-Diagramly, Lite, Full, and AsyncAPI use this same command. Full stays behind Lite by 24 hours. The script enforces that. Do not pass an override.
+Diagramly, Lite, Full, and AsyncAPI use this same command. Full stays behind Lite by 8 hours, and publishes only if Lite's errors did not grow in that window (`scripts/soak_errors.py`: Lite error events by radar signature, against the same hours 1-2 weeks earlier; a BLOCK names the signature). The script enforces both. Do not pass an override.
 
 ## 1. Prepare
 
@@ -35,7 +35,7 @@ Write the notes from the delta file. Behavioral commits become the user-facing l
 .claude/skills/release-app/scripts/release.sh <variant> --publish --notes-file <file>
 ```
 
-The script publishes only when the gate is `OK`. Lite also waits until Diagramly's smoke for the same commit is green. Full also waits until Lite's smoke is green. It then blocks until this variant's own deploy and smoke finish.
+The script publishes only when the gate is `OK`. Lite also waits until Diagramly's smoke for the same commit is green and Diagramly's release carries a spot-check line. Full waits for the same from Lite. It then blocks until this variant's own deploy and smoke finish.
 
 - Exit 0: smoke passed. The production `@smoke` run is the PVT.
 - Exit 2: deploy succeeded and the workflow ran no smoke jobs. Confirm the behavioral lines on that variant's production site before publishing the next variant. AsyncAPI hits this until `release.yml` runs its prod smoke.
@@ -43,8 +43,17 @@ The script publishes only when the gate is `OK`. Lite also waits until Diagramly
 
 ## 3. Spot check
 
-After exit 0, spot check only the `behavioral` lines in the delta file, and only what prod smoke does not already cover. Smoke already inserts and renders. If a behavioral path cannot be reached in this variant, say so. If `behavioral` is 0, there is nothing to spot check.
+After exit 0 (or exit 2), spot check only the `behavioral` lines in the delta file, and only what prod smoke does not already cover. Smoke already inserts and renders. Then record the result before the next variant; the next publish is refused without it:
+
+```bash
+.claude/skills/release-app/scripts/release.sh <variant> --spot-check pass --note "<what was checked, where, evidence link>"
+.claude/skills/release-app/scripts/release.sh <variant> --spot-check na --note "<why this variant cannot reach the change>"
+```
+
+- `na` when a behavioral path cannot be reached in this variant, or `behavioral` is 0. The note names the reason.
+- A UI assertion that could not be driven is not `pass`. Record `na` only when the variant truly cannot reach the change; otherwise stop and report the blocker.
+- The line goes on the variant's latest published release as `Spot check: PASS|N/A — <note>`. Re-running replaces it.
 
 ## More than one variant
 
-Finish prepare, notes, and publish for one variant before starting the next. Diagramly then Lite is one sitting. Full is a later sitting; during the soak the script exits `BLOCK`.
+Finish prepare, notes, publish, and the recorded spot check for one variant before starting the next. Diagramly then Lite is one sitting. Full is a later sitting; during the soak the script exits `BLOCK`.

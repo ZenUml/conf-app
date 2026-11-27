@@ -8,16 +8,23 @@
 #   release.sh <variant> --publish --notes-file <file>
 #     Publish that draft, then block until its deploy and smoke finish.
 #     Lite waits until Diagramly's smoke for the same commit succeeded.
-#     Full waits until Lite's smoke succeeded, after the 24-hour soak gate.
+#     Full waits until Lite's smoke succeeded, after the 8-hour soak and its error check.
 #     Exit 0 smoke passed. Exit 2 deploy passed and no smoke jobs ran.
 #     Any other non-zero exit means do not publish the next variant.
+#     Lite and Full also refuse to publish until the prerequisite variant's
+#     release carries a spot-check line (below).
+#
+#   release.sh <variant> --spot-check pass|na --note "<evidence or reason>"
+#     Record the post-release spot check on the variant's latest published
+#     release as "Spot check: PASS|N/A — <note>". PASS needs the evidence,
+#     N/A the reason the variant cannot reach the change.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="${RELEASE_REPO:-ZenUml/conf-app}"
 
 usage() {
-  printf 'usage: release.sh <diagramly|lite|full|asyncapi> [--publish --notes-file FILE]\n' >&2
+  printf 'usage: release.sh <diagramly|lite|full|asyncapi> [--publish --notes-file FILE | --spot-check pass|na --note TEXT]\n' >&2
   exit 1
 }
 
@@ -50,9 +57,21 @@ wait_for_release() {
 variant=""
 publish=0
 notes_file=""
+spot_check=""
+spot_note=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --publish) publish=1; shift ;;
+    --spot-check)
+      [[ $# -ge 2 ]] || usage
+      spot_check="$2"
+      shift 2
+      ;;
+    --note)
+      [[ $# -ge 2 ]] || usage
+      spot_note="$2"
+      shift 2
+      ;;
     --notes-file)
       [[ $# -ge 2 ]] || usage
       notes_file="$2"
@@ -75,6 +94,21 @@ case "$variant" in
   asyncapi|async|api) variant=asyncapi ;;
   *) printf 'BLOCK: unknown variant %s\n' "$variant"; exit 1 ;;
 esac
+
+if [[ -n "$spot_check" ]]; then
+  [[ "$publish" -eq 0 ]] || usage
+  line="$(bash "$here/spot-check.sh" format "$spot_check" "$spot_note")" || exit 1
+  latest="$(gh release list --repo "$repo" --exclude-drafts --limit 40 --json tagName \
+    --jq "[.[] | select(.tagName | endswith(\"-${variant}\"))][0].tagName // empty")"
+  [[ -n "$latest" ]] || { printf 'BLOCK: no published %s release\n' "$variant"; exit 1; }
+  body="$(mktemp)"; updated="$(mktemp)"
+  trap 'rm -f "$body" "$updated"' EXIT
+  gh release view "$latest" --repo "$repo" --json body --jq .body >"$body"
+  bash "$here/spot-check.sh" apply "$body" "$line" >"$updated"
+  gh release edit "$latest" --repo "$repo" --notes-file "$updated" >/dev/null
+  printf 'RECORDED %s\n%s\n' "$latest" "$line"
+  exit 0
+fi
 
 if [[ "$publish" -eq 1 && ! -f "${notes_file:-}" ]]; then
   printf 'BLOCK: --publish needs --notes-file\n'
@@ -180,6 +214,16 @@ if [[ "$variant" == lite || "$variant" == full ]]; then
     printf 'BLOCK: %s smoke is not green\n' "$prereq_tag"
     exit 1
   fi
+  prereq_body="$(mktemp)"
+  gh release view "$prereq_tag" --repo "$repo" --json body --jq .body >"$prereq_body"
+  if ! spot_line="$(bash "$here/spot-check.sh" check "$prereq_body")"; then
+    rm -f "$prereq_body"
+    printf '%s\nBLOCK: %s has no spot check; record it with release.sh %s --spot-check pass|na --note "..."\n' \
+      "$spot_line" "$prereq_tag" "${prereq_tag##*-}"
+    exit 1
+  fi
+  rm -f "$prereq_body"
+  printf '%s: %s\n' "$prereq_tag" "$spot_line" >&2
 fi
 
 draft_body="$(mktemp)"

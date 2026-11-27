@@ -36,7 +36,19 @@ type UpgradeEventParams = Partial<Omit<AnalyticsProperties, 'feature_area'>> & R
  */
 export function bundleClientReferenceId(url: string): string | undefined {
   try {
-    return new URL(url).searchParams.get('client_reference_id') ?? undefined;
+    const params = new URL(url).searchParams;
+    // The handoff page link carries it as `ref`; a direct Stripe link as
+    // `client_reference_id`.
+    return params.get('ref') ?? params.get('client_reference_id') ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The funnel join key on a Bundle checkout handoff link. */
+export function bundleCheckoutClickId(url: string): string | undefined {
+  try {
+    return new URL(url).searchParams.get('click') ?? undefined;
   } catch {
     return undefined;
   }

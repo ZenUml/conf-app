@@ -11,6 +11,8 @@ import type { RecoveryFeature, RecoveryScenario } from '../../../shared/fullscre
 /** Independent, explicit pilot policy. Never changes the editor's count/paid policy. */
 export async function mountFullscreenRecovery(opts: {
   feature?: RecoveryFeature;
+  /** `edit`: whether the editor opens an existing diagram or a new one (analytics only). */
+  editTarget?: 'existing_diagram' | 'new_diagram';
   doc?: Diagram;
   existingExemption?: boolean;
   spaceKey: string;
@@ -27,7 +29,7 @@ export async function mountFullscreenRecovery(opts: {
     if (opts.feature === 'edit' && snapshot.state === 'active') return 'disabled';
     const context = await getContext();
     mountRoot(opts.doc ?? NULL_DIAGRAM, FullscreenRecoveryHost, {
-      initialSnapshot: snapshot, feature: opts.feature ?? 'fullscreen', content: markRaw(opts.content), contentProps: opts.contentProps ?? {},
+      initialSnapshot: snapshot, feature: opts.feature ?? 'fullscreen', editTarget: opts.editTarget, content: markRaw(opts.content), contentProps: opts.contentProps ?? {},
       context: {
         contentId: context.extension?.content?.id,
         customContentId: context.extension?.config?.customContentId || context.extension?.modal?.customContentId,

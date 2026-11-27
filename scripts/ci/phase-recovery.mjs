@@ -27,12 +27,13 @@ function expandPhase(name, root, api) {
   return failed.length ? failed : [unverified];
 }
 
-// Variants whose E2E validation failed, read from the expanded failure names: the
-// variant's `Validate: <Variant>` job, or the `E2E auth: <Variant>` bootstrap that
-// stops it from starting. Lower case, to compare with a draft job's variant.
+// Variants whose E2E validation failed, read from the expanded failure names: a job
+// of the variant's called `Validate: <Variant>` lane (`Validate: Full / regression /
+// shard 2/4`), or the `E2E auth: <Variant>` bootstrap that stops it from starting.
+// Lower case, to compare with a draft job's variant.
 export function failedValidationVariants(names) {
   return new Set(names.flatMap(name => {
-    const match = name.match(new RegExp(`^(?:Validate: (${variants})|E2E auth: (${variants}) / auth bootstrap)$`));
+    const match = name.match(new RegExp(`^(?:Validate: (${variants})(?: / .+)?|E2E auth: (${variants}) / auth bootstrap)$`));
     return match ? [(match[1] || match[2]).toLowerCase()] : [];
   }));
 }

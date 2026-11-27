@@ -25,6 +25,7 @@ vi.mock('@/utils/upgradeTracking', async (importOriginal) => {
 vi.mock('@/model/globals/forgeGlobal', () => ({
   default: { forgeContext: null },
   openUrl: vi.fn(),
+  openUrlForOutcome: vi.fn(async () => 'opened'),
   getView: vi.fn(() => Promise.resolve({ close: vi.fn() })),
 }))
 
@@ -72,32 +73,37 @@ describe('UpgradePrompt — purchase surface', () => {
     expect(wrapper.text()).toMatch(/site admin/i)
   })
 
-  it('opens the Stripe checkout and tracks the bundle rail', async () => {
+  it('opens the checkout handoff page and tracks the bundle rail', async () => {
     const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
-    const { openUrl } = await import('@/model/globals/forgeGlobal')
+    const { openUrlForOutcome } = await import('@/model/globals/forgeGlobal')
     const wrapper = mountModal()
 
     await wrapper.find('[data-testid="unlock-space-btn"]').trigger('click')
 
-    expect(openUrl).toHaveBeenCalledWith(BASE_PROPS.enterpriseBundleUrl)
+    expect(openUrlForOutcome).toHaveBeenCalledWith(BASE_PROPS.enterpriseBundleUrl)
     expect(trackUpgradeEvent).toHaveBeenCalledWith(
       'paywall_bundle_cta_clicked',
       expect.objectContaining({ bundle_price_usd: 299, ui_component: 'modal' })
     )
   })
 
-  it('records the Stripe attribution token (client_reference_id) on the bundle click', async () => {
+  it('records the Stripe attribution token and click id from the handoff link on the bundle click', async () => {
     const { trackUpgradeEvent } = await import('@/utils/upgradeTracking')
     const wrapper = mountModal({
-      enterpriseBundleUrl: 'https://buy.stripe.example.com/bundle?client_reference_id=acme__ENG',
+      enterpriseBundleUrl: 'https://conf-lite.zenuml.com/bundle-checkout?ref=acme__ENG&space=ENG&surface=upgrade_prompt&click=click-0001',
     })
 
     await wrapper.find('[data-testid="unlock-space-btn"]').trigger('click')
 
     expect(trackUpgradeEvent).toHaveBeenCalledWith(
       'paywall_bundle_cta_clicked',
-      expect.objectContaining({ client_reference_id: 'acme__ENG' })
+      expect.objectContaining({ client_reference_id: 'acme__ENG', checkout_click_id: 'click-0001' })
     )
+  })
+
+  it('still reads client_reference_id from a direct Stripe link', async () => {
+    const { bundleClientReferenceId } = await import('@/utils/upgradeTracking')
+    expect(bundleClientReferenceId('https://buy.stripe.example.com/bundle?client_reference_id=acme__ENG')).toBe('acme__ENG')
   })
 
   it('opens the Marketplace listing and tracks the OTHER rail distinctly', async () => {

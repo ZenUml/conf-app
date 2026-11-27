@@ -1,0 +1,197 @@
+# Give every PR its own Forge development environment of the Lite app.
+#
+#   PR #N  ->  Forge environment `pr-N`
+#          ->  Connect key `com.zenuml.confluence-addon-lite-prN`
+#          ->  installed on whimet6.atlassian.net (repo variable PR_DEV_SITE overrides)
+#
+# NEVER lite-dev.atlassian.net. Two Lite environments on one site expose the
+# same macro module keys (`zenuml-sequence-macro-lite`, ...). A macro node with
+# the bare key (API-created E2E pages, pages migrated from Connect) names no
+# environment, so Confluence renders it with either install. pr-1284 on lite-dev
+# made PR #1297's E2E run against the pr-1284 build (2026-11-22). The PR slot
+# (`pr` environment, pr-validation.yml) must stay the only Lite install there.
+# This workflow therefore removes its environment from lite-dev on every run.
+#
+# Confluence allows one installation per Connect key on a site, so a second
+# environment of the same app only installs with its own key (measured
+# 2026-11-21: 409 APP_ALREADY_INSTALLED with the fixed key; installed with a
+# suffixed key). The suffix follows the dev-key convention that the build and
+# functions/magic-writeback.ts check: docs/reference/dev-connect-key.md.
+#
+# What a reviewer gets: on a whimet6 page, the slash menu lists
+# "Diagram (Mermaid, PlantUML & ZenUML) Lite - pr-N (Dev)". Diagrams it creates
+# are stored under the PR's own content types, so they are separate from the
+# diagrams of the other installs on the site.
+#
+# Scope, deliberately narrow:
+#   - Lite only, Forge only. It does not publish Cloudflare Pages; the app calls
+#     the existing conf-stg-lite backend (manifest default).
+#   - Alongside PR validation, not instead of it: E2E still runs on the shared
+#     `pr` slot (pr-validation.yml). This workflow takes no staging or PR-slot lock.
+#   - Same-repository PRs only: fork PRs get no secrets.
+#   - On close (merged or not) the environment is uninstalled and deleted.
+name: PR dev environment
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+concurrency:
+  # One run per PR. A deploy is not cancelled half way (a half-finished
+  # `forge deploy` is worse than queueing); a close waits for it, then cleans up.
+  group: pr-dev-environment-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FORGE_EMAIL: "${{ vars.FORGE_EMAIL }}"
+  FORGE_API_TOKEN: "${{ secrets.FORGE_API_TOKEN }}"
+  FORGE_ENV: pr-${{ github.event.pull_request.number }}
+  CONNECT_KEY_OVERRIDE: com.zenuml.confluence-addon-lite-pr${{ github.event.pull_request.number }}
+  # Install target: whimet6 (owner's choice, 2026-11-23); repo variable PR_DEV_SITE overrides.
+  SITE: ${{ vars.PR_DEV_SITE || 'whimet6.atlassian.net' }}
+  PR_SLOT_SITE: lite-dev.atlassian.net
+
+jobs:
+  deploy:
+    name: 'Deploy: PR dev environment'
+    if: >-
+      github.event.action != 'closed'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      # `pnpm build:lite` chains `build:studio` (vendor/asyncapi-studio). Init only
+      # this submodule so the private one is not attempted. Same as deploy-whimet4.yml.
+      - name: Init asyncapi-studio submodule
+        run: git submodule update --init --depth 1 vendor/asyncapi-studio
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # First, before anything slow: this environment must not be installed on
+      # the PR slot's site (see the header).
+      - name: Remove this environment from ${{ env.PR_SLOT_SITE }}
+        run: |
+          pnpm forge:deploy:disable-analytics
+          if pnpm exec forge install list -e "$FORGE_ENV" --json 2>/dev/null \
+              | jq -e --arg site "$PR_SLOT_SITE" 'any(.[]; .site == $site and .environment == env.FORGE_ENV)' >/dev/null; then
+            pnpm exec forge uninstall --site "$PR_SLOT_SITE" --product confluence -e "$FORGE_ENV" </dev/null
+          else
+            echo "No ${FORGE_ENV} install on ${PR_SLOT_SITE}"
+          fi
+
+      # CONNECT_KEY_OVERRIDE (job env) makes every custom-content type
+      # ac:<PR key>:..., and the build fails if the key breaks the convention.
+      - name: Build Lite frontend with the PR's Connect key
+        run: pnpm build:lite
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          VITE_MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}
+          VITE_APP_VERSION: "pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}"
+
+      - name: Write the variant manifest edits
+        run: node scripts/ci/manifest-edits.mjs "lite" manifest-edits.sh
+      - name: Apply the variant manifest edits
+        uses: mikefarah/yq@master
+        with:
+          cmd: sh manifest-edits.sh
+
+      - name: Create the Forge environment if it does not exist
+        run: |
+          pnpm forge:deploy:disable-analytics
+          if pnpm exec forge environments list 2>/dev/null | grep -qE "[[:space:]]${FORGE_ENV}[[:space:]]"; then
+            echo "Forge environment ${FORGE_ENV} exists"
+          else
+            pnpm exec forge environments create -e "$FORGE_ENV" --non-interactive
+          fi
+
+      # scripts/forgex maps CONNECT_KEY_OVERRIDE to the manifest's ${CONNECT_KEY}
+      # and refuses to deploy a dist/ built for a different key.
+      - name: Deploy to Forge (${{ env.FORGE_ENV }})
+        run: |
+          # Same as staging: PR builds do not count in Mixpanel.
+          pnpm exec forge variables set MIXPANEL_DISABLED true -e "$FORGE_ENV"
+          # forgex execs `forge` by name; the CLI is a devDependency.
+          export PATH="$PWD/node_modules/.bin:$PATH"
+          ./scripts/forgex deploy -e "$FORGE_ENV" --non-interactive --verbose
+
+      # A fresh install needs the CI Forge account to be a site admin of
+      # lite-dev (it already installs the `pr` slot there). An existing install
+      # takes a minor version automatically; --upgrade covers a major one.
+      # Needs the shared CI account (support@zenuml.com) to be a site admin of
+      # the site. Only the shared CI credentials are used: this runs the PR's
+      # own copy of the workflow, so no personal credentials belong here.
+      - name: Install / upgrade on ${{ env.SITE }}
+        if: env.SITE != '' && env.SITE != env.PR_SLOT_SITE
+        run: |
+          export PATH="$PWD/node_modules/.bin:$PATH"
+          ./scripts/forgex install --site "$SITE" --product confluence -e "$FORGE_ENV" --non-interactive \
+            || ./scripts/forgex install --upgrade --site "$SITE" --product confluence -e "$FORGE_ENV" --non-interactive
+
+      - name: Write deployment summary
+        if: always()
+        run: |
+          {
+            echo "## PR dev environment"
+            echo "| Property | Value |"
+            echo "|----------|-------|"
+            echo "| PR | #${{ github.event.pull_request.number }} |"
+            echo "| Commit | \`${{ github.event.pull_request.head.sha }}\` (built as merge \`${{ github.sha }}\`) |"
+            echo "| Variant | lite |"
+            echo "| Forge environment | \`$FORGE_ENV\` |"
+            echo "| Connect key | \`$CONNECT_KEY_OVERRIDE\` |"
+            echo "| Site | https://$SITE/wiki |"
+            echo "| In the editor | slash menu: \`Diagram (Mermaid, PlantUML & ZenUML) Lite - $FORGE_ENV (Dev)\` |"
+            echo "| Result | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup:
+    name: 'Clean up: PR dev environment'
+    if: >-
+      github.event.action == 'closed'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          cache: 'pnpm'
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # Both steps tolerate "nothing to remove": a PR whose deploy never ran
+      # (or was already cleaned up) has no install and no environment.
+      - name: Uninstall from every site
+        run: |
+          pnpm forge:deploy:disable-analytics
+          for site in $(pnpm exec forge install list -e "$FORGE_ENV" --json 2>/dev/null \
+              | jq -r '.[] | select(.environment == env.FORGE_ENV) | .site' | sort -u); do
+            pnpm exec forge uninstall --site "$site" --product confluence -e "$FORGE_ENV" </dev/null
+          done
+
+      - name: Delete the Forge environment
+        run: |
+          if pnpm exec forge environments list 2>/dev/null | grep -qE "[[:space:]]${FORGE_ENV}[[:space:]]"; then
+            pnpm exec forge environments delete -e "$FORGE_ENV" --non-interactive
+          else
+            echo "Forge environment ${FORGE_ENV} does not exist"
+          fi

@@ -39,20 +39,52 @@ import { Page } from '@playwright/test';
  * action while the modal never appears, which is the overwhelming majority
  * of runs.
  */
+/**
+ * Promo modals seen so far. The bare default covers modals shipped without a
+ * custom testId. Others ship with their own testId and render no
+ * `modal-dialog--close-button`, so they are listed by name:
+ *
+ * - `agentic-awareness-modal`: Rovo "Meet agents where you are" carousel
+ *   (dia-stg, 2026-11-20). It blocked the viewer Edit click in edit-graph on
+ *   all three tries. Buttons: "Close" (icon), "Dismiss", "Previous", "Next".
+ *
+ * Our own dialogs use namespaced testIds (e.g. `element-browser-modal-dialog`)
+ * and never match. Covered by tests/unit/announcementModal.spec.ts.
+ */
+export const ANNOUNCEMENT_MODAL_TESTIDS = ['modal-dialog', 'agentic-awareness-modal'] as const;
+
+export const ANNOUNCEMENT_MODAL_SELECTOR = ANNOUNCEMENT_MODAL_TESTIDS.map(
+  (id) => `section[data-testid="${id}"]`,
+).join(', ');
+
+/**
+ * Buttons tried in order. "Dismiss" first: it records the dismissal for the
+ * account, so the modal does not return on the next navigation.
+ */
+export const ANNOUNCEMENT_DISMISS_BUTTON_TEXTS = ['Dismiss', 'Close'] as const;
+
 const registered = new WeakSet<Page>();
 
 export async function registerAnnouncementModalHandler(page: Page): Promise<void> {
   if (registered.has(page)) return;
   registered.add(page);
 
-  const closeButton = page.locator('[data-testid="modal-dialog--close-button"]');
+  const modal = page.locator(ANNOUNCEMENT_MODAL_SELECTOR).first();
 
-  await page.addLocatorHandler(closeButton, async () => {
-    console.log('  [debug] Atlassian announcement modal detected — dismissing');
-    await closeButton.click({ timeout: 5000 }).catch(async () => {
-      // Close button unclickable for some reason (e.g. covered) — Escape is
-      // the documented a11y fallback for Atlaskit ModalDialog.
-      await page.keyboard.press('Escape').catch(() => {});
-    });
+  await page.addLocatorHandler(modal, async () => {
+    const testId = await modal.getAttribute('data-testid').catch(() => null);
+    console.log(`  [debug] Atlassian announcement modal detected (${testId}) — dismissing`);
+    const bareClose = modal.locator('[data-testid="modal-dialog--close-button"]');
+    if (await bareClose.isVisible().catch(() => false)) {
+      if (await bareClose.click({ timeout: 5000 }).then(() => true, () => false)) return;
+    }
+    for (const text of ANNOUNCEMENT_DISMISS_BUTTON_TEXTS) {
+      const button = modal.getByRole('button', { name: text, exact: true });
+      if (await button.isVisible().catch(() => false)) {
+        if (await button.click({ timeout: 5000 }).then(() => true, () => false)) return;
+      }
+    }
+    // Escape is the documented a11y fallback for Atlaskit ModalDialog.
+    await page.keyboard.press('Escape').catch(() => {});
   });
 }

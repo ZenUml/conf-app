@@ -15,12 +15,12 @@ const mountEdit = (snapshot: RecoverySnapshot, extra: Record<string, unknown> = 
   mount(FullscreenRecoveryGate, { props: { snapshot, feature: 'edit', context: { spaceKey: 'ENG' }, ...extra } })
 
 describe('edit wording on the shared gate', () => {
-  it('E1: "How will you edit this diagram?" with the four edit uses and the free limit', () => {
+  it('E1: "How will you edit diagrams?" with the four edit uses and the free limit', () => {
     const w = mountEdit(base)
-    expect(w.get('h1').text()).toBe('How will you edit this diagram?')
+    expect(w.get('h1').text()).toBe('How will you edit diagrams?')
     expect(w.text()).toContain('This site has reached the free limit of 100 diagrams.')
     expect(w.findAll('.recovery__choice').map(c => c.text())).toEqual([
-      'Fix or update this diagram', 'Keep our documentation current', 'Prepare for a review or release', 'Something else',
+      'Fix or update a diagram', 'Keep our documentation current', 'Prepare for a review or release', 'Something else',
     ])
     expect(w.text()).not.toMatch(/Fullscreen/)
   })

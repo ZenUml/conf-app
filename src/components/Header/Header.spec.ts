@@ -16,6 +16,7 @@ vi.mock('@/apis/aiTitleFeatureFlag', async (importOriginal) => {
 })
 import {trackAnalyticsEvent} from '@/utils/analytics/trackAnalyticsEvent'
 import {isAiChatEnabled} from '@/apis/aiTitleFeatureFlag'
+import {markStarterGalleryAutoOpened} from '@/utils/starterGallery/autoOpenMarker'
 
 enableAutoUnmount(afterEach)
 
@@ -295,6 +296,15 @@ describe('Header — macro_type_changed telemetry (#562)', () => {
 describe('Header — starter-template gallery (#334)', () => {
   beforeEach(() => {
     vi.mocked(trackAnalyticsEvent).mockClear();
+    // These tests open the gallery by hand. Without the auto-open marker, an
+    // empty new macro also opens it on mount, and which tests hit that depends
+    // on the order they run in.
+    localStorage.clear();
+    for (const cloudId of ['test-cloud', 'unknown-cloud']) {
+      for (const type of Object.values(DiagramType)) {
+        markStarterGalleryAutoOpened(cloudId, type);
+      }
+    }
     store.commit('updateDiagramType', DiagramType.Sequence);
     store.state.diagram.id = '';
     store.state.diagram.code = '';
@@ -433,13 +443,13 @@ describe('Header — starter-template gallery auto-open (onboarding funnel)', ()
     store.state.diagram.id = ''
     store.state.diagram.code = ''
     store.state.diagram.isNew = false
-    localStorage.removeItem(AUTO_OPEN_KEY)
-    localStorage.removeItem('zenuml.starterGalleryAutoOpened.test-cloud.mermaid')
+    // The marker key embeds the cached cloud id, which is 'unknown-cloud' when
+    // another test ran first; clear every marker, not just the test-cloud ones.
+    localStorage.clear()
   })
 
   afterEach(() => {
-    localStorage.removeItem(AUTO_OPEN_KEY)
-    localStorage.removeItem('zenuml.starterGalleryAutoOpened.test-cloud.mermaid')
+    localStorage.clear()
   })
 
   it('opens the gallery exactly once on mount for an empty new macro', async () => {

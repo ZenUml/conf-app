@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { handleRenderRequest, MAX_SOURCE_CHARS, RENDER_TOOL } from './renderMcp';
+import { ZENUML_RENDER_CHEAT_SHEET } from './zenumlDslGuide';
 import { DIAGRAM_VIEW_URI, UI_MIME_TYPE } from './oauth/mcpApps';
 import { RENDER_LIMIT } from './renderRateLimit';
 
@@ -107,6 +108,96 @@ describe('POST /mcp/render', () => {
     expect(RENDER_TOOL.description).not.toMatch(/dsl-guide|zenuml:\/\/|resource/);
     const { body } = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } });
     expect(body.result.instructions).toMatch(/zenuml:\/\/.*dsl-guide/);
+  });
+
+  describe('guidance for agents', () => {
+    it('puts the trigger first in the server instructions, before anything a client might cut', async () => {
+      const { body } = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } });
+      const text: string = body.result.instructions;
+      expect(text.slice(0, 260)).toMatch(/sequence diagram/i);
+      expect(text.slice(0, 260)).toMatch(/ASCII/);
+      expect(text.slice(0, 260)).toMatch(/render_diagram/);
+      expect(text).toMatch(/No Atlassian site or sign-in/);
+    });
+
+    it('starts the tool description with when to use it, and carries the ZenUML cheat sheet', () => {
+      const d: string = RENDER_TOOL.description;
+      expect(d.slice(0, 200)).toMatch(/sequence diagram/i);
+      expect(d.slice(0, 200)).toMatch(/ASCII/);
+      expect(d).toContain(ZENUML_RENDER_CHEAT_SHEET);
+      expect(d.length).toBeLessThan(1600);
+    });
+
+    it('appends the ZenUML cheat sheet to a failed sequence parse, and only then', async () => {
+      const bad = await call({ diagramType: 'sequence', source: 'A->B: POST /x {\n  B->C: y\n}' });
+      const text: string = bad.body.result.content[0].text;
+      expect(text).toMatch(/line 3, column 0/);
+      expect(text).toContain(ZENUML_RENDER_CHEAT_SHEET);
+
+      const good = await call({ diagramType: 'sequence', source: 'A->B.m() { C.n() }' });
+      expect(good.body.result.content[0].text).not.toContain(ZENUML_RENDER_CHEAT_SHEET);
+
+      const other = await call({ diagramType: 'openapi', source: 'openapi: 3.0.0\ninfo:\n  title: x\n  title: y\n' });
+      expect(other.body.result.content[0].text).not.toContain(ZENUML_RENDER_CHEAT_SHEET);
+    });
+  });
+
+  describe('ZenUML mistakes', () => {
+    it('returns lint warnings for a message inside a group, which parses', async () => {
+      const { body } = await call({ diagramType: 'sequence', source: 'group "Backend" {\n  A->B: msg\n}\nB->C: z' });
+      const r = body.result.structuredContent;
+      expect(r.valid).toBe(true);
+      expect(r.warnings).toEqual([expect.objectContaining({ code: 'group_with_messages', line: 1, col: 0 })]);
+      const text: string = body.result.content[0].text;
+      expect(text).toMatch(/parsed, but/);
+      expect(text).toMatch(/line 1, column 0: /);
+    });
+
+    it('returns lint warnings for a one-line block after an async message', async () => {
+      const { body } = await call({ diagramType: 'sequence', source: 'A->B: POST /orders { B->C: save() }' });
+      expect(body.result.structuredContent.warnings).toEqual([expect.objectContaining({ code: 'block_in_async_message', line: 1 })]);
+    });
+
+    it('returns no warnings for a valid diagram without those patterns', async () => {
+      const { body } = await call({ diagramType: 'sequence', source: 'group "Backend" {\n  B\n}\nA->B.m() {\n  B->C: x\n}' });
+      expect(body.result.structuredContent.warnings).toBeUndefined();
+      expect(body.result.content[0].text).toBe('Rendered the sequence diagram. The source parsed.');
+    });
+
+    it('puts a targeted fix before the parser errors and keeps the cheat sheet as fallback', async () => {
+      const { body } = await call({ diagramType: 'sequence', source: 'A->B: POST /x {\n  B->C: y\n}' });
+      expect(body.result.structuredContent.hints).toEqual([expect.objectContaining({ code: 'block_after_async_message', line: 1 })]);
+      const text: string = body.result.content[0].text;
+      const fix = text.indexOf('A->B.method() {');
+      expect(fix).toBeGreaterThan(-1);
+      expect(fix).toBeLessThan(text.indexOf('line 3, column 0'));
+      expect(text).toContain(ZENUML_RENDER_CHEAT_SHEET);
+    });
+
+    it('suggests a rewritten source for a group mistake, as the next call to make', async () => {
+      const src = 'A->B: msg\ngroup "x" {\n  B->C: y\n}';
+      const { body } = await call({ diagramType: 'sequence', source: src });
+      const r = body.result.structuredContent;
+      expect(r.suggestedSource).toBe('group "x" {\n  B\n  C\n}\nA->B: msg\nB->C: y');
+      expect(r.source).toBe(src);
+      const text: string = body.result.content[0].text;
+      expect(text).toContain('call render_diagram again with this source');
+      expect(text).toContain(r.suggestedSource);
+      expect(text.indexOf(r.suggestedSource)).toBeLessThan(text.indexOf('ZenUML syntax:'));
+
+      const parsed = await call({ diagramType: 'sequence', source: 'group "B" {\n  A->B: m\n}' });
+      expect(parsed.body.result.structuredContent.suggestedSource).toBe('group "B" {\n  A\n  B\n}\nA->B: m');
+    });
+
+    it('suggests no source when there is nothing safe to rewrite', async () => {
+      const { body } = await call({ diagramType: 'sequence', source: 'A->B: POST /x {\n  B->C: y\n}' });
+      expect(body.result.structuredContent.suggestedSource).toBeUndefined();
+    });
+
+    it('does not lint other diagram types', async () => {
+      const { body } = await call({ diagramType: 'mermaid', source: 'sequenceDiagram\n  A->>B: x { y }' });
+      expect(body.result.structuredContent.warnings).toBeUndefined();
+    });
   });
 
   it('returns valid source in the shape the view extracts', async () => {
@@ -280,6 +371,27 @@ describe('POST /mcp/render', () => {
         }),
       );
       expect(JSON.stringify(events)).not.toContain('secret-text');
+    });
+
+    it('records the recognised ZenUML mistakes and whether warnings were returned', async () => {
+      const events = captureEvents();
+      const env = { MIXPANEL_TOKEN: 't' };
+      await call({ diagramType: 'sequence', source: 'A->B: ok' }, env);
+      await call({ diagramType: 'sequence', source: 'group "x" {\n  A->B: m\n}' }, env);
+      await call({ diagramType: 'sequence', source: 'A->B: m\ngroup "x" { B }' }, env);
+      await call({ diagramType: 'sequence', source: 'A->B.m(' }, env);
+      await call({ diagramType: 'mermaid', source: 'flowchart TD\n  A --> B' }, env);
+      const props = events.filter((e) => e.event === 'agent_link_mcp_tool_called').map((e) => e.properties);
+      expect(props[0]).toEqual(expect.objectContaining({ render_warnings_returned: false, render_fix_suggested: false }));
+      expect(props[1].render_fix_suggested).toBe(true);
+      expect(props[2].render_fix_suggested).toBe(true);
+      expect(props[3].render_fix_suggested).toBe(false);
+      expect(props[0].render_issues).toBeUndefined();
+      expect(props[1]).toEqual(expect.objectContaining({ render_warnings_returned: true, render_issues: ['group_with_messages'] }));
+      expect(props[2]).toEqual(expect.objectContaining({ render_warnings_returned: false, render_issues: ['group_after_message'] }));
+      expect(props[3]).toEqual(expect.objectContaining({ render_validation: 'invalid', render_issues: ['unrecognised'] }));
+      expect(props[4].render_issues).toBeUndefined();
+      expect(props[4].render_warnings_returned).toBeUndefined();
     });
 
     it('records a refusal with its code', async () => {

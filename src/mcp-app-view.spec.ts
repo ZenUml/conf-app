@@ -894,21 +894,37 @@ describe('zooming a drawing', () => {
     expect(zoomReports().map((r) => r.viewport_input)).toEqual(['keyboard', 'keyboard']);
   });
 
-  it('zooms on the wheel without a modifier, and on a pinch, reporting one gesture once', async () => {
+  const wheel = (init: WheelEventInit) => {
+    const e = new WheelEvent('wheel', { cancelable: true, ...init });
+    onWheel(e);
+    return e;
+  };
+
+  it('leaves a plain wheel to scroll the conversation when inline', async () => {
     await drawMermaid();
-    const wheel = (init: WheelEventInit) => {
-      const e = new WheelEvent('wheel', { cancelable: true, ...init });
-      onWheel(e);
-      return e;
-    };
-    expect(wheel({ deltaY: -100 }).defaultPrevented).toBe(true);
+    const e = wheel({ deltaY: 1000 }); // ten ticks down, as when scrolling past the diagram
+    expect(e.defaultPrevented).toBe(false);
+    expect(currentUserZoom()).toBe(1);
+    expect(zoomReports()).toHaveLength(0);
+  });
+
+  it('zooms inline on Ctrl/Cmd + wheel and on a pinch, reporting one gesture once', async () => {
+    await drawMermaid();
+    expect(wheel({ deltaY: -100, ctrlKey: true }).defaultPrevented).toBe(true); // a trackpad pinch
     expect(currentUserZoom()).toBeCloseTo(1.2, 5);
-    wheel({ deltaY: -100, ctrlKey: true }); // a trackpad pinch
+    wheel({ deltaY: -100, metaKey: true });
     expect(currentUserZoom()).toBeCloseTo(1.44, 5);
-    wheel({ deltaY: 100 });
+    wheel({ deltaY: 100, ctrlKey: true });
     expect(currentUserZoom()).toBeCloseTo(1.2, 5);
     expect(zoomReports()).toHaveLength(1);
     expect(zoomReports()[0]).toMatchObject({ viewport_action: 'zoom_in', viewport_input: 'wheel' });
+  });
+
+  it('zooms on a plain wheel in fullscreen, where the drawing is the whole view', async () => {
+    await drawMermaid();
+    applyHostContext({ displayMode: 'fullscreen' });
+    expect(wheel({ deltaY: -100 }).defaultPrevented).toBe(true);
+    expect(currentUserZoom()).toBeCloseTo(1.2, 5);
   });
 
   it('leaves the wheel to scroll a document', async () => {

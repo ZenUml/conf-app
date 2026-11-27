@@ -40,6 +40,11 @@ import type {
   DashboardFormatFilter,
   DiagramLocationsLoadOutcome,
   DiagramLocationsFilter,
+  DiagramCommentFailureReason,
+  DiagramCommentThreadAction,
+  DiagramCommentViewerKind,
+  DiagramCommentNativeAction,
+  FeedbackEntryLabel,
   AgentLinkDisconnectReason,
   AgentLinkExpiryCause,
   AgentLinkRenderOutcome,
@@ -798,6 +803,25 @@ export type AnalyticsProperties = {
   // Confluence page load, so it is a page-weight number as much as ours — read
   // against REVEAL_TTL_MS, which is what a slower page would have exceeded.
   reveal_age_ms?: number;
+  // diagram_comment_*: counts and closed vocabularies only. Never the comment
+  // text, an author, an account id, a page title or a mentioned user.
+  comment_thread_action?: DiagramCommentThreadAction;
+  /** People @-mentioned in the comment as posted. */
+  comment_mention_count?: number;
+  /** People we asked Confluence to notify (mentions plus the last modifier). Not a delivery count. */
+  comment_planned_recipient_count?: number;
+  /** Root threads found for this diagram when the panel loaded. */
+  comment_count?: number;
+  comment_load_outcome?: 'succeeded' | 'failed';
+  comment_failure_reason?: DiagramCommentFailureReason;
+  /** Panel closed while the reader had unsent text. */
+  comment_had_draft?: boolean;
+  /** Who clicked Comments. Resolved from the viewer account lookup; `unknown` when it has not answered. */
+  comment_viewer_kind?: DiagramCommentViewerKind;
+  /** What the reader did in the native Confluence thread link. */
+  comment_native_action?: DiagramCommentNativeAction;
+  /** Edge feedback button label when opened (compare before/after the "Report a bug" rename). */
+  feedback_entry_label?: FeedbackEntryLabel;
   // diagram_added_to_page: which step produced a 'forbidden' or 'failed'
   // result. `result` alone is a bucket — 'failed' covers a Confluence 5xx, an
   // unparsable page body and a macro key we refused to guess, which need

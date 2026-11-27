@@ -13,6 +13,8 @@ describe('feedback surface routing', () => {
     expect(feedbackSurfaceForContext({ extension: { type: 'confluence:contentBylineItem' }, moduleKey: 'zenuml-byline-diagrams' })).toBeNull()
     expect(feedbackSurfaceForContext({ extension: { type: 'confluence:pageBanner' }, moduleKey: 'zenuml-page-banner' })).toBeNull()
     expect(feedbackSurfaceForContext({ extension: { modal: { macroMode: 'feedback' } }, moduleKey: 'zenuml-sequence-macro-lite' })).toBeNull()
+    // The Comments modal loads the same entry; it must never get an edge host of its own.
+    expect(feedbackSurfaceForContext({ extension: { modal: { macroMode: 'comments' } }, moduleKey: 'zenuml-sequence-macro-lite' })).toBeNull()
   })
 
   it('derives all eight report fields and uses explicit unavailable values', () => {

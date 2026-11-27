@@ -6,6 +6,7 @@ const AI_CHAT_REPAIR_FLAG_ID = 'ai-chat-repair-enabled'
 const AI_REPAIR_FLAG_ID = 'ai-repair-enabled'
 const ARCHITECTURE_TOKENS_FLAG_ID = 'architecture-tokens-enabled'
 const CREATE_GUIDE_FLAG_ID = 'create-guide-enabled'
+const DIAGRAM_COMMENTS_FLAG_ID = 'diagram-comments-enabled'
 const TITLE_DRAFT_FLAG_ID = 'title-draft-enabled'
 const NO_LICENSE_NOTICE_FLAG_ID = 'no-license-notice-enabled'
 
@@ -143,6 +144,23 @@ export async function isCreateGuideEnabled(): Promise<boolean> {
     return await client.checkFlag(CREATE_GUIDE_FLAG_ID, false)
   } catch (error) {
     console.error('Failed to load Create guide feature flag:', error)
+    return false
+  }
+}
+
+/**
+ * Diagram comments (#1047, src/features/diagramComments): the inline "Comments"
+ * entry and the fullscreen panel. Lite first. Fail-closed: a missing flag or a
+ * lookup error hides the feature and leaves the viewer exactly as it was.
+ */
+export async function isDiagramCommentsEnabled(): Promise<boolean> {
+  if (!forgeGlobal.isForge) return false
+
+  try {
+    const client = await getFeatureFlagsClient()
+    return await client.checkFlag(DIAGRAM_COMMENTS_FLAG_ID, false)
+  } catch (error) {
+    console.error('Failed to load Diagram comments feature flag:', error)
     return false
   }
 }

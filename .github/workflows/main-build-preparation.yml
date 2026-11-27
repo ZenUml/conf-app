@@ -1,10 +1,8 @@
 name: Build preparation
-run-name: "Build preparation · parent ${{ inputs.parent-run-id }} · attempt ${{ inputs.parent-attempt }} · source ${{ inputs.source-sha }}"
 on:
-  workflow_dispatch:
+  # Called by build-test-deploy.yml: every phase runs inside the root run.
+  workflow_call:
     inputs:
-      parent-run-id: {type: string, required: true}
-      parent-attempt: {type: string, required: true}
       source-sha: {type: string, required: true}
       version: {type: string, required: true}
 permissions:
@@ -12,7 +10,7 @@ permissions:
   actions: read
 jobs:
   parent:
-    name: Verify root ownership
+    name: Read root options
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -21,17 +19,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.source-sha }}
-      - name: Check the active root
+      - name: Read this attempt's root options
         id: owner
         env:
           GH_TOKEN: ${{ github.token }}
-          PARENT_RUN_ID: ${{ inputs.parent-run-id }}
-          PARENT_ATTEMPT: ${{ inputs.parent-attempt }}
           SOURCE_SHA: ${{ inputs.source-sha }}
-          EXPECTED_PARENT_JOBS: '["Build preparation"]'
-        run: |
-          node scripts/ci/wait-for-e2e.mjs --verify-parent
-          echo "run=true" >> "$GITHUB_OUTPUT"
+        run: node scripts/ci/wait-for-e2e.mjs --root-options
 
   build:
     if: needs.parent.outputs.run == 'true'

@@ -22,13 +22,9 @@ export function dispatchBody(env) {
     'parent-attempt': env.GITHUB_RUN_ATTEMPT,
     'source-sha': env.SOURCE_SHA,
   };
-  // Only the root's phase runs and the PR E2E child are dispatched. Staging E2E
-  // lanes are called workflows inside the staging run (#1294).
-  if (env.CHILD_KIND === 'phase') {
-    inputs.version = env.VERSION;
-    if (env.ARTIFACT_RUN_ID) inputs['artifact-run-id'] = env.ARTIFACT_RUN_ID;
-    if (env.STAGING_RUN_ID) inputs['staging-run-id'] = env.STAGING_RUN_ID;
-  } else if (env.CHILD_KIND === 'pr') {
+  // Only the PR E2E child is dispatched. The main phases and their staging E2E
+  // lanes are called workflows inside the root run.
+  if (env.CHILD_KIND === 'pr') {
     inputs.grep = env.GREP || '';
     inputs.mode = env.MODE;
     if (env.PR_NUMBER) inputs['pr-number'] = env.PR_NUMBER;
@@ -58,11 +54,8 @@ export function verifyChildRun(actor, attempt) {
 export function verifyParent(parent, attempt, jobs, expectedJobs, provenance = {}) {
   const dispatcherRunning = jobs.some(job => expectedJobs.includes(job.name) && job.status === 'in_progress');
   if (!['in_progress', 'pending', 'queued'].includes(parent.status) || !dispatcherRunning || String(parent.run_attempt) !== attempt ||
-      !['.github/workflows/build-test-deploy.yml', '.github/workflows/pr-validation.yml'].includes(parent.path)) {
+      parent.path !== '.github/workflows/pr-validation.yml') {
     throw new Error('Child E2E requires an active staging parent for this attempt');
-  }
-  if (parent.path === '.github/workflows/build-test-deploy.yml' && provenance.sourceSha && parent.head_sha !== provenance.sourceSha) {
-    throw new Error('Phase source does not match its root');
   }
 }
 
@@ -120,17 +113,24 @@ export function verifyRootOptions(options, root, id, attempt, sha) {
   return options;
 }
 
-export function verifyDailyGate(gate, producer, rootId, attempt, source, producerId) {
-  const title = `Draft preparation · parent ${rootId} · attempt ${attempt} · source ${source}`;
-  if (String(producer.id) !== String(producerId) || producer.path !== '.github/workflows/main-draft-preparation.yml' ||
-      producer.display_title !== title || producer.status !== 'completed' || producer.run_attempt !== 1 ||
-      producer.event !== 'workflow_dispatch' || producer.actor?.login !== 'github-actions[bot]' ||
-      String(gate.producer_run_id) !== String(producerId) || String(gate.root_run_id) !== String(rootId) ||
+// The draft phase is a called workflow of the root, so the gate's producer is the
+// root run itself, in this attempt.
+export function verifyDailyGate(gate, rootId, attempt, source) {
+  if (String(gate.producer_run_id) !== String(rootId) || String(gate.root_run_id) !== String(rootId) ||
       String(gate.root_attempt) !== String(attempt) || gate.source_sha !== source ||
       !['true', 'false'].includes(gate.allowed) || typeof gate['gate-reason'] !== 'string') {
-    throw new Error('Daily gate artifact does not match this root source and draft producer');
+    throw new Error('Daily gate artifact does not match this root source and attempt');
   }
   return gate;
+}
+
+// A phase runs inside the root run (workflow_call): read and verify the options that
+// this attempt's "Source and version" job recorded.
+export function loadRootOptions(env, api, download) {
+  const root = api(`actions/runs/${env.GITHUB_RUN_ID}`);
+  const options = verifyRootOptions(download(`main-root-options-${env.GITHUB_RUN_ATTEMPT}`, 'main-root-options.json'),
+    root, env.GITHUB_RUN_ID, env.GITHUB_RUN_ATTEMPT, env.SOURCE_SHA);
+  return options;
 }
 
 // A lost response is ambiguous: the child may exist and must still be found.
@@ -229,6 +229,18 @@ async function main() {
     appendFileSync(env.GITHUB_STEP_SUMMARY, `Manual controls: Actions → Build, Test and Draft Release → Run workflow → main. Select full-tests for complete suites. To bypass the daily draft gate once, select bypass-regression-gate and enter bypass-reason. Staging tests always run.\n\nFull tests: ${options.full_tests}. Daily gate bypass: ${options.bypass_regression_gate}. Reason: ${options.bypass_reason || 'none'}.\n`);
     return;
   }
+  if (process.argv.includes('--root-options')) {
+    const download = (name, file) => {
+      const directory = mkdtempSync(join(tmpdir(), 'main-root-options-'));
+      execFileSync('gh', ['run', 'download', env.GITHUB_RUN_ID, '--repo', env.GITHUB_REPOSITORY, '--name', name, '--dir', directory]);
+      return JSON.parse(readFileSync(join(directory, file), 'utf8'));
+    };
+    const options = loadRootOptions(env, createApi(`repos/${env.GITHUB_REPOSITORY}`), download);
+    writeFileSync('verified-root-options.json', JSON.stringify(options));
+    if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT,
+      `run=true\nfull-tests=${options.full_tests}\nbypass-regression-gate=${options.bypass_regression_gate}\nroot-event=${options.root_event}\n`);
+    return;
+  }
   const repo = `repos/${env.GITHUB_REPOSITORY}`;
   const workflow = env.CHILD_WORKFLOW;
   const title = `${env.CHILD_TITLE} · parent ${env.GITHUB_RUN_ID} · attempt ${env.GITHUB_RUN_ATTEMPT} · source ${env.SOURCE_SHA}`;
@@ -253,16 +265,6 @@ async function main() {
         '--name', `pr-parent-provenance-${env.PARENT_ATTEMPT}`, '--dir', directory]);
       verifyPrProvenance(JSON.parse(readFileSync(join(directory, 'pr-parent-provenance.json'), 'utf8')),
         parent, env.PARENT_RUN_ID, env.PARENT_ATTEMPT, env.PR_NUMBER, env.SOURCE_SHA);
-    }
-    if (parent.path === '.github/workflows/build-test-deploy.yml') {
-      const directory = mkdtempSync(join(tmpdir(), 'main-root-options-'));
-      execFileSync('gh', ['run', 'download', env.PARENT_RUN_ID, '--repo', env.GITHUB_REPOSITORY,
-        '--name', `main-root-options-${env.PARENT_ATTEMPT}`, '--dir', directory]);
-      const options = verifyRootOptions(JSON.parse(readFileSync(join(directory, 'main-root-options.json'), 'utf8')),
-        parent, env.PARENT_RUN_ID, env.PARENT_ATTEMPT, env.SOURCE_SHA);
-      writeFileSync('verified-root-options.json', JSON.stringify(options));
-      if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT,
-        `full-tests=${options.full_tests}\nbypass-regression-gate=${options.bypass_regression_gate}\nroot-event=${options.root_event}\n`);
     }
     return;
   }

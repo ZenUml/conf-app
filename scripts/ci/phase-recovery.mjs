@@ -78,10 +78,50 @@ export function expandPhaseFailures(failures, root, api, log = () => {}) {
   return failures.flatMap(name => expanded.get(name));
 }
 
+// One graph: the phases are called workflows of the root, so a phase job is a root
+// job named "<Phase> / <job>". Strip the prefix and apply the same rules as above to
+// the root's own jobs; no child run is looked up.
+const phasePrefix = new RegExp(`^(${[...Object.keys(phaseWorkflows), draftPhase.name].join('|')}) / (.+)$`);
+
+export function isOneGraph(jobs) {
+  return jobs.some(job => phasePrefix.test(job.name));
+}
+
+export function expandRootJobs(jobs, log = () => {}) {
+  const inPhase = phase => jobs.flatMap(job => {
+    const match = job.name.match(phasePrefix);
+    return match && match[1] === phase ? [{ ...job, name: match[2] }] : [];
+  });
+  const draftJobs = inPhase(draftPhase.name);
+  const validationFailures = Object.keys(phaseWorkflows).flatMap(phase => inPhase(phase).filter(isFailed).map(job => job.name));
+  const result = [];
+  let draftDone = false;
+  for (const job of jobs.filter(isFailed)) {
+    const match = job.name.match(phasePrefix);
+    if (!match) result.push(job.name);
+    else if (match[1] !== draftPhase.name) result.push(match[2]);
+    else if (!draftDone) {
+      draftDone = true;
+      result.push(...expandDraftFailures(draftJobs, failedValidationVariants(validationFailures), log));
+    }
+  }
+  return result;
+}
+
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   // A 100-run listing exceeds Node's default 1 MiB maxBuffer; see wait-for-e2e.mjs.
   const api = path => JSON.parse(execFileSync('gh', ['api', `repos/${process.env.GITHUB_REPOSITORY}/${path}`], { encoding: 'utf8', timeout: 30000, maxBuffer: 64 * 1024 * 1024 }));
-  const root = api(`actions/runs/${process.env.RUN_ID}`);
+  const log = message => console.error(message);
+  // All pages: a one-graph root has more than 100 jobs. `filter=latest` (the default)
+  // gives the jobs of the run's latest attempt.
+  const pages = JSON.parse(execFileSync('gh', ['api', '--paginate', '--slurp', `repos/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.RUN_ID}/jobs?per_page=100`],
+    { encoding: 'utf8', timeout: 30000, maxBuffer: 64 * 1024 * 1024 }));
+  const rootJobs = Array.isArray(pages) ? pages.flatMap(page => page.jobs ?? []) : (pages.jobs ?? []);
   // stdout is the machine-readable list; the explanation goes to the step log.
-  console.log(JSON.stringify(expandPhaseFailures(JSON.parse(process.env.FAILED), root, api, message => console.error(message))));
+  if (isOneGraph(rootJobs)) console.log(JSON.stringify(expandRootJobs(rootJobs, log)));
+  else {
+    // A root started before the one-graph change still dispatched child runs.
+    const root = api(`actions/runs/${process.env.RUN_ID}`);
+    console.log(JSON.stringify(expandPhaseFailures(JSON.parse(process.env.FAILED), root, api, log)));
+  }
 }

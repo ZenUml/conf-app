@@ -163,3 +163,55 @@ test('a called lane failure still names its variant', async () => {
     'Deploy: Diagramly / deploy', 'Validate: Fullish / x',
   ])].sort(), ['asyncapi', 'full', 'lite']);
 });
+
+// One graph: the phases are called workflows, so their jobs are the root's own jobs,
+// named "<Phase> / <job>". Recovery reads them from the root run, all pages.
+const inRoot = (phase, rows) => rows.map(([name, conclusion]) => [`${phase} / ${name}`, conclusion]);
+const oneGraph = ({ staging = stagingWithFullAndDiagramlyRed, draft = draftSkippedForFullAndDiagramly, build = [['Build and Unit Test', 'success']] } = {}) => jobsOf([
+  ['Source and version', 'success'],
+  ...inRoot('Build preparation', build),
+  ...inRoot('Staging validation', staging),
+  ...inRoot('Draft preparation', draft),
+  ['Pipeline outcome', 'failure'],
+]);
+
+test('one-graph recovery strips the phase prefix and excuses drafts skipped by a failed validation', async () => {
+  const { expandRootJobs } = await import('./phase-recovery.mjs');
+  const notes = [];
+  const expanded = expandRootJobs(oneGraph(), note => notes.push(note));
+  assert.deepEqual(expanded, ['Validate: Full', 'Validate: Diagramly', 'Pipeline outcome']);
+  assert.equal(canRecover(expanded), true, JSON.stringify(expanded));
+  assert.match(notes[0], /Draft: Diagramly, Draft: Full skipped because the E2E validation of full, diagramly failed/);
+});
+
+test('one-graph recovery keeps build, deploy and draft failures as blockers', async () => {
+  const { expandRootJobs } = await import('./phase-recovery.mjs');
+  const row = (rows, name, conclusion) => rows.map(r => r[0] === name ? [name, conclusion] : r);
+  const cases = [
+    ['failed build', { build: [['Build and Unit Test', 'failure']] }, 'Build and Unit Test'],
+    ['failed deploy', { staging: row(stagingWithFullAndDiagramlyRed, 'Deploy: Lite / deploy', 'failure') }, 'Deploy: Lite / deploy'],
+    ['failed draft', { draft: row(draftSkippedForFullAndDiagramly, 'Draft: Lite', 'failure') }, 'Draft: Lite'],
+    ['failed root options', { draft: row(draftSkippedForFullAndDiagramly, 'Verify root ownership', 'failure') }, 'Verify root ownership'],
+  ];
+  for (const [reason, shape, blocker] of cases) {
+    const expanded = expandRootJobs(oneGraph(shape));
+    assert.ok(expanded.includes(blocker), `${reason}: ${JSON.stringify(expanded)}`);
+    assert.equal(canRecover(expanded), false, reason);
+  }
+});
+
+test('one-graph recovery CLI reads every page of root jobs and ignores FAILED', async () => {
+  // 150 green filler jobs push the failures onto the second page.
+  const jobs = [...jobsOf(Array.from({ length: 150 }, (_, i) => [`Staging validation / Validate: Lite / regression / shard ${i + 1}/150`, 'success'])), ...oneGraph()];
+  const routes = {
+    'actions/runs/12/jobs': JSON.stringify([{ jobs: jobs.slice(0, 100) }, { jobs: jobs.slice(100) }]),
+    'actions/runs/12': JSON.stringify(root),
+  };
+  await withFakeGh(routes, () => {
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('./phase-recovery.mjs', import.meta.url))], {
+      encoding: 'utf8', env: { ...process.env, GITHUB_REPOSITORY: 'example/repo', RUN_ID: '12', FAILED: '["Pipeline outcome"]' },
+    });
+    assert.equal(result.status, 0, result.stderr.slice(0, 400));
+    assert.deepEqual(JSON.parse(result.stdout), ['Validate: Full', 'Validate: Diagramly', 'Pipeline outcome']);
+  });
+});

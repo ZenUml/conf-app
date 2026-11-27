@@ -95,50 +95,37 @@ describe('staging workflow safety contracts', () => {
     }
     expect(staging.jobs).not.toHaveProperty('staging-full-e2e-now');
   });
-  it('keeps the main root graph small and dispatches independent build and staging phases', () => {
+  it('keeps the main root graph small and calls independent build and staging phases', () => {
     const root = structure('build-test-deploy');
     expect(Object.keys(root.jobs).length).toBeLessThanOrEqual(5);
-    expect(Object.values(root.jobs).some((job: any) => job.uses)).toBe(false);
     const phaseJobs = ['build-preparation', 'staging-validation', 'draft-preparation'];
     for (const [index, id] of phaseJobs.entries()) {
       const job = root.jobs[id];
-      const dispatch = job.steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs');
-      expect(dispatch.env.CHILD_KIND).toBe('phase');
-      expect(dispatch.env.CHILD_WORKFLOW).toBe(`${phases[index]}.yml`);
-      expect(dispatch.env.VERSION).toBe('${{ needs.version.outputs.version }}');
-      expect(dispatch.env.SOURCE_SHA).toBe('${{ needs.version.outputs.source-sha }}');
-      expect(job.outputs['run-id']).toBe('${{ steps.dispatch.outputs.run-id }}');
+      // A called workflow, not a dispatched run: its jobs run in the root run.
+      expect(job.uses).toBe(`./.github/workflows/${phases[index]}.yml`);
+      expect(job.steps).toBeUndefined();
+      expect(job.with).toEqual({ 'source-sha': '${{ needs.version.outputs.source-sha }}', version: '${{ needs.version.outputs.version }}' });
     }
     expect(root.jobs['build-preparation'].needs).toBe('version');
     expect(root.jobs['staging-validation'].needs).toBe('version');
     expect(root.jobs['draft-preparation'].needs).toEqual(['version', 'build-preparation', 'staging-validation']);
-    expect(root.jobs['draft-preparation'].if).toContain("needs.build-preparation.outputs.run-id != ''");
     expect(root.jobs['draft-preparation'].if).toContain("needs.build-preparation.result == 'failure'");
     expect(root.jobs['draft-preparation'].if).toContain("needs.staging-validation.result == 'failure'");
-    const draftDispatch = root.jobs['draft-preparation'].steps.find((step: any) => step.id === 'dispatch');
-    expect(draftDispatch.env.ARTIFACT_RUN_ID).toBe('${{ needs.build-preparation.outputs.run-id }}');
-    expect(draftDispatch.env.STAGING_RUN_ID).toBe('${{ needs.staging-validation.outputs.run-id }}');
     expect(root.jobs.outcome.needs).toContain('staging-validation');
     const verdict = root.jobs.outcome.steps.find((step: any) => step.name === 'Require successful phases');
     expect(verdict.if).toBe('always()');
     expect(verdict.run).toContain("value.result !== 'success'");
   });
-  it('verifies root ownership and pins phase source checkouts and nested ancestry', () => {
-    const root = structure('build-test-deploy');
+  it('reads this attempt\'s root options and pins phase source checkouts and nested ancestry', () => {
     for (const name of phases) {
       const phase = structure(name);
       expect(phase).not.toHaveProperty('concurrency');
-      for (const input of ['parent-run-id', 'parent-attempt', 'source-sha', 'version']) {
-        expect(phase.on.workflow_dispatch.inputs[input].required).toBe(true);
-      }
-      const verifier = phase.jobs.parent.steps.find((step: any) => step.id === 'owner');
-      expect(verifier.run).toContain('node scripts/ci/wait-for-e2e.mjs --verify-parent');
-      expect(verifier.env.SOURCE_SHA).toBe('${{ inputs.source-sha }}');
-      expect(verifier.env.PARENT_RUN_ID).toBe('${{ inputs.parent-run-id }}');
-      expect(verifier.env.PARENT_ATTEMPT).toBe('${{ inputs.parent-attempt }}');
-      for (const jobName of JSON.parse(verifier.env.EXPECTED_PARENT_JOBS)) {
-        expect(Object.values(root.jobs).map((job: any) => job.name)).toContain(jobName);
-      }
+      expect(phase).not.toHaveProperty('run-name');
+      expect(Object.keys(phase.on)).toEqual(['workflow_call']);
+      for (const input of ['source-sha', 'version']) expect(phase.on.workflow_call.inputs[input].required).toBe(true);
+      const owner = phase.jobs.parent.steps.find((step: any) => step.id === 'owner');
+      expect(owner.run).toBe('node scripts/ci/wait-for-e2e.mjs --root-options');
+      expect(owner.env.SOURCE_SHA).toBe('${{ inputs.source-sha }}');
       for (const job of Object.values(phase.jobs) as any[]) {
         for (const step of job.steps || []) {
           if (step.uses?.startsWith('actions/checkout@')) expect(step.with.ref).toBe('${{ inputs.source-sha }}');
@@ -147,11 +134,21 @@ describe('staging workflow safety contracts', () => {
       }
     }
   });
+  it('keeps the inner staging-deploy lock per root run, so it never waits for the root\'s own lock', () => {
+    // In a called workflow github.workflow is the caller's name, so under the root the
+    // expression must fall through to the per-run group, not conf-app-staging.
+    const group = structure('staging-deploy').concurrency.group;
+    expect(group).toBe("${{ github.workflow == 'Staging Deploy' && inputs.forge-environment != '' && inputs.forge-environment != 'staging' && 'conf-app-pr-slot' || github.workflow == 'Staging Deploy' && 'conf-app-staging' || format('staging-inner-{0}-{1}', github.run_id, inputs.variant) }}");
+    expect(structure('build-test-deploy').name).not.toBe('Staging Deploy');
+  });
   it('keeps parent staging ownership through cancellation cleanup', () => {
     // main-staging-validation dispatches no child any more: its lanes are called.
     expect((Object.values(structure('main-staging-validation').jobs) as any[])
       .some(job => job.steps?.some((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs'))).toBe(false);
-    for (const name of ['build-test-deploy', 'pr-validation']) {
+    // Nor does the root: its phases are called workflows.
+    expect((Object.values(structure('build-test-deploy').jobs) as any[])
+      .some(job => job.steps?.some((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs'))).toBe(false);
+    for (const name of ['pr-validation']) {
       const dispatchJobs = (Object.values(structure(name).jobs) as any[])
         .filter(job => job.steps?.some((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs'));
       expect(dispatchJobs.length).toBeGreaterThan(0);
@@ -159,10 +156,7 @@ describe('staging workflow safety contracts', () => {
         expect(job.if).toContain('!cancelled()');
         expect(job.if).not.toContain('always()');
         const dispatch = job.steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs');
-        expect(dispatch.if).toBe({
-          'build-test-deploy': '${{ !cancelled() }}',
-          'pr-validation': "${{ !cancelled() && steps.current.outputs.current != 'false' }}",
-        }[name]);
+        expect(dispatch.if).toBe("${{ !cancelled() && steps.current.outputs.current != 'false' }}");
         const cleanup = job.steps.find((step: any) => step.run === 'node scripts/ci/wait-for-e2e.mjs --cleanup');
         expect(cleanup.if).toBe('${{ always() }}');
         expect(job.steps.indexOf(cleanup)).toBeGreaterThan(job.steps.indexOf(dispatch));

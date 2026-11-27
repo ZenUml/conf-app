@@ -35,22 +35,11 @@ test('PR dispatch forwards dedicated-slot overrides only when set', () => {
   assert.equal(slot.inputs.app, 'zenuml-lite@dev');
   assert.equal(slot.inputs['auth-artifact'], 'auth-state-pre-lite-dev');
   assert.equal(slot.inputs['backend-url'], 'https://conf-stg-lite-pr.zenuml.com');
-  const other = dispatchBody({ CHILD_KIND: 'phase', VERSION: 'v1', CHILD_APP: 'x', CHILD_BACKEND_URL: 'y' });
-  assert.equal('app' in other.inputs, false, 'only the PR child receives slot inputs');
 });
 
-test('phase dispatch carries version and exact producing run IDs without E2E inputs', () => {
-  const body = dispatchBody({ CHILD_KIND: 'phase', VERSION: 'v1', ARTIFACT_RUN_ID: '42', STAGING_RUN_ID: '43' });
-  assert.equal(body.inputs.version, 'v1');
-  assert.equal(body.inputs['artifact-run-id'], '42');
-  assert.equal(body.inputs['staging-run-id'], '43');
-  assert.equal('grep' in body.inputs, false);
-  assert.equal('suite' in body.inputs, false);
-});
-
-test('only phase and PR children are dispatched', () => {
-  // Staging E2E lanes are called workflows inside the staging run (#1294).
-  for (const kind of [undefined, '', 'staging']) {
+test('only the PR child is dispatched', () => {
+  // The main phases and their staging E2E lanes are called workflows of the root.
+  for (const kind of [undefined, '', 'staging', 'phase']) {
     assert.throws(() => dispatchBody({ CHILD_KIND: kind, GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '2', SOURCE_SHA: 'abc' }), /Unknown child kind/);
   }
 });
@@ -62,11 +51,10 @@ test('the staging run is never a dispatching parent', () => {
   assert.throws(() => verifyParent(parent, '1', jobs, ['Validate: Lite'], provenance), /active staging parent/);
 });
 
-test('a phase child of the root checks the root source', () => {
+test('the root is no dispatching parent: its phases are called workflows', () => {
   const parent = { status: 'in_progress', run_attempt: 2, path: '.github/workflows/build-test-deploy.yml', head_sha: 'abc' };
   const jobs = [{ name: 'Staging validation', status: 'in_progress' }];
-  verifyParent(parent, '2', jobs, ['Staging validation'], { sourceSha: 'abc' });
-  assert.throws(() => verifyParent(parent, '2', jobs, ['Staging validation'], { sourceSha: 'other' }), /Phase source/);
+  assert.throws(() => verifyParent(parent, '2', jobs, ['Staging validation'], { sourceSha: 'abc' }), /active staging parent/);
 });
 
 test('children reject manual dispatch and reruns before verifying their parent', () => {
@@ -144,17 +132,28 @@ test('root option artifact binds manual controls to source, run and attempt', as
   assert.throws(() => verifyRootOptions(options, { ...root, event: 'push' }, '12', '2', 'abc'), /verified root/);
 });
 
-test('root accepts a blocked daily gate only from its immutable draft producer', async () => {
+test('root accepts a blocked daily gate only from its own run and attempt', async () => {
   const { verifyDailyGate } = await import('./wait-for-e2e.mjs');
-  const producer = { id: 43, path: '.github/workflows/main-draft-preparation.yml', display_title: 'Draft preparation · parent 12 · attempt 2 · source abc', status: 'completed', conclusion: 'failure', run_attempt: 1, event: 'workflow_dispatch', actor: { login: 'github-actions[bot]' } };
-  const gate = { producer_run_id: '43', root_run_id: '12', root_attempt: '2', source_sha: 'abc', allowed: 'false', 'gate-reason': 'Latest daily regression failed' };
-  assert.equal(verifyDailyGate(gate, producer, '12', '2', 'abc', '43')['gate-reason'], 'Latest daily regression failed');
-  for (const patch of [{ producer_run_id: '44' }, { root_run_id: '13' }, { root_attempt: '1' }, { source_sha: 'other' }, { allowed: true }]) {
-    assert.throws(() => verifyDailyGate({ ...gate, ...patch }, producer, '12', '2', 'abc', '43'), /does not match/);
+  // The draft phase is a called workflow, so the producer is the root run itself.
+  const gate = { producer_run_id: '12', root_run_id: '12', root_attempt: '2', source_sha: 'abc', allowed: 'false', 'gate-reason': 'Latest daily regression failed' };
+  assert.equal(verifyDailyGate(gate, '12', '2', 'abc')['gate-reason'], 'Latest daily regression failed');
+  for (const patch of [{ producer_run_id: '44' }, { root_run_id: '13' }, { root_attempt: '1' }, { source_sha: 'other' }, { allowed: true }, { 'gate-reason': 1 }]) {
+    assert.throws(() => verifyDailyGate({ ...gate, ...patch }, '12', '2', 'abc'), /does not match/);
   }
-  for (const patch of [{ run_attempt: 2 }, { status: 'in_progress' }, { actor: { login: 'maintainer' } }, { display_title: producer.display_title.replace('attempt 2', 'attempt 1') }]) {
-    assert.throws(() => verifyDailyGate(gate, { ...producer, ...patch }, '12', '2', 'abc', '43'), /does not match/);
-  }
+});
+
+test('a phase reads the root options of its own run and attempt', async () => {
+  const { loadRootOptions, rootOptions } = await import('./wait-for-e2e.mjs');
+  const env = { GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '2', SOURCE_SHA: 'abc' };
+  const root = { id: 12, run_attempt: 2, head_sha: 'abc', event: 'push', path: '.github/workflows/build-test-deploy.yml' };
+  const recorded = rootOptions({ GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '2', GITHUB_SHA: 'abc', GITHUB_EVENT_NAME: 'push' });
+  const asked = [];
+  const download = (name, file) => { asked.push([name, file]); return recorded; };
+  assert.deepEqual(loadRootOptions(env, path => { asked.push(path); return root; }, download), recorded);
+  assert.deepEqual(asked, ['actions/runs/12', ['main-root-options-2', 'main-root-options.json']]);
+  // Options recorded by an earlier attempt, or for another source, are refused.
+  assert.throws(() => loadRootOptions(env, () => root, () => ({ ...recorded, root_attempt: '1' })), /verified root/);
+  assert.throws(() => loadRootOptions({ ...env, SOURCE_SHA: 'other' }, () => root, download), /verified root/);
 });
 
 test('child discovery reads a run listing larger than the default 1 MiB buffer', async () => {
@@ -198,17 +197,13 @@ test('parent verification throws the original error after the last attempt', asy
   assert.equal(fetches, 3);
 });
 
-test('parent verification does not retry real provenance errors', async () => {
+test('parent verification does not retry an error other than an inactive parent', async () => {
   let fetches = 0, pauses = 0;
-  const state = () => {
-    fetches++;
-    return { ...retryState('in_progress', 'in_progress', { path: '.github/workflows/build-test-deploy.yml', head_sha: 'abc' }), provenance: { sourceSha: 'other' } };
-  };
-  await assert.rejects(verifyParentWithRetry(state, 6, async () => { pauses++; }), /source does not match/);
+  const state = () => { fetches++; throw new Error('gh: Not Found (HTTP 404)'); };
+  await assert.rejects(verifyParentWithRetry(state, 6, async () => { pauses++; }), /Not Found/);
   assert.equal(fetches, 1);
   assert.equal(pauses, 0);
 });
-
 
 test('a definitively rejected dispatch skips cleanup discovery', async () => {
   const { dispatchWithRecord, cleanupWithRecord } = await import('./wait-for-e2e.mjs');
@@ -260,7 +255,7 @@ test('CLI records the actual gh missing-ref response across workflow steps', asy
     chmodSync(gh, 0o755);
     const env = { ...process.env, PATH: `${dir}${delimiter}${process.env.PATH}`, FAKE_GH_CALLS: calls,
       RUNNER_TEMP: dir, GITHUB_REPOSITORY: 'example/repo', GITHUB_RUN_ID: '12', GITHUB_RUN_ATTEMPT: '1',
-      CHILD_KIND: 'phase', CHILD_WORKFLOW: 'child.yml', CHILD_TITLE: 'Child', SOURCE_SHA: 'abc', DISPATCH_REF: 'deleted' };
+      CHILD_KIND: 'pr', MODE: 'selected', CHILD_WORKFLOW: 'child.yml', CHILD_TITLE: 'Child', SOURCE_SHA: 'abc', DISPATCH_REF: 'deleted' };
     const script = new URL('./wait-for-e2e.mjs', import.meta.url).pathname;
     const dispatch = spawnSync(process.execPath, [script], { env, encoding: 'utf8', timeout: 3000 });
     assert.equal(dispatch.status, 1);

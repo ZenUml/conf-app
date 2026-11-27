@@ -317,7 +317,7 @@
           class="btn-primary"
           data-testid="byline-created-done"
           @click="onDismissCreated"
-        >Done</button>
+        >{{ createdCopied ? 'Done' : 'Copy link &amp; close' }}</button>
       </template>
       <!-- Explicitly NOT a bare `v-else-if="createdLink"`: in the editor after
            Done, the branch above stops matching, and a bare condition would
@@ -384,6 +384,7 @@ import { placeDiagram } from '@/utils/byline/placeDiagram'
 import { choosePlacement, PICKER_OPEN_FAILED_MESSAGE, placementEventProps } from '@/utils/byline/placementPicker'
 import { isHostPageInEditor } from '@/utils/byline/hostEditor'
 import { buildDiagramDeeplink, newlyCreatedId } from '@/utils/embedDeeplink'
+import { writeClipboard, writeClipboardDetailed } from '@/composables/agentLink/clipboard'
 import { BYLINE_MODAL_ORIGIN } from '@/utils/paywall/modalOrigin'
 
 /** Drives nothing in the template any more — the picker renders immediately
@@ -1253,13 +1254,7 @@ function onRetryCreate() {
 }
 
 async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch (e) {
-    console.error('[byline] clipboard write failed', e)
-    return false
-  }
+  return writeClipboard(text)
 }
 
 function flashCopied() {
@@ -1272,27 +1267,43 @@ function flashCopied() {
 }
 
 /**
- * Copy the paste link, from either trigger.
+ * Copy the paste link, from any trigger.
  *
- * `copy_trigger` splits the automatic copy at save from a deliberate re-copy.
- * They answer different questions: 'auto' failing is a clipboard-permission
- * problem in the Forge iframe (the write is not user-gesture-initiated on that
- * path, which is exactly why the manual button has to exist), while a run of
- * 'manual' events on one created link means the automatic copy is not
- * surviving to the paste and the handoff needs rethinking.
+ * `copy_trigger` says what asked for the copy. 'auto' runs at save, outside any
+ * user gesture: the Clipboard API rejects it (NotAllowedError) unless the
+ * document has focus, so it is attempted only then and otherwise recorded as
+ * `skipped_no_focus` without a doomed call. 'open_editor' and 'done' run inside
+ * the click of the panel's primary buttons, so the clipboard is full before the
+ * button navigates or closes; 'manual' is the Copy button. `copy_method` and
+ * `failure_reason` say which path worked or why none did.
  */
-async function copyCreatedLink(trigger: 'auto' | 'manual'): Promise<boolean> {
+type CreatedCopyTrigger = 'auto' | 'manual' | 'open_editor' | 'done'
+async function copyCreatedLink(trigger: CreatedCopyTrigger): Promise<boolean> {
   if (!createdLink.value) return false
-  const copied = await copyText(createdLink.value)
-  createdCopied.value = copied
-  if (copied) flashCopied()
+  const hasFocus = document.hasFocus()
+  if (trigger === 'auto' && !hasFocus) {
+    trackAnalyticsEvent('advocacy_message_copied', {
+      ...baseProps(),
+      ui_component: 'byline_created_link',
+      copy_trigger: trigger,
+      result: 'skipped_no_focus',
+      document_has_focus: false,
+    })
+    return false
+  }
+  const write = await writeClipboardDetailed(createdLink.value)
+  createdCopied.value = write.ok
+  if (write.ok) flashCopied()
   trackAnalyticsEvent('advocacy_message_copied', {
     ...baseProps(),
     ui_component: 'byline_created_link',
     copy_trigger: trigger,
-    result: copied ? 'copied' : 'failed',
+    result: write.ok ? 'copied' : 'failed',
+    copy_method: write.method,
+    document_has_focus: hasFocus,
+    ...(write.ok || !write.errorName ? {} : { failure_reason: write.errorName }),
   })
-  return copied
+  return write.ok
 }
 
 function onCopyCreatedLink() {
@@ -1309,6 +1320,10 @@ function onCopyCreatedLink() {
  * in an editor with nothing to paste. The diagram is already saved either way.
  */
 async function onOpenEditorToPaste() {
+  // Inside the click, before anything else: this is a user gesture, so the write
+  // is allowed even when the save-time copy was not. Navigate regardless — the
+  // diagram is saved and the Copy button and link row stay if this failed.
+  await copyCreatedLink('open_editor')
   try {
     // Compared against the sentinel, NOT `|| ''`: getSpaceKey returns the string
     // 'no_space_context' rather than an empty value, so the old fallback never
@@ -1383,6 +1398,11 @@ async function requestCloseView(): Promise<'closed' | 'unsupported' | 'failed'> 
  *   the close is refused — and the state is reset to reach it.
  */
 async function onDismissCreated() {
+  // Editor "Done" is the panel's primary action: copy inside its own click
+  // before closing. "Not now" (view mode) is the decline and copies nothing.
+  if (hostInEditor && createdLink.value && !finishedInEditor.value) {
+    await copyCreatedLink('done')
+  }
   const closing = requestCloseView()
   if (hostInEditor) {
     finishedInEditor.value = true

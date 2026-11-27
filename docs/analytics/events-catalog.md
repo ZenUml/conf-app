@@ -496,6 +496,16 @@ Same properties as `paywall_continue_used` with `remaining_attempts: 0`.
 | `time_to_decision` | Seconds from modal shown to copy click |
 | `macro_count` | Current space macro count |
 
+**Byline variant** (`ui_component: "byline_created_link"`, fired in `BylineDiagrams.vue`): the post-save paste-link copy. Retained at full rate.
+
+| Property | Notes |
+|---|---|
+| `copy_trigger` | `"auto"` (at save, only while `document.hasFocus()`), `"manual"` (Copy button), `"open_editor"` (Open editor & paste click), `"done"` (Copy link & close click) |
+| `result` | `"copied"`, `"failed"`, or `"skipped_no_focus"` (auto copy not attempted: document not focused) |
+| `copy_method` | `"clipboard_api"`, `"exec_command"` (fallback), or `"none"` (both failed) |
+| `document_has_focus` | `document.hasFocus()` at the attempt |
+| `failure_reason` | Error name (e.g. `NotAllowedError`) when both methods failed |
+
 ---
 
 ### `advocacy_draft_preview_clicked`

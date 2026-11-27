@@ -8,6 +8,7 @@ import { visualizer } from 'rollup-plugin-visualizer'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import { fileURLToPath } from 'url';
 import { zenumlCoreClosureGuard } from './scripts/build/zenumlCoreClosureGuard.mjs';
+import { devRawClassicScripts } from './scripts/build/devRawClassicScripts.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -291,6 +292,10 @@ export default defineConfig(({ command }) => ({
         exclude: ['fs', 'os'],
       })]
     : []),
+  // Dev-only: the polyfill inject step above turns the Mixpanel session-replay
+  // recorder into an ES module, which the SDK then loads as a classic script.
+  // Serve it from disk unchanged. See scripts/build/devRawClassicScripts.mjs.
+  devRawClassicScripts(),
   // Dev-only: serve sandbox.html at "/" so engineers opening the URL printed
   // by `pnpm dev:url` get the test-case index instead of the Forge
   // app entry (which only renders meaningfully inside a Confluence iframe).

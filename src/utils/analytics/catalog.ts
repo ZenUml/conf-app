@@ -2130,7 +2130,10 @@ export type AnalyticsEventName =
   // `evaluated`: its only outcome is `shown`, and the watermark and strip render
   // under one condition, so `license_notice_shown` (which carries
   // enforcement_stage and macro_count) is its exposure event. On 2026-11-18 the
-  // duplicate was ~5,000 events a day.
+  // duplicate was ~5,000 events a day. Since the release after 2026-11-21 the
+  // Lite site-policy `shown` is sent once per browser x site x UTC day (the
+  // Full notice stays per macro with sampled repeats): count exposed users, not
+  // diagrams, and the forced replay starts once per user x site x day.
   | "license_notice_evaluated"
   | "license_notice_shown"
   | "license_notice_upgrade_clicked"

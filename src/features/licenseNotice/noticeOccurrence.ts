@@ -12,6 +12,14 @@
  * its own storage key).
  *
  * Cannot remember (no storage, no macro id): send at full rate, unmarked.
+ *
+ * The Lite site-policy notice is counted per site instead (`perSite`): its
+ * first showing per browser x site x UTC day is sent and every later one that
+ * day is dropped, like paywall_banner_shown. On 2026-11-20 it was 4,524 events,
+ * 98% from one enforced site, from 286 users at 15.8 a day each but only 1.2
+ * per user x diagram: readers open ~16 different blocked diagrams a day, so
+ * per-macro firsts could not reduce it. Sending the event is what starts the
+ * forced session replay, so that replay now starts once per user x site x day.
  */
 import forgeGlobal from '@/model/globals/forgeGlobal'
 import { getClientDomain } from '@/utils/ContextParameters/ContextParameters'
@@ -34,21 +42,32 @@ interface Deps {
   random?: () => number
 }
 
-/** Props to send with the event, or null when this repeat is sampled out. */
+export interface LicenseNoticeOccurrenceOptions {
+  /** Count per browser x site x day and drop repeats (Lite site-policy notice). */
+  perSite?: boolean
+}
+
+// Stands in for the macro id in the daily record, so every macro on the site
+// shares one entry.
+const SITE_KEY = '*site*'
+
+/** Props to send with the event, or null when this repeat is not sent. */
 export function licenseNoticeOccurrence(
   kind: LicenseNoticeEventKind,
   scope: MacroViewScope,
   deps: Deps = {},
+  options: LicenseNoticeOccurrenceOptions = {},
 ): LicenseNoticeOccurrenceProps | null {
   const storage = deps.storage === undefined ? defaultStorage() : deps.storage
   const viewOfDay = classifyMacroView(
-    { ...scope, surface: `${kind}:${scope.surface}` },
+    { ...scope, macroKey: options.perSite ? SITE_KEY : scope.macroKey, surface: `${kind}:${scope.surface}` },
     storage,
     deps.clock ?? Date.now,
     KEY_PREFIX,
   )
   if (viewOfDay === null) return {}
   if (viewOfDay === 'first') return { view_of_day: 'first' }
+  if (options.perSite) return null
   if ((deps.random ?? Math.random)() >= LICENSE_NOTICE_REPEAT_SAMPLE_RATE) return null
   return { view_of_day: 'repeat', sample_rate: LICENSE_NOTICE_REPEAT_SAMPLE_RATE }
 }
@@ -57,6 +76,7 @@ export function licenseNoticeOccurrence(
 export function currentLicenseNoticeOccurrence(
   kind: LicenseNoticeEventKind,
   surface: string,
+  options: LicenseNoticeOccurrenceOptions = {},
 ): LicenseNoticeOccurrenceProps | null {
   let scope: MacroViewScope
   try {
@@ -69,5 +89,5 @@ export function currentLicenseNoticeOccurrence(
   } catch {
     return {}
   }
-  return licenseNoticeOccurrence(kind, scope)
+  return licenseNoticeOccurrence(kind, scope, {}, options)
 }

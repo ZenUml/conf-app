@@ -224,6 +224,11 @@ without storage) the event has no `view_of_day` and is unsampled. So:
 - **Ratios against `macro_viewed`** (attribution, related-diagram and other per-view denominators):
   extrapolate `macro_viewed` first, or ratio against `view_of_day = "first"` and say so.
 
+**Lite site-policy `license_notice_shown` is once per browser x site x UTC day** (from the
+release after 2026-11-21; per browser x macro x day with 10% repeats before it, and two events per
+view before 2026-11-19). Count exposed users per day from it, not diagrams or page views. The Full
+notice keeps per-macro first views with sampled repeats.
+
 **`title_draft_requested` is sampled per occurrence too** (from the release carrying
 `TITLE_DRAFT_LOOKUP_MISS_SAMPLE_RATE`): `title_draft_status = "ready"` is sent at 100%;
 `pending` and `no_diagram` at 10% with `sample_rate: 0.1`. Count lookups as

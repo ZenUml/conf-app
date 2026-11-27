@@ -109,10 +109,11 @@ function baseProps() {
 }
 
 // Once per mount: the parent mounts this only while the notice is visible.
-// The first mount per browser x macro x UTC day always reports; repeats are
-// sampled (features/licenseNotice/noticeOccurrence.ts).
+// The Full notice reports the first mount per browser x macro x UTC day and
+// samples repeats; the Lite site-policy notice reports the first mount per
+// browser x site x UTC day only (features/licenseNotice/noticeOccurrence.ts).
 onMounted(() => {
-  const occurrence = currentLicenseNoticeOccurrence('shown', props.surface)
+  const occurrence = currentLicenseNoticeOccurrence('shown', props.surface, { perSite: isSitePolicy.value })
   if (occurrence) trackAnalyticsEvent('license_notice_shown', { ...baseProps(), ...occurrence })
 })
 

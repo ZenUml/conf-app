@@ -273,3 +273,88 @@ describe("ForeignDialectHint — fenced Mermaid (F4b)", () => {
     expect(store.state.diagram.mermaidCode).toBe(BODY);
   });
 });
+
+describe("ForeignDialectHint on a Mermaid macro", () => {
+  let activeWrapper;
+
+  beforeEach(() => {
+    vi.mocked(trackAnalyticsEvent).mockClear();
+    store.commit("updateCode2", "");
+    store.commit("updateMermaidCode", "");
+    store.commit("updateDiagramType", DiagramType.Mermaid);
+  });
+
+  afterEach(() => {
+    activeWrapper?.unmount();
+    activeWrapper = null;
+    store.commit("updateDiagramType", DiagramType.Sequence);
+  });
+
+  it("offers Switch to PlantUML for PlantUML source and moves it", async () => {
+    const source = "@startuml\nA -> B: hi\n@enduml";
+    const wrapper = activeWrapper = mount(ForeignDialectHint, { global: { plugins: [store] } });
+    store.commit("updateMermaidCode", source);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).toContain("This looks like PlantUML, not Mermaid");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith("foreign_dialect_hint_shown", expect.objectContaining({
+      macro_type: DiagramType.Mermaid,
+      detected_dialect: "plantuml",
+    }));
+
+    await wrapper.find('[data-testid="foreign-dialect-switch"]').trigger("click");
+    expect(store.state.diagram.diagramType).toBe(DiagramType.PlantUml);
+    expect(store.state.diagram.plantUmlCode).toBe(source);
+  });
+
+  it("offers to comment out prose above the diagram", async () => {
+    const wrapper = activeWrapper = mount(ForeignDialectHint, { global: { plugins: [store] } });
+    store.commit("updateMermaidCode", "# 10.1 Overview\nflowchart LR\n  A --> B");
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).toContain("Text above the diagram type stops Mermaid");
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith("foreign_dialect_hint_shown", expect.objectContaining({
+      macro_type: DiagramType.Mermaid,
+      detected_dialect: "markdown",
+    }));
+
+    await wrapper.find('[data-testid="foreign-dialect-switch"]').trigger("click");
+    expect(store.state.diagram.diagramType).toBe(DiagramType.Mermaid);
+    expect(store.state.diagram.mermaidCode).toBe("%% # 10.1 Overview\nflowchart LR\n  A --> B");
+    expect(wrapper.find('[data-testid="foreign-dialect-hint"]').exists()).toBe(false);
+  });
+
+  it("offers Switch to Markdown for a document with several diagrams", async () => {
+    store.commit("updateMarkdownCode", undefined);
+    const doc = "# One\nflowchart LR\n  A --> B\n# Two\nsequenceDiagram\n  A->>B: hi";
+    const wrapper = activeWrapper = mount(ForeignDialectHint, { global: { plugins: [store] } });
+    store.commit("updateMermaidCode", doc);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).toContain("Markdown document with several diagrams");
+    await wrapper.find('[data-testid="foreign-dialect-switch"]').trigger("click");
+    expect(store.state.diagram.diagramType).toBe(DiagramType.Markdown);
+    expect(store.state.diagram.markdownCode).toBe(
+      "# One\n```mermaid\nflowchart LR\n  A --> B\n```\n# Two\n```mermaid\nsequenceDiagram\n  A->>B: hi\n```",
+    );
+  });
+
+  it("does not overwrite existing Markdown tab content", async () => {
+    store.commit("updateMarkdownCode", "# mine");
+    const doc = "# One\nflowchart LR\n  A --> B\n# Two\nsequenceDiagram\n  A->>B: hi";
+    const wrapper = activeWrapper = mount(ForeignDialectHint, { global: { plugins: [store] } });
+    store.commit("updateMermaidCode", doc);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="foreign-dialect-hint"]').exists()).toBe(false);
+    store.commit("updateMarkdownCode", undefined);
+  });
+
+  it("stays hidden for valid Mermaid", async () => {
+    store.commit("updateMermaidCode", "flowchart LR\n  A --> B");
+    const wrapper = activeWrapper = mount(ForeignDialectHint, { global: { plugins: [store] } });
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-testid="foreign-dialect-hint"]').exists()).toBe(false);
+  });
+});

@@ -68,15 +68,43 @@
 import { computed, ref, watch } from "vue";
 import { useStore } from "vuex";
 import { DiagramType } from "@/model/Diagram/Diagram";
-import { detectForeignDialect, extractMermaidSource } from "@/model/Diagram/detectForeignDialect";
+import {
+  commentOutLeadingText,
+  detectForeignContentInMermaid,
+  detectForeignDialect,
+  extractMermaidSource,
+  toMarkdownDocument,
+} from "@/model/Diagram/detectForeignDialect";
 import { stripMarkdownFence } from "@/model/Diagram/markdownFence";
 import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 
 const store = useStore();
 
 const isSequence = computed(() => store.state.diagram.diagramType === DiagramType.Sequence);
-const code = computed(() => (isSequence.value ? store.state.diagram.code : ""));
-const detectedDialect = computed(() => (isSequence.value ? detectForeignDialect(code.value) : null));
+// Mermaid macros too (AI Repair failures, 2026-10-20..11-19): PlantUML or
+// prose above the opener in a Mermaid macro reaches AI Repair as
+// "No diagram type detected", which no in-language repair can fix.
+const isMermaid = computed(() => store.state.diagram.diagramType === DiagramType.Mermaid);
+const code = computed(() => {
+  if (isSequence.value) return store.state.diagram.code;
+  if (isMermaid.value) return store.state.diagram.mermaidCode;
+  return "";
+});
+// "markdown" names the leading-prose case in analytics (detected_dialect is
+// a MacroTypeValue); the action keeps the Mermaid tab and comments the prose.
+const detectedDialect = computed(() => {
+  if (isSequence.value) return detectForeignDialect(code.value);
+  if (isMermaid.value) {
+    const found = detectForeignContentInMermaid(code.value);
+    if (found === "markdown_document") {
+      // Never overwrite what the author already has in the Markdown tab.
+      const existing = store.state.diagram.markdownCode;
+      return existing === undefined || existing === "" ? "markdown" : null;
+    }
+    return found === "leading_text" ? "markdown" : found;
+  }
+  return null;
+});
 
 const DIALECT_COPY = {
   plantuml: {
@@ -89,8 +117,32 @@ const DIALECT_COPY = {
   },
 };
 
-const message = computed(() => DIALECT_COPY[detectedDialect.value]?.message ?? "");
-const switchLabel = computed(() => DIALECT_COPY[detectedDialect.value]?.switchLabel ?? "");
+const MERMAID_MACRO_COPY = {
+  plantuml: {
+    message: "This looks like PlantUML, not Mermaid — switch to the PlantUML tab to render it.",
+    switchLabel: "Switch to PlantUML",
+  },
+  markdown: {
+    message: "Text above the diagram type stops Mermaid from reading the diagram.",
+    switchLabel: "Turn it into comments",
+  },
+};
+
+const MARKDOWN_DOCUMENT_COPY = {
+  message: "This looks like a Markdown document with several diagrams — switch to the Markdown tab to render it.",
+  switchLabel: "Switch to Markdown",
+};
+
+const isMarkdownDocument = computed(
+  () => isMermaid.value && detectForeignContentInMermaid(code.value) === "markdown_document",
+);
+
+const copy = computed(() =>
+  isMarkdownDocument.value
+    ? MARKDOWN_DOCUMENT_COPY
+    : (isMermaid.value ? MERMAID_MACRO_COPY : DIALECT_COPY)[detectedDialect.value]);
+const message = computed(() => copy.value?.message ?? "");
+const switchLabel = computed(() => copy.value?.switchLabel ?? "");
 
 // Dismissal is scoped to the exact source that triggered it: editing the
 // pasted text (or pasting something new) surfaces the hint again rather than
@@ -104,7 +156,7 @@ function baseProps() {
   return {
     feature_area: "macro",
     surface: "editor",
-    macro_type: DiagramType.Sequence,
+    macro_type: isMermaid.value ? DiagramType.Mermaid : DiagramType.Sequence,
     detected_dialect: detectedDialect.value,
     has_markdown_fence: stripMarkdownFence(code.value).fenced,
   };
@@ -124,7 +176,12 @@ function dismiss() {
 function switchDialect() {
   trackAnalyticsEvent("foreign_dialect_hint_switch_clicked", baseProps());
   const source = code.value;
-  if (detectedDialect.value === "mermaid") {
+  if (isMarkdownDocument.value) {
+    store.commit("updateMarkdownCode", toMarkdownDocument(source));
+    store.commit("updateDiagramType", DiagramType.Markdown);
+  } else if (isMermaid.value && detectedDialect.value === "markdown") {
+    store.dispatch("updateMermaidCode", commentOutLeadingText(source));
+  } else if (detectedDialect.value === "mermaid") {
     store.dispatch("updateMermaidCode", extractMermaidSource(source) ?? source);
     store.commit("updateDiagramType", DiagramType.Mermaid);
   } else {

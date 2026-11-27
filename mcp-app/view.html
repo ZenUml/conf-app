@@ -24,6 +24,22 @@
       /* A strip for the toolbar, so it never covers the diagram's corner.
          Kept in step with TOOLBAR_SPACE in src/mcp-app-view.ts. */
       body:has(#zen-mcp-toolbar) #app { padding-top: 34px; }
+      /* Fullscreen has a fixed height, so a zoomed drawing scrolls. Scroll
+         #app, not the page: the strip above stays put and the fixed toolbar
+         never covers the drawing. With the strip as #app's padding, the page
+         scrolled it away and the toolbar sat on the drawing's top edge. The
+         8px is the body margin (PAGE_MARGIN in src/mcp-app-view.ts). */
+      html[data-display-mode="fullscreen"] #app {
+        height: calc(100vh - 16px);
+        overflow: auto;
+      }
+      /* The strip moves to the body, outside the scrolling box. Padding, not
+         #app's margin, which would collapse into the body's margin. */
+      html[data-display-mode="fullscreen"] body:has(#zen-mcp-toolbar) { padding-top: 34px; }
+      html[data-display-mode="fullscreen"] body:has(#zen-mcp-toolbar) #app {
+        padding-top: 0;
+        height: calc(100vh - 16px - 34px);
+      }
       /* Zoom controls for drawings, and fullscreen where the host offers it. */
       #zen-mcp-toolbar {
         position: fixed;

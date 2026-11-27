@@ -593,15 +593,20 @@ export function zoom(action: ZoomAction): boolean {
       : Math.min(MAX_USER_ZOOM, Math.max(MIN_USER_ZOOM, userZoom * (action === 'zoom_in' ? ZOOM_STEP : 1 / ZOOM_STEP)));
   if (next === userZoom) return false;
   const app = document.getElementById('app');
+  // What scrolls up and down: in fullscreen #app itself, below the toolbar's
+  // strip (view.html), so the drawing never slides under the toolbar; inline,
+  // the page, which the host grows to fit and so rarely scrolls.
   const page = document.scrollingElement ?? document.documentElement;
+  const vertical = isFullscreen() && app ? app : page;
+  const viewHeight = vertical === page ? window.innerHeight : vertical.clientHeight;
   // Where the middle of the view sits, as a fraction of what can be scrolled.
   const middleX = app && app.scrollWidth ? (app.scrollLeft + app.clientWidth / 2) / app.scrollWidth : 0.5;
-  const middleY = page.scrollHeight ? (page.scrollTop + window.innerHeight / 2) / page.scrollHeight : 0.5;
+  const middleY = vertical.scrollHeight ? (vertical.scrollTop + viewHeight / 2) / vertical.scrollHeight : 0.5;
   userZoom = next;
   fitDiagram();
   reportSize();
   if (app) app.scrollLeft = middleX * app.scrollWidth - app.clientWidth / 2;
-  page.scrollTop = middleY * page.scrollHeight - window.innerHeight / 2;
+  vertical.scrollTop = middleY * vertical.scrollHeight - viewHeight / 2;
   return true;
 }
 

@@ -5,6 +5,7 @@ import { dismissPaywallGate } from '../helpers/paywallGate.js';
 import { dismissStarterGalleryIfPresent } from '../helpers/starterGallery.js';
 import { expectVisibleOrFailOnLogin } from '../helpers/authGuard.js';
 import { registerAnnouncementModalHandler } from '../helpers/announcementModal.js';
+import { suppressMermaidInlineIntro } from '../helpers/mermaidInlineIntro.js';
 import { focusEditorBody } from '../helpers/editorFocus.js';
 
 export class ConfluenceEditorPage {
@@ -48,6 +49,8 @@ export class ConfluenceEditorPage {
     // and the handler stays armed for the page's whole lifetime (including
     // later direct page.goto() calls that reuse the same page).
     await registerAnnouncementModalHandler(this.page);
+    // Same choke point: keep our own first-run intro out of the macro editor.
+    await suppressMermaidInlineIntro(this.page);
     const url = `https://${testConfig.domain}/wiki/spaces/${testConfig.spaceKey}/pages/${testConfig.parentPageId}/${encodeURIComponent(testConfig.parentPageName)}`;
     await this.page.goto(url);
     // Fail fast if the reused session bounced us to the Atlassian login screen,

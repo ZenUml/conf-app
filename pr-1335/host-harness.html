@@ -1,0 +1,15 @@
+<!doctype html><html><head><meta charset="utf-8"><title>MCP host harness</title>
+<style>body{margin:0;font:13px system-ui;background:#eee} #f{width:664px;height:620px;border:1px solid #999;background:#fff;display:block;margin:12px}</style></head>
+<body><div id="log"></div><iframe id="f" src="mcp-app/view.html"></iframe>
+<script>
+const f=document.getElementById('f');
+const mode=new URLSearchParams(location.search).get('mode')||'fullscreen';
+const ctx={displayMode:mode,availableDisplayModes:['inline','fullscreen'],containerDimensions:mode==='fullscreen'?{width:664,height:620}:{width:664}};
+const src='Client->Server: request\nServer->DB: query\nDB->Server: rows\nServer->Client: response';
+window.addEventListener('message',e=>{
+  const m=e.data; if(!m||e.source!==f.contentWindow) return;
+  if(m.method==='ui/initialize') f.contentWindow.postMessage({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2026-01-26',hostInfo:{name:'harness',version:'0'},hostCapabilities:{},hostContext:ctx}},'*');
+  if(m.method==='ui/notifications/initialized') f.contentWindow.postMessage({jsonrpc:'2.0',method:'ui/notifications/tool-result',params:{structuredContent:{diagramType:'sequence',source:src,valid:true}}},'*');
+  if(m.method==='ui/notifications/size-changed' && mode!=='fullscreen') f.style.height=m.params.height+'px';
+});
+</script></body></html>

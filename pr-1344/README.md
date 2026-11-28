@@ -15,5 +15,17 @@
 | 03 | Append " saved" to `info.title` in Studio, Publish | Custom content went from version 1 to 2 (REST read-back: type `ac:com.zenuml.confluence-addon:zenuml-content-sequence`, `diagramType: AsyncAPI`, new title); page shows the new title |
 | 04 | Open the Full "Diagrams" byline | Lists the diagram as AsyncAPI; "Add a diagram" offers an AsyncAPI tile |
 
-Not covered: inserting a new AsyncAPI macro from the Confluence editor; Storybook; CI-deployed
+## Insert from the Confluence editor (new page)
+
+New page under the test parent, `/` → View more → Browse, search `asyncapi`. Browse listed four options:
+AsyncAPI app (`AsyncAPI for Confluence`), **Full** (`ZenUML for Confluence`), Lite (`ZenUML for Confluence Lite`),
+and the AsyncAPI app's Embed macro. The Full one was picked by its description, then Insert.
+
+| # | Step | Observed |
+|---|---|---|
+| 05 | Insert | AsyncAPI Studio opens with the default example spec, VALID |
+| 06 | Publish in the macro dialog | Macro renders the example spec inside the page editor |
+| 07 | Publish the page | Page view renders the macro. REST read-back: extension key `d9e4002b-…/a0067a64-…/static/zenuml-asyncapi-macro` (Full app, `yanhui` env); custom content `ac:com.zenuml.confluence-addon:zenuml-content-sequence`, version 1, container = the new page, `diagramType: AsyncAPI` |
+
+Not covered: Storybook; CI-deployed
 full-stg. A development environment is not the CI-deployed staging stage.

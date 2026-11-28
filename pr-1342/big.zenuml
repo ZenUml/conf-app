@@ -1,0 +1,55 @@
+title Checkout across services
+@Actor Customer
+@Boundary WebApp
+@Control Gateway
+@Control OrderService
+@Control CartService
+@Control InventoryService
+@Control PricingService
+@Control PaymentService
+@Control FraudService
+@Control ShippingService
+@Database OrderDB
+@Control NotificationService
+Customer->WebApp.checkout(cartId) {
+  WebApp->Gateway.post("/orders") {
+    Gateway->OrderService.create(cartId) {
+      OrderService->CartService.load(cartId) {
+        return cart
+      }
+      OrderService->InventoryService.reserve(cart.items) {
+        if(outOfStock) {
+          return failure
+        }
+        return reservation
+      }
+      OrderService->PricingService.quote(cart) {
+        PricingService->PricingService.applyDiscounts()
+        PricingService->PricingService.addTax()
+        return price
+      }
+      OrderService->FraudService.check(customer, price) {
+        return score
+      }
+      alt(score > threshold) {
+        OrderService->NotificationService.alertRisk(orderId)
+        return rejected
+      }
+      OrderService->PaymentService.authorize(price) {
+        PaymentService->PaymentService.tokenize(card)
+        return authorization
+      }
+      OrderService->OrderDB.insert(order) {
+        return orderId
+      }
+      OrderService->ShippingService.schedule(orderId, address) {
+        ShippingService->ShippingService.pickCarrier()
+        return eta
+      }
+      OrderService->NotificationService.sendConfirmation(orderId, eta)
+      return orderId
+    }
+    return 201
+  }
+  return confirmation
+}

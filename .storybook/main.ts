@@ -2,6 +2,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mergeConfig, type UserConfig } from 'vite'
 import type { StorybookConfig } from '@storybook/vue3-vite'
+import { ZENUML_CORE_CLOSURE_GUARD } from '../scripts/build/zenumlCoreClosureGuard.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -14,7 +15,13 @@ const config: StorybookConfig = {
     options: {},
   },
   viteFinal: async (baseConfig) => {
-    return mergeConfig(baseConfig, {
+    // The app's vite.config.mjs is loaded here as well. Its @zenuml/core closure
+    // guard checks app load roots; in a Storybook build each story is a load root
+    // and may import the renderer statically, so the guard is dropped here.
+    const plugins = (baseConfig.plugins ?? [])
+      .flat(Infinity)
+      .filter((p) => !(p && typeof p === 'object' && 'name' in p && p.name === ZENUML_CORE_CLOSURE_GUARD))
+    return mergeConfig({ ...baseConfig, plugins }, {
       define: {
         'import.meta.env.PRODUCT_TYPE': JSON.stringify(process.env.PRODUCT_TYPE || 'lite'),
         'import.meta.env.VITE_APP_VERSION': JSON.stringify('storybook'),

@@ -39,7 +39,7 @@ function host(): Window | null {
 }
 
 import { detectDiagramType } from '../functions/agent-link/detectDiagramType';
-import { createGestureGate, createWheelStepper } from '@/utils/viewport/wheelZoom';
+import { bindSafariPinch, classifyWheel, createGestureGate } from '@/utils/viewport/wheelZoom';
 
 type Json = Record<string, unknown>;
 
@@ -122,7 +122,7 @@ export function resetViewState(): void {
   pendingRequests.clear();
   // A wheel gesture from before the reset must not swallow the next one's report.
   wheelGestureStarts = createGestureGate();
-  wheelStep = newWheelStepper();
+  drag = null;
 }
 
 function isFullscreen(): boolean {
@@ -588,25 +588,47 @@ export function currentUserZoom(): number {
  */
 export function zoom(action: ZoomAction): boolean {
   if (!zoomable()) return false;
-  const next =
-    action === 'fit' ? 1
-      : Math.min(MAX_USER_ZOOM, Math.max(MIN_USER_ZOOM, userZoom * (action === 'zoom_in' ? ZOOM_STEP : 1 / ZOOM_STEP)));
+  const next = action === 'fit' ? 1 : clampUserZoom(userZoom * (action === 'zoom_in' ? ZOOM_STEP : 1 / ZOOM_STEP));
+  return setUserZoom(next);
+}
+
+function clampUserZoom(value: number): number {
+  return Math.min(MAX_USER_ZOOM, Math.max(MIN_USER_ZOOM, value));
+}
+
+/**
+ * What scrolls up and down: in fullscreen #app itself, below the toolbar's
+ * strip (view.html), so the drawing never slides under the toolbar; inline,
+ * the page, which the host grows to fit and so rarely scrolls.
+ */
+function verticalScroller(app: HTMLElement | null): Element {
+  const page = document.scrollingElement ?? document.documentElement;
+  return isFullscreen() && app ? app : page;
+}
+
+/**
+ * Set the reader's zoom, keeping one point of the drawing where it is on
+ * screen: the pointer for a wheel or pinch (as the Confluence viewer zooms at
+ * the pointer), else the middle of the view. `anchor` is in client pixels.
+ */
+function setUserZoom(next: number, anchor?: { x: number; y: number }): boolean {
   if (next === userZoom) return false;
   const app = document.getElementById('app');
-  // What scrolls up and down: in fullscreen #app itself, below the toolbar's
-  // strip (view.html), so the drawing never slides under the toolbar; inline,
-  // the page, which the host grows to fit and so rarely scrolls.
-  const page = document.scrollingElement ?? document.documentElement;
-  const vertical = isFullscreen() && app ? app : page;
-  const viewHeight = vertical === page ? window.innerHeight : vertical.clientHeight;
-  // Where the middle of the view sits, as a fraction of what can be scrolled.
-  const middleX = app && app.scrollWidth ? (app.scrollLeft + app.clientWidth / 2) / app.scrollWidth : 0.5;
-  const middleY = vertical.scrollHeight ? (vertical.scrollTop + viewHeight / 2) / vertical.scrollHeight : 0.5;
+  const vertical = verticalScroller(app);
+  const pageScrolls = vertical !== app;
+  const appRect = app?.getBoundingClientRect();
+  // The anchor, as an offset into what each scroller shows.
+  const ax = app ? (anchor && appRect ? anchor.x - appRect.left : app.clientWidth / 2) : 0;
+  const viewHeight = pageScrolls ? window.innerHeight : vertical.clientHeight;
+  const ay = anchor ? (pageScrolls || !appRect ? anchor.y : anchor.y - appRect.top) : viewHeight / 2;
+  // ...and as a fraction of what can be scrolled.
+  const fx = app && app.scrollWidth ? (app.scrollLeft + ax) / app.scrollWidth : 0.5;
+  const fy = vertical.scrollHeight ? (vertical.scrollTop + ay) / vertical.scrollHeight : 0.5;
   userZoom = next;
   fitDiagram();
   reportSize();
-  if (app) app.scrollLeft = middleX * app.scrollWidth - app.clientWidth / 2;
-  vertical.scrollTop = middleY * vertical.scrollHeight - viewHeight / 2;
+  if (app) app.scrollLeft = fx * app.scrollWidth - ax;
+  vertical.scrollTop = fy * vertical.scrollHeight - ay;
   return true;
 }
 
@@ -1158,30 +1180,88 @@ export function onKeyDown(e: KeyboardEvent): void {
   zoomAndReport(action, 'keyboard');
 }
 
-/** One report per wheel gesture, as in the Confluence viewer. */
+/** One report per wheel or pinch gesture, as in the Confluence viewer. */
 let wheelGestureStarts = createGestureGate();
-function newWheelStepper() {
-  return createWheelStepper((direction) => {
-    const action: ZoomAction = direction > 0 ? 'zoom_in' : 'zoom_out';
-    if (zoom(action) && wheelGestureStarts()) reportZoom(action, 'wheel');
-  });
+
+/** Zoom by a continuous factor at a point (wheel, pinch), reporting once per gesture. */
+function zoomAtPointer(factor: number, x: number, y: number): void {
+  if (!zoomable()) return;
+  const before = userZoom;
+  if (!setUserZoom(clampUserZoom(userZoom * factor), { x, y })) return;
+  if (wheelGestureStarts()) reportZoom(userZoom > before ? 'zoom_in' : 'zoom_out', 'wheel');
 }
-let wheelStep = newWheelStepper();
 
 /**
- * The wheel zooms a drawing with Ctrl/Cmd, which is also how a trackpad pinch
- * arrives, and with a plain wheel only in fullscreen, where the drawing is the
- * whole view. Inline, a plain wheel is left alone so it scrolls the host's
- * conversation: the frame is one message among many, and taking the wheel
- * there zoomed a diagram out to 20% while the reader scrolled past it
- * (claude.ai, 2026-11-27). The Confluence viewer draws the same line. Over a
- * document the wheel always scrolls.
+ * The wheel, read the same way as the Confluence viewer (`classifyWheel`):
+ *
+ * | Mode       | Plain vertical      | Shift / sideways | Ctrl/Cmd, pinch |
+ * |------------|---------------------|------------------|-----------------|
+ * | Fullscreen | zoom at the pointer | pan              | zoom            |
+ * | Inline     | the host scrolls    | the host scrolls | zoom            |
+ *
+ * Inline, the frame is one message among many, and taking the plain wheel
+ * zoomed a diagram out to 20% while the reader scrolled past it (claude.ai,
+ * 2026-11-27). In fullscreen the drawing is the whole view; a zoomed one is
+ * moved with Shift or a sideways swipe, or by dragging it. Over a document
+ * the wheel always scrolls.
  */
 export function onWheel(e: WheelEvent): void {
   if (!zoomable()) return;
-  if (!isFullscreen() && !e.ctrlKey && !e.metaKey) return;
+  const action = classifyWheel(e, {
+    plainWheelZooms: isFullscreen(),
+    pageHeight: window.innerHeight,
+    pageWidth: window.innerWidth,
+  });
+  if (action.kind === 'pass') return;
   e.preventDefault();
-  wheelStep(e, window.innerHeight);
+  if (action.kind === 'pan') {
+    panBy(action.dx, action.dy);
+    return;
+  }
+  zoomAtPointer(action.factor, e.clientX, e.clientY);
+}
+
+/** Move the drawing by (dx, dy): scroll the other way. */
+function panBy(dx: number, dy: number): void {
+  const app = document.getElementById('app');
+  if (!app) return;
+  app.scrollLeft -= dx;
+  verticalScroller(app).scrollTop -= dy;
+}
+
+/** Below this a press is a click, not a drag, as in the Confluence viewer. */
+const DRAG_TOLERANCE_PX = 4;
+let drag: { pointerId: number; x: number; y: number; dragging: boolean } | null = null;
+
+/** Drag a zoomed drawing to pan it, in fullscreen only: inline the host scrolls. */
+export function onPointerDown(e: PointerEvent): void {
+  if (e.button !== 0 || !isFullscreen() || !zoomable()) return;
+  if (!(e.target instanceof Node) || !document.getElementById('app')?.contains(e.target)) return;
+  drag = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, dragging: false };
+}
+
+export function onPointerMove(e: PointerEvent): void {
+  if (!drag || e.pointerId !== drag.pointerId) return;
+  const dx = e.clientX - drag.x;
+  const dy = e.clientY - drag.y;
+  if (!drag.dragging) {
+    if (Math.abs(dx) < DRAG_TOLERANCE_PX && Math.abs(dy) < DRAG_TOLERANCE_PX) return;
+    drag.dragging = true;
+    document.getElementById('app')?.setPointerCapture?.(e.pointerId);
+    document.documentElement.dataset.dragging = 'true';
+    window.getSelection?.()?.removeAllRanges();
+  }
+  e.preventDefault();
+  panBy(dx, dy);
+  drag.x = e.clientX;
+  drag.y = e.clientY;
+}
+
+export function onPointerUp(e: PointerEvent): void {
+  if (!drag || e.pointerId !== drag.pointerId) return;
+  if (drag.dragging) document.getElementById('app')?.releasePointerCapture?.(e.pointerId);
+  delete document.documentElement.dataset.dragging;
+  drag = null;
 }
 
 /** Ask the host for the other display mode, and follow its answer. */
@@ -1392,6 +1472,12 @@ export function start(): void {
   // key handling cannot see it.
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('wheel', onWheel, { passive: false });
+  window.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', onPointerUp);
+  // Safari reports a trackpad pinch as gesture events, not Ctrl + wheel.
+  bindSafariPinch(document.documentElement, (factor, x, y) => zoomAtPointer(factor, x, y));
   // swagger-ui and the DrawIO viewer keep laying out after render() returns
   // (sections expand, fonts and stencils arrive), so follow the content's own
   // size rather than measuring once.

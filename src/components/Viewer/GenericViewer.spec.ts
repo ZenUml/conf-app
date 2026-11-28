@@ -2870,6 +2870,10 @@ describe('GenericViewer (chrome-less)', () => {
         expect(btn.attributes('title')).toBe('Connect an AI agent (MCP)')
         expect(btn.attributes('aria-label')).toBe('Connect MCP')
         expect(btn.classes()).toContain('viewer-act-connect-mcp--pinned')
+        // At the right end of the row, after Fullscreen, not between Source and More.
+        const row = [...wrapper.find('.viewer-top-actions').element.children]
+        expect(row.indexOf(btn.element)).toBeGreaterThan(row.indexOf(wrapper.find('.viewer-act-fullscreen').element))
+        expect(wrapper.findAll('[data-testid="connect-mcp-btn"]')).toHaveLength(1)
         expect(shownCalls()).toHaveLength(1)
         expect(shownCalls()[0]?.[1]).toMatchObject({ mcp_button_variant: 'outcome_label', mcp_button_reveal: 'always' })
         await btn.trigger('click')
@@ -2886,6 +2890,9 @@ describe('GenericViewer (chrome-less)', () => {
         const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
         expect(btn.find('.viewer-btn-label').text()).toBe('Use with AI')
         expect(btn.classes()).not.toContain('viewer-act-connect-mcp--pinned')
+        // In its usual place, before More.
+        const row = [...wrapper.find('.viewer-top-actions').element.children]
+        expect(row.indexOf(btn.element)).toBeLessThan(row.indexOf(wrapper.find('.viewer-act-more').element))
         expect(shownCalls()[0]?.[1]).toMatchObject({ mcp_button_variant: 'outcome_label', mcp_button_reveal: 'hover' })
       })
 

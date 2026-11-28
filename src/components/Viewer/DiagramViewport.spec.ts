@@ -380,3 +380,56 @@ describe('DiagramViewport Fullscreen zoom summary', () => {
     wrapper.unmount();
   });
 });
+
+describe('DiagramViewport while the SVG has no box', () => {
+  let rect: DOMRect;
+  let fireResize: () => void;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    panZoom.getSizes.mockReturnValue({ realZoom: 1 });
+    panZoom.getZoom.mockReturnValue(1);
+    rect = { width: 322, height: 243, left: 0, top: 0 } as DOMRect;
+    vi.spyOn(SVGElement.prototype, 'getBoundingClientRect').mockImplementation(() => rect);
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { fireResize = callback; }
+      observe() {}
+      disconnect() {}
+    });
+    window.forgeGlobal = { forgeContext: { extension: { modal: { macroMode: 'fullscreen' } } } } as never;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete (window as { forgeGlobal?: unknown }).forgeGlobal;
+  });
+
+  // svg-pan-zoom fits a 0-wide SVG at scale 0, and its next zoom inverts that
+  // matrix: "Failed to execute 'inverse' on 'SVGMatrix'" and a blank Fullscreen.
+  it('neither refits nor zooms while the SVG is 0 wide, and refits when it returns', async () => {
+    const wrapper = mountViewport(true);
+    await wrapper.vm.attach();
+    vi.clearAllMocks();
+
+    rect = { width: 0, height: 243, left: 0, top: 0 } as DOMRect;
+    fireResize();
+    wrapper.vm.zoomIn();
+    wrapper.vm.zoomOut();
+    wrapper.vm.fitAxis('width');
+    wrapper.vm.setRealZoom(2);
+    wheel(wrapper.get('.diagram-viewport').element, { deltaY: -50 });
+
+    expect(panZoom.resize).not.toHaveBeenCalled();
+    expect(panZoom.reset).not.toHaveBeenCalled();
+    expect(panZoom.zoom).not.toHaveBeenCalled();
+    expect(panZoom.zoomIn).not.toHaveBeenCalled();
+    expect(panZoom.zoomOut).not.toHaveBeenCalled();
+    expect(panZoom.zoomAtPointBy).not.toHaveBeenCalled();
+
+    rect = { width: 900, height: 600, left: 0, top: 0 } as DOMRect;
+    fireResize();
+
+    expect(panZoom.resize).toHaveBeenCalledTimes(1);
+    expect(panZoom.reset).toHaveBeenCalledTimes(1);
+  });
+});

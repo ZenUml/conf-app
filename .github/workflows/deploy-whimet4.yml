@@ -83,7 +83,8 @@ jobs:
 
       # `resources.main` in manifest.yml points at dist/, so the Custom UI
       # assets have to exist before `forge deploy` packages the app.
-      # build:lite and build:full both chain build:studio (AsyncAPI macro).
+      # build:lite chains build:studio (AsyncAPI macro); build:full does too
+      # from ADR-0005 Half 1 (PR #1344) on.
       - name: Build ${{ env.VARIANT }} frontend
         run: pnpm build:$VARIANT
         env:

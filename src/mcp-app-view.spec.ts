@@ -14,6 +14,9 @@ import {
   fullscreenAvailable,
   onHostMessage,
   onKeyDown,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
   onWheel,
   resetViewState,
   start,
@@ -908,23 +911,89 @@ describe('zooming a drawing', () => {
     expect(zoomReports()).toHaveLength(0);
   });
 
+  // One Ctrl/Cmd + mouse-wheel notch, capped at 50px, zooms exp(50 * 0.002): the
+  // Confluence viewer's continuous curve (classifyWheel).
+  const NOTCH = Math.exp(0.1);
+
   it('zooms inline on Ctrl/Cmd + wheel and on a pinch, reporting one gesture once', async () => {
     await drawMermaid();
-    expect(wheel({ deltaY: -100, ctrlKey: true }).defaultPrevented).toBe(true); // a trackpad pinch
-    expect(currentUserZoom()).toBeCloseTo(1.2, 5);
+    expect(wheel({ deltaY: -100, ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(currentUserZoom()).toBeCloseTo(NOTCH, 5);
     wheel({ deltaY: -100, metaKey: true });
-    expect(currentUserZoom()).toBeCloseTo(1.44, 5);
-    wheel({ deltaY: 100, ctrlKey: true });
-    expect(currentUserZoom()).toBeCloseTo(1.2, 5);
+    expect(currentUserZoom()).toBeCloseTo(NOTCH * NOTCH, 5);
+    wheel({ deltaY: -10, ctrlKey: true }); // a trackpad pinch frame: small delta, steeper curve
+    expect(currentUserZoom()).toBeCloseTo(NOTCH * NOTCH * Math.exp(0.1), 5);
     expect(zoomReports()).toHaveLength(1);
     expect(zoomReports()[0]).toMatchObject({ viewport_action: 'zoom_in', viewport_input: 'wheel' });
   });
 
-  it('zooms on a plain wheel in fullscreen, where the drawing is the whole view', async () => {
+  it('leaves Shift and sideways scrolling to the host when inline', async () => {
+    await drawMermaid();
+    expect(wheel({ deltaY: 100, shiftKey: true }).defaultPrevented).toBe(false);
+    expect(wheel({ deltaX: 80, deltaY: 5 }).defaultPrevented).toBe(false);
+    expect(currentUserZoom()).toBe(1);
+  });
+
+  it('zooms on a plain vertical wheel in fullscreen, as the Confluence fullscreen viewer does', async () => {
     await drawMermaid();
     applyHostContext({ displayMode: 'fullscreen' });
     expect(wheel({ deltaY: -100 }).defaultPrevented).toBe(true);
-    expect(currentUserZoom()).toBeCloseTo(1.2, 5);
+    expect(currentUserZoom()).toBeCloseTo(NOTCH, 5);
+  });
+
+  it('pans in fullscreen on Shift + wheel and on a sideways swipe, without zooming', async () => {
+    await drawMermaid();
+    applyHostContext({ displayMode: 'fullscreen' });
+    const app = document.getElementById('app')!;
+    app.scrollLeft = 0;
+    app.scrollTop = 0;
+    expect(wheel({ deltaY: 100, shiftKey: true }).defaultPrevented).toBe(true);
+    expect(app.scrollLeft).toBe(100);
+    expect(wheel({ deltaX: 40, deltaY: 5 }).defaultPrevented).toBe(true);
+    expect(app.scrollLeft).toBe(140);
+    expect(app.scrollTop).toBe(5);
+    expect(currentUserZoom()).toBe(1);
+    expect(zoomReports()).toHaveLength(0);
+  });
+
+  describe('dragging', () => {
+    const pointer = (type: 'down' | 'move' | 'up', x: number, y: number, target: Element) => {
+      const e = { button: 0, pointerId: 7, clientX: x, clientY: y, target, preventDefault: vi.fn() } as unknown as PointerEvent;
+      if (type === 'down') onPointerDown(e);
+      else if (type === 'move') onPointerMove(e);
+      else onPointerUp(e);
+      return e;
+    };
+
+    it('pans a fullscreen drawing past a 4px tolerance, and ends on release', async () => {
+      await drawMermaid();
+      applyHostContext({ displayMode: 'fullscreen' });
+      const app = document.getElementById('app')!;
+      app.scrollLeft = 200;
+      app.scrollTop = 100;
+      const target = box();
+      pointer('down', 50, 50, target);
+      pointer('move', 52, 51, target); // within the tolerance: still a click
+      expect(app.scrollLeft).toBe(200);
+      pointer('move', 60, 55, target);
+      expect(app.scrollLeft).toBe(190);
+      expect(app.scrollTop).toBe(95);
+      expect(document.documentElement.dataset.dragging).toBe('true');
+      pointer('up', 60, 55, target);
+      expect(document.documentElement.dataset.dragging).toBeUndefined();
+      pointer('move', 90, 90, target); // released: no more panning
+      expect(app.scrollLeft).toBe(190);
+    });
+
+    it('does not drag inline, where the host scrolls', async () => {
+      await drawMermaid();
+      const app = document.getElementById('app')!;
+      app.scrollLeft = 200;
+      const target = box();
+      pointer('down', 50, 50, target);
+      pointer('move', 90, 90, target);
+      expect(app.scrollLeft).toBe(200);
+    });
   });
 
   it('leaves the wheel to scroll a document', async () => {

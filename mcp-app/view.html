@@ -36,6 +36,10 @@
       /* The strip moves to the body, outside the scrolling box. Padding, not
          #app's margin, which would collapse into the body's margin. */
       html[data-display-mode="fullscreen"] body:has(#zen-mcp-toolbar) { padding-top: 34px; }
+      /* A zoomed drawing can be dragged in fullscreen (onPointerDown). */
+      html[data-display-mode="fullscreen"] .zen-mcp-fit { cursor: grab; }
+      html[data-dragging] .zen-mcp-fit { cursor: grabbing; }
+      html[data-dragging] #app { user-select: none; }
       html[data-display-mode="fullscreen"] body:has(#zen-mcp-toolbar) #app {
         padding-top: 0;
         height: calc(100vh - 16px - 34px);

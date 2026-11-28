@@ -55,6 +55,14 @@ describe('independent render MCP routing and protocol', () => {
     expect(body.result.protocolVersion).toBe('2025-06-18');
   });
 
+  it('passes the ?via= tag through to the handler and answers as without it', async () => {
+    const spy = vi.spyOn(renderer, 'handleRenderRequest');
+    const tagged = await worker.fetch(post(`${ORIGIN}/mcp?via=docs`, 'initialize', { protocolVersion: '2025-06-18' }), environment(), ctx);
+    const plain = await worker.fetch(post(`${ORIGIN}/mcp`, 'initialize', { protocolVersion: '2025-06-18' }), environment(), ctx);
+    expect(spy.mock.calls.map(([request]) => request.url)).toEqual([`${ORIGIN}/mcp?via=docs`, `${ORIGIN}/mcp`]);
+    expect(await tagged.json()).toEqual(await plain.json());
+  });
+
   it('makes both production hosts and aliases return the same resource HTML and CSP', async () => {
     const assets = vi.fn(async () => new Response(VIEW));
     const env = environment(assets);

@@ -109,7 +109,9 @@ export default {
       // Both public aliases receive identical UI resource URLs and CSP.
       // Credentials are irrelevant: the shared handler never reads them and
       // exposes only the public rendering tool, never Confluence operations.
-      const canonical = new Request(`${origin}/mcp`, request);
+      // Keep the query string: its `via` tag says which published URL the
+      // client was given (renderMcp.ts mcpChannelOf). Nothing else reads it.
+      const canonical = new Request(`${origin}/mcp${url.search}`, request);
       try {
         return noStore(await handleRenderRequest(canonical, env, {
           waitUntil: (work) => ctx.waitUntil(work),

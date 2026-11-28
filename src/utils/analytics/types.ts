@@ -69,6 +69,7 @@ import type {
   AgentLinkMcpToolOutcome,
   AgentLinkRenderValidation,
   AgentLinkRenderTypeSource,
+  AgentLinkMcpChannel,
   AgentLinkRenderIssue,
   AgentLinkRenderRevisionState,
   AgentLinkRenderNextAction,
@@ -1370,6 +1371,9 @@ export type AnalyticsProperties = {
   // user or site for `is_internal_client_domain` to read. Absent is not proof
   // of a customer: a person on the team testing a connector looks the same.
   internal_probe?: boolean;
+  // Public render endpoint only: which published URL the connection came
+  // through (its `via` query parameter). See AgentLinkMcpChannel.
+  mcp_channel?: AgentLinkMcpChannel;
   // render_diagram on the public render endpoint (`mcp_mode: 'render'`): did
   // the source parse.
   render_validation?: AgentLinkRenderValidation;

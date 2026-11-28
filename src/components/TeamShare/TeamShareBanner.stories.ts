@@ -43,8 +43,25 @@ export const Default: Story = {
   },
 }
 
+/**
+ * Storybook's iframe denies the async Clipboard API, which would send the copy
+ * stories down the manual fallback. Stub a working clipboard for them.
+ */
+function workingClipboard() {
+  const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: async () => {} },
+  })
+  return () => {
+    if (original) Object.defineProperty(navigator, 'clipboard', original)
+    else delete (navigator as any).clipboard
+  }
+}
+
 /** After Copy message: green "Copied ✓" and the paste hint. */
 export const CopiedMessage: Story = {
+  beforeEach: workingClipboard,
   play: async () => {
     const canvas = within(document.body)
     await userEvent.click(await canvas.findByRole('button', { name: 'Copy message' }))
@@ -55,6 +72,7 @@ export const CopiedMessage: Story = {
 
 /** After Copy link. */
 export const CopiedLink: Story = {
+  beforeEach: workingClipboard,
   play: async () => {
     const canvas = within(document.body)
     await userEvent.click(await canvas.findByRole('button', { name: 'Copy link' }))
@@ -62,13 +80,36 @@ export const CopiedLink: Story = {
   },
 }
 
-/** No usable diagram title: the generic headline. */
+/** No usable diagram title: the headline names the diagram type instead. */
 export const NoTitle: Story = {
-  args: { preview: { ...PREVIEW, diagramTitle: 'Untitled 2026-11-28T00:00:00.000Z' } },
+  args: { preview: { ...PREVIEW, diagramTitle: 'Untitled 2026-11-28T00:00:00.000Z', diagramType: 'mermaid' } },
   play: async () => {
     const canvas = within(document.body)
     await expect(
-      await canvas.findByText('Nice — your diagram is on this page. Share it with your team?'),
+      await canvas.findByText('Nice — your Mermaid diagram is on this page. Share it with your team?'),
     ).toBeVisible()
+  },
+}
+
+/** Both clipboard paths fail: the message is shown for a manual copy. */
+export const ManualCopyFallback: Story = {
+  beforeEach: () => {
+    const clip = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+    const exec = document.execCommand
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async () => { throw new Error('denied') } },
+    })
+    document.execCommand = () => false
+    return () => {
+      if (clip) Object.defineProperty(navigator, 'clipboard', clip)
+      else delete (navigator as any).clipboard
+      document.execCommand = exec
+    }
+  },
+  play: async () => {
+    const canvas = within(document.body)
+    await userEvent.click(await canvas.findByRole('button', { name: 'Copy message' }))
+    await expect(await canvas.findByText('Press Ctrl/Cmd+C to copy')).toBeVisible()
   },
 }

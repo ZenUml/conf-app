@@ -58,7 +58,7 @@ const AUTO_CLOSE_MS = 5000;
  * tests hand in what the banner would have fetched.
  */
 const props = defineProps<{
-  preview?: { pageTitle: string; pageUrl: string; diagramTitle: string };
+  preview?: { pageTitle: string; pageUrl: string; diagramTitle: string; diagramType?: string };
 }>();
 
 type Phase = 'hidden' | 'ready';
@@ -128,6 +128,7 @@ onMounted(async () => {
       pageTitle.value = props.preview.pageTitle;
       pageUrl.value = props.preview.pageUrl;
       diagramTitle.value = usableDiagramTitle(props.preview.diagramTitle);
+      typeLabel.value = TYPE_LABELS[String(props.preview.diagramType || '').toLowerCase()] || 'diagram';
       phase.value = 'ready';
       return;
     }

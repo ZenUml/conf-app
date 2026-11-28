@@ -202,6 +202,7 @@ export default {
                 initialScale = instance.getZoom();
                 resetPanned();
               }
+              if (!this.hasLayout()) return;
               instance.zoomAtPoint(initialScale * event.scale, event.center);
               panByGesture(event);
             });
@@ -243,11 +244,27 @@ export default {
       if (typeof ResizeObserver !== 'undefined') {
         this.panZoomResizeObserver = new ResizeObserver(() => {
           this.syncInlineHeight();
+          // A 0-wide or 0-high SVG (the Fullscreen dialog mid-resize) would make
+          // resize() fit the diagram at scale 0. Every later zoom then inverts that
+          // matrix and throws, and the canvas stays blank once the size returns.
+          // Keep the last good fit; the next callback with a real box refits.
+          if (!this.hasLayout()) return;
           this.panZoom?.resize();
           if (!this.panZoomDirty) this.reset();
         });
         this.panZoomResizeObserver.observe(this.$refs.viewport);
+        // The SVG can lose its box while the viewport keeps its own (e.g. a
+        // parent hidden for a moment); observe it too so its return is seen.
+        this.panZoomResizeObserver.observe(svgElement);
       }
+    },
+    /**
+     * Whether the bound SVG has a box. svg-pan-zoom inverts its matrices on every
+     * zoom, so no zoom may run while the SVG is 0 x 0 in either axis.
+     */
+    hasLayout() {
+      const svg = this.panZoomSvg;
+      return !!svg && hasSvgLayout(svg.getBoundingClientRect());
     },
     /** Re-try the attach once the host gives the SVG a box to measure. */
     observeLayout(svgElement) {
@@ -313,7 +330,7 @@ export default {
     /** Zoom keeping the SVG point under (clientX, clientY) under it. */
     zoomAtClient(factor, clientX, clientY) {
       const rect = this.panZoomSvg?.getBoundingClientRect();
-      if (!rect) return;
+      if (!rect || !hasSvgLayout(rect)) return;
       this.panZoom.zoomAtPointBy(factor, { x: clientX - rect.left, y: clientY - rect.top });
     },
     unbindWheelZoom() {
@@ -367,7 +384,7 @@ export default {
       if (width > 0) this.$refs.viewport.style.height = `${width / this.inlineAspectRatio}px`;
     },
     reset() {
-      if (!this.panZoom) return;
+      if (!this.panZoom || !this.hasLayout()) return;
       // Lay out with no limits in the way; applyLimits() sets them from the result.
       this.panZoom.setBeforePan(null);
       this.panZoom.setMinZoom(LAYOUT_MIN_ZOOM);
@@ -478,7 +495,7 @@ export default {
     },
     setRealZoom(realZoom) {
       const current = this.getRealZoom();
-      if (!this.panZoom || !(current > 0) || !(realZoom > 0)) return;
+      if (!this.panZoom || !this.hasLayout() || !(current > 0) || !(realZoom > 0)) return;
       this.panZoom.zoom(this.panZoom.getZoom() * realZoom / current);
     },
     panByScreen(dx, dy) {
@@ -500,13 +517,13 @@ export default {
       g.style.transform = matrix;
     },
     zoomIn() {
-      this.panZoom?.zoomIn();
+      if (this.hasLayout()) this.panZoom?.zoomIn();
     },
     zoomOut() {
-      this.panZoom?.zoomOut();
+      if (this.hasLayout()) this.panZoom?.zoomOut();
     },
     fitAxis(axis) {
-      if (!this.panZoom) return;
+      if (!this.panZoom || !this.hasLayout()) return;
       this.panZoom.resize();
       const sizes = this.panZoom.getSizes();
       const extent = sizes.viewBox?.[axis];

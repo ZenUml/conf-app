@@ -813,6 +813,58 @@ export const MermaidFullscreenPanZoom: Story = {
   },
 }
 
+/** Scale of the svg-pan-zoom viewport group, read from its transform attribute. */
+function panZoomScale(): number | null {
+  const group = document.querySelector('.diagram-viewport .svg-pan-zoom_viewport')
+  const match = /matrix\(\s*([-\d.e]+)/.exec(group?.getAttribute('transform') ?? '')
+  return match ? Number(match[1]) : null
+}
+
+/**
+ * The Fullscreen dialog can lose its width for a moment while Confluence resizes
+ * it. svg-pan-zoom then fits the diagram at scale 0, and every later zoom inverts
+ * that singular matrix: "Failed to execute 'inverse' on 'SVGMatrix'", and the
+ * canvas stays blank after the width comes back. The diagram must come back.
+ */
+export const MermaidFullscreenZeroWidthResize: Story = {
+  name: 'Fullscreen — Mermaid survives a zero-width resize',
+  parameters: { layout: 'fullscreen' },
+  loaders: MermaidFullscreenPanZoom.loaders,
+  decorators: MermaidFullscreenPanZoom.decorators,
+  render: (args: Args) => renderMermaidViewer(args),
+  play: async () => {
+    const canvas = within(document.body)
+    await canvas.findByRole('toolbar', { name: 'Mermaid zoom controls' })
+    await waitFor(() => expect(panZoomScale()).toBeGreaterThan(0))
+
+    const errors: string[] = []
+    const onError = (event: ErrorEvent) => {
+      errors.push(event.message)
+      event.preventDefault()
+    }
+    window.addEventListener('error', onError)
+    const nextFrames = () => new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve))
+    })
+    try {
+      const viewport = document.querySelector<HTMLElement>('.diagram-viewport')
+      if (!viewport) throw new Error('diagram viewport not rendered')
+      viewport.style.width = '0px'
+      await nextFrames()
+      await nextFrames()
+      // A zoom while the box has no width (wheel, toolbar) must not throw either.
+      await userEvent.click(canvas.getByRole('button', { name: 'Zoom in' }))
+      viewport.style.removeProperty('width')
+      await nextFrames()
+      await nextFrames()
+      await expect(errors).toEqual([])
+      await waitFor(() => expect(panZoomScale()).toBeGreaterThan(0))
+    } finally {
+      window.removeEventListener('error', onError)
+    }
+  },
+}
+
 /**
  * Fullscreen while the Lite site-policy notice applies (the server said the
  * watermark applies). Fullscreen shows the watermark only: the notice strip

@@ -1,6 +1,6 @@
 # Render MCP: attribute connections to the channel that published the URL
 
-Status: plan, not started (2026-11-28).
+Status: step 1 in progress (2026-11-28).
 
 ## Problem
 
@@ -65,13 +65,13 @@ result `_meta`, which is a follow-up.
 
 1. **conf-app (one PR).**
    - `workers/render-mcp/index.ts`: the Worker replaces the request with
-     `new Request(`${origin}/mcp`, request)`, which drops the query string. Read
-     `via` from the original `url` first and pass it to `handleRenderRequest`
-     (a new `deps.channel`, or a header set on the canonical request).
-   - `functions/mcp/render.ts` (Pages alias on `conf-lite`, `/mcp/render`): read
-     the same parameter, so the alias behaves the same.
-   - `functions/agent-link/renderMcp.ts`: map `via` to the enum, add
-     `mcp_channel` in `trackEvent`, and set `internal_probe` for `internal`.
+     `new Request(`${origin}/mcp`, request)`, which dropped the query string.
+     Keep `url.search` on the canonical URL.
+   - `functions/mcp/render.ts` (Pages alias on `conf-lite`, `/mcp/render`): no
+     change; it passes the original request, query string included.
+   - `functions/agent-link/renderMcp.ts`: `mcpChannelOf(request.url)` maps `via`
+     to the enum; `trackEvent` adds `mcp_channel` and sets `internal_probe` for
+     `internal`.
    - Unit tests in `functions/agent-link/renderMcp.spec.ts` and
      `workers/render-mcp/index.spec.ts`: known value, unknown → `other`,
      absent → `none`, `internal` sets `internal_probe`, the query string

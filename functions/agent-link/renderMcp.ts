@@ -134,6 +134,20 @@ async function track(env: RenderEnv, props: Record<string, unknown>): Promise<vo
 /** Sent by scripts/ci/check-render-mcp.mjs. Spoofing it only hides the sender's own calls. */
 const INTERNAL_PROBE_HEADER = 'x-zenuml-internal-probe';
 
+/**
+ * The channels that publish this endpoint, each with its own `?via=` tag
+ * (AgentLinkMcpChannel in src/utils/analytics/catalog.ts). The raw value is
+ * client-controlled text, so anything else is recorded as `other`, never as sent.
+ */
+const MCP_CHANNELS = new Set(['docs', 'plugin-claude', 'plugin-openai', 'claude-dir', 'chatgpt-dir', 'readme', 'internal']);
+
+/** Which published URL this request came through: its `via` query parameter. */
+export function mcpChannelOf(requestUrl: string): string {
+  const via = new URL(requestUrl).searchParams.get('via');
+  if (via === null || via === '') return 'none';
+  return MCP_CHANNELS.has(via) ? via : 'other';
+}
+
 function clip(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value.slice(0, 64) : undefined;
 }
@@ -146,8 +160,11 @@ export async function handleRenderRpc(
   deps: RenderMcpDeps = {},
 ): Promise<Response> {
   // Our own smoke checks say so: this path has no user or site that could.
-  const internalProbe = request.headers.get(INTERNAL_PROBE_HEADER) ? { internal_probe: true } : {};
-  const trackEvent = (props: Record<string, unknown>) => track(env, { ...internalProbe, ...props });
+  // A claude.ai connector cannot send a header, so our own connectors say so
+  // with `?via=internal` instead. Spoofing either only hides the sender's calls.
+  const channel = mcpChannelOf(request.url);
+  const internalProbe = request.headers.get(INTERNAL_PROBE_HEADER) || channel === 'internal' ? { internal_probe: true } : {};
+  const trackEvent = (props: Record<string, unknown>) => track(env, { ...internalProbe, mcp_channel: channel, ...props });
   const id = body.id ?? null;
   const origin = new URL(request.url).origin;
   const fetchImpl = deps.fetchImpl ?? ((url: string, init?: RequestInit) => fetch(url, init));

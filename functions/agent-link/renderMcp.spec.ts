@@ -482,6 +482,44 @@ describe('POST /mcp/render', () => {
       expect(calls[1].properties.internal_probe).toBeUndefined();
     });
 
+    it.each([
+      ['?via=docs', 'docs'],
+      ['?via=plugin-claude', 'plugin-claude'],
+      ['?via=claude-dir', 'claude-dir'],
+      ['?via=somewhere-else', 'other'],
+      ['?via=', 'none'],
+      ['', 'none'],
+    ])('records the published URL a connection came through (%s -> %s)', async (search, channel) => {
+      const events = captureEvents();
+      const init = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: { name: 'claude-ai' } } };
+      const toolCall = { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'render_diagram', arguments: { diagramType: 'sequence', source: 'A->B: hi' } } };
+      for (const body of [init, toolCall]) {
+        await handleRenderRequest(
+          new Request(`${URL_}${search}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+          { MIXPANEL_TOKEN: 't' },
+          {},
+        );
+      }
+      expect(events.map((e) => [e.event, e.properties.mcp_channel])).toEqual([
+        ['agent_link_mcp_initialized', channel],
+        ['agent_link_mcp_tool_called', channel],
+      ]);
+      expect(JSON.stringify(events)).not.toContain('somewhere-else');
+      expect(events.every((e) => e.properties.internal_probe === undefined)).toBe(true);
+    });
+
+    it('treats ?via=internal as our own traffic, like the probe header', async () => {
+      const events = captureEvents();
+      const body = { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'render_diagram', arguments: { diagramType: 'sequence', source: 'A->B: hi' } } };
+      const res = await handleRenderRequest(
+        new Request(`${URL_}?via=internal`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+        { MIXPANEL_TOKEN: 't' },
+        {},
+      );
+      expect(((await res.json()) as any).result.structuredContent.valid).toBe(true);
+      expect(events[0].properties).toEqual(expect.objectContaining({ mcp_channel: 'internal', internal_probe: true }));
+    });
+
     it('records the handshake with the client name', async () => {
       const events = captureEvents();
       await rpc('initialize', { clientInfo: { name: 'claude-ai' } }, { MIXPANEL_TOKEN: 't' });

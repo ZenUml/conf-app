@@ -198,14 +198,14 @@ jobs:
         with:
           ref: ${{ inputs.source-sha }}
       - name: Init asyncapi-studio submodule
-        if: matrix.variant == 'lite' || matrix.variant == 'asyncapi'
+        if: matrix.variant != 'diagramly'
         run: git submodule update --init --depth 1 vendor/asyncapi-studio
       - name: Resolve asyncapi-studio submodule SHA
-        if: matrix.variant == 'lite' || matrix.variant == 'asyncapi'
+        if: matrix.variant != 'diagramly'
         id: studio-sha
         run: echo "sha=$(git -C vendor/asyncapi-studio rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Cache asyncapi Studio build
-        if: matrix.variant == 'lite' || matrix.variant == 'asyncapi'
+        if: matrix.variant != 'diagramly'
         uses: actions/cache@v5
         with:
           path: |

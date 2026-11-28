@@ -112,12 +112,14 @@ export const APPS = {
           'del(.modules["confluence:globalPage"][] | select(.key == "zenuml-plan-usage-page"))',
       },
       {
-        // Strip both `zenuml-asyncapi-macro` (page-rendered spec) and
-        // `zenuml-asyncapi-embed-macro` (embed reference) — only the
-        // asyncapi variant ships these.
-        description: 'Remove asyncapi macros (zenuml-asyncapi-macro + zenuml-asyncapi-embed-macro)',
+        // ADR-0005 "To lift" Half 1: Full ships the page-rendered AsyncAPI
+        // macro (`zenuml-asyncapi-macro`), stored under the shared
+        // `zenuml-content-sequence` type like Lite. Only the embed macro is
+        // stripped — it references `async-api-doc` documents, which stay
+        // asyncapi-variant-only along with the dashboard spacePage.
+        description: 'Remove asyncapi embed macro (zenuml-asyncapi-embed-macro; Full keeps zenuml-asyncapi-macro per ADR-0005)',
         yqEvalExpr:
-          'del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))',
+          'del(.modules.macro[] | select(.key == "zenuml-asyncapi-embed-macro"))',
       },
       {
         description: 'Remove asyncapi custom content (async-api-doc)',
@@ -127,6 +129,12 @@ export const APPS = {
       {
         description: 'Remove asyncapi spacePage (zenuml-asyncapi-dashboard-page)',
         yqEvalExpr: 'del(.modules["confluence:spacePage"])',
+      },
+      {
+        // AsyncAPI Studio compiles JSON Schema validators at runtime via
+        // `new Function()`; same edit as Lite's and the asyncapi variant's.
+        description: "Allow 'unsafe-eval' in CSP (required by AsyncAPI Studio runtime schema compilation)",
+        yqEvalExpr: '.permissions.content.scripts = ["unsafe-eval"]',
       },
       {
         // Strip the Connect lifecycle module (connectModules) — kept in

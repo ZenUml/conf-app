@@ -189,9 +189,9 @@ export function macroKeyFor(identity: MacroIdentity, diagramType: string): strin
     // zenuml-openapi-macro (CLAUDE.md, Product variants).
     base = identity.variant === 'diagramly' ? null : 'zenuml-openapi-macro';
   } else if (folded === 'asyncapi') {
-    // The AsyncAPI app, and Lite since ADR-0005 (manifest.yml keeps
-    // zenuml-asyncapi-macro${LITE_KEY_SUFFIX} there); full and diagramly strip it.
-    base = identity.variant === 'asyncapi' || identity.variant === 'lite' ? 'zenuml-asyncapi-macro' : null;
+    // The AsyncAPI app, plus Lite and Full since ADR-0005 (manifest.yml keeps
+    // zenuml-asyncapi-macro${LITE_KEY_SUFFIX} there); only diagramly strips it.
+    base = identity.variant === 'diagramly' ? null : 'zenuml-asyncapi-macro';
   }
 
   return base === null ? null : base + profile.macroKeySuffix;

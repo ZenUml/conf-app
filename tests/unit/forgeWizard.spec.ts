@@ -133,6 +133,16 @@ describe('forge-wizard manifest preview helpers', () => {
     expect(yq.join(' ')).not.toContain('macroCountSnapshotFn')
   })
 
+  it('full keeps the AsyncAPI page macro and its CSP, strips only the asyncapi-variant pieces', () => {
+    const yq = getManifestEditYqArgs('full').map((x) => x.expr)
+    // ADR-0005 "To lift" Half 1: exact embed-macro key, never the broad filter.
+    expect(yq).toContain('del(.modules.macro[] | select(.key == "zenuml-asyncapi-embed-macro"))')
+    expect(yq).not.toContain('del(.modules.macro[] | select(.key | test("zenuml-asyncapi")))')
+    expect(yq).toContain('del(.modules["confluence:customContent"][] | select(.key | test("async-api-doc")))')
+    expect(yq).toContain('del(.modules["confluence:spacePage"])')
+    expect(yq).toContain('.permissions.content.scripts = ["unsafe-eval"]')
+  })
+
   // scripts/forge-wizard.mjs is the source of truth. The three workflows that
   // deploy Lite used to carry hand copies of its yq edits and drifted (#383/#460,
   // deploy-whimet4.yml after ADR-0005); they now apply this list through

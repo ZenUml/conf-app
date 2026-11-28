@@ -97,9 +97,11 @@ describe('parsePageDiagrams', () => {
       DiagramType.Graph,
       DiagramType.Unknown,
       DiagramType.OpenApi,
-      // Full has no AsyncAPI macro to place it with.
-      DiagramType.Unknown,
+      // Full ships the AsyncAPI macro (ADR-0005).
+      DiagramType.AsyncApi,
     ])
+    // Diagramly has no AsyncAPI macro to place it with.
+    expect(parsePageDiagrams(responses, 'diagramly').at(-1)?.diagramType).toBe(DiagramType.Unknown)
     const [legacy] = parsePageDiagrams(responses, 'full')
     expect(legacy.copyable).toBe(true)
     expect(legacy.source).toBe('title Order Service\n@Lambda OrderController')

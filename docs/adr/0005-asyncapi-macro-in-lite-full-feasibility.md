@@ -1,6 +1,6 @@
 # ADR-0005: Feasibility & risk of enabling the AsyncAPI macro in Lite and Full
 
-**Status**: Accepted for **Lite** (Option A) — shipped in PR #537. Full and Diagramly unchanged.
+**Status**: Accepted for **Lite** (Option A) — shipped in PR #537. **Full**: "To lift" Half 1 (ship the macro) on branch `feat/full-asyncapi-macro` (2026-11-28); Half 2 (migration) waits for that to reach Full production. Diagramly unchanged.
 **Date**: 2026-08-19 (analysis) / 2026-08-28 (decision)
 **Related**: `scripts/forge-wizard.mjs`, `vite.config.mjs`, `manifest.yml`, `src/forgeIndex.ts`, `src/model/ApWrapper2.ts`, `src/macro-count-snapshot.ts`
 

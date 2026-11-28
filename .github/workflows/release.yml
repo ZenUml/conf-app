@@ -63,7 +63,7 @@ jobs:
       # ADR-0005). Default checkout above does NOT init submodules — we init
       # explicitly so the private submodule isn't attempted.
       - name: Init asyncapi-studio submodule
-        if: ${{ steps.properties.outputs.license == 'asyncapi' || steps.properties.outputs.license == 'lite' }}
+        if: ${{ steps.properties.outputs.license == 'asyncapi' || steps.properties.outputs.license == 'lite' || steps.properties.outputs.license == 'full' }}
         run: git submodule update --init --depth 1 vendor/asyncapi-studio
       # Same Studio cache as build-test-deploy.yml / staging-deploy.yml (same key,
       # one shared entry — the main build of the released commit already saved
@@ -72,11 +72,11 @@ jobs:
       # the 3.5 minutes of "Build and publish to Cloudflare" on the Lite release
       # run 34594289094 (2026-09-11), and this job is the gate PVT waits on.
       - name: Resolve asyncapi-studio submodule SHA
-        if: ${{ steps.properties.outputs.license == 'asyncapi' || steps.properties.outputs.license == 'lite' }}
+        if: ${{ steps.properties.outputs.license == 'asyncapi' || steps.properties.outputs.license == 'lite' || steps.properties.outputs.license == 'full' }}
         id: studio-sha
         run: echo "sha=$(git -C vendor/asyncapi-studio rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Cache asyncapi Studio build
-        if: ${{ steps.properties.outputs.license == 'asyncapi' || steps.properties.outputs.license == 'lite' }}
+        if: ${{ steps.properties.outputs.license == 'asyncapi' || steps.properties.outputs.license == 'lite' || steps.properties.outputs.license == 'full' }}
         uses: actions/cache@v5
         with:
           path: |

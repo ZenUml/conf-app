@@ -20,11 +20,14 @@ process.env.VITE_APP_GIT_BRANCH = execSync('git branch --show-current').toString
 // even when all three variant tags point to the same commit.
 const _productType = process.env.PRODUCT_TYPE || 'full'
 // Variants whose bundle carries the AsyncAPI runtime (@asyncapi/react-component
-// viewer + the Studio editor iframe assets): the asyncapi variant, and lite
-// since ADR-0005 Option A shipped the AsyncAPI macro there. Gates every
+// viewer + the Studio editor iframe assets): the asyncapi variant, plus lite
+// and full, which ship the AsyncAPI macro per ADR-0005 Option A. Gates every
 // asyncapi-specific build treatment below (CJS interop, fs/stream stubs,
-// node polyfills, Studio asset copy) — full/diagramly stay untouched.
-const _hasAsyncApiRuntime = _productType === 'asyncapi' || _productType === 'lite'
+// node polyfills, Studio asset copy) — diagramly stays untouched.
+// Never under Vitest: PRODUCT_TYPE defaults to 'full', and the node polyfills
+// would replace the Node `Buffer` the backend specs rely on (base64url).
+const _hasAsyncApiRuntime = !process.env.VITEST &&
+  (_productType === 'asyncapi' || _productType === 'lite' || _productType === 'full')
 // Fallback for local/staging builds. Production release builds pass VITE_APP_VERSION
 // explicitly from github.event.release.tag_name because git describe --abbrev=0
 // returns the nearest reachable matching tag, not necessarily the release event tag.
@@ -281,8 +284,8 @@ export default defineConfig(({ command }) => ({
   // the working config from AsyncAPI-Conf-V2: include buffer/process/util/
   // path/url/crypto/stream; exclude fs/os because they're aliased to memfs
   // / left unresolved below. Only variants that bundle the AsyncAPI viewer
-  // (asyncapi, lite per ADR-0005) get this runtime — full/diagramly don't
-  // import it.
+  // (asyncapi, lite and full per ADR-0005) get this runtime — diagramly
+  // doesn't import it.
   ...(_hasAsyncApiRuntime
     ? [nodePolyfills({
         protocolImports: true,
@@ -325,7 +328,7 @@ export default defineConfig(({ command }) => ({
         dest: 'dist/vendor/mermaid/chunks/mermaid.esm.min',
       },
       // AsyncAPI Studio assets ship with the variants that carry the AsyncAPI
-      // macro (asyncapi, lite per ADR-0005). Studio is loaded as a nested
+      // macro (asyncapi, lite and full per ADR-0005). Studio is loaded as a nested
       // iframe from the AsyncAPI editor and uses localStorage to sync the
       // document with the host; that requires same-origin, so Studio must
       // live under the same Forge resource as index.html

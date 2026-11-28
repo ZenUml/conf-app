@@ -281,7 +281,7 @@ jobs:
       # (lite ships the AsyncAPI macro per ADR-0005). Init explicitly so
       # `actions/checkout@v5` doesn't try to clone the private submodule.
       - name: Init asyncapi-studio submodule
-        if: needs.resolve.outputs.variant == 'asyncapi' || needs.resolve.outputs.variant == 'lite'
+        if: needs.resolve.outputs.variant == 'asyncapi' || needs.resolve.outputs.variant == 'lite' || needs.resolve.outputs.variant == 'full'
         run: git submodule update --init --depth 1 vendor/asyncapi-studio
       # The same cache the build job in build-test-deploy.yml already keeps (same
       # key, so the two share one entry). On a hit static/asyncapi-studio/
@@ -294,11 +294,11 @@ jobs:
       # matters most: its deploy is the head of the main-branch critical path,
       # since no Lite E2E shard can start until it finishes.
       - name: Resolve asyncapi-studio submodule SHA
-        if: needs.resolve.outputs.variant == 'asyncapi' || needs.resolve.outputs.variant == 'lite'
+        if: needs.resolve.outputs.variant == 'asyncapi' || needs.resolve.outputs.variant == 'lite' || needs.resolve.outputs.variant == 'full'
         id: studio-sha
         run: echo "sha=$(git -C vendor/asyncapi-studio rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Cache asyncapi Studio build
-        if: (needs.resolve.outputs.variant == 'asyncapi' || needs.resolve.outputs.variant == 'lite') && needs.resolve.outputs.preparation-mode != 'candidate'
+        if: (needs.resolve.outputs.variant == 'asyncapi' || needs.resolve.outputs.variant == 'lite' || needs.resolve.outputs.variant == 'full') && needs.resolve.outputs.preparation-mode != 'candidate'
         uses: actions/cache@v5
         with:
           path: |

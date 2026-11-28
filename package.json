@@ -23,7 +23,7 @@
     "test:insert:full:prod": "cd tests/e2e-tests && pnpm test:insert:full:prod",
     "test:insert:diagramly:stg": "cd tests/e2e-tests && pnpm test:insert:diagramly:stg",
     "test:insert:diagramly:prod": "cd tests/e2e-tests && pnpm test:insert:diagramly:prod",
-    "build:full": "PRODUCT_TYPE=full vite build --mode production && pnpm run build:mcp-app",
+    "build:full": "pnpm run build:studio && PRODUCT_TYPE=full vite build --mode production && pnpm run build:mcp-app",
     "build:full:watch": "PRODUCT_TYPE=full vite build --watch",
     "build:lite": "pnpm run build:studio && PRODUCT_TYPE=lite vite build && pnpm run build:mcp-app",
     "build:diagramly": "PRODUCT_TYPE=diagramly vite build && pnpm run build:mcp-app",

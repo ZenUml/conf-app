@@ -1,0 +1,12 @@
+Building v2026.11.271729-full (ce09ec475) on feat/render-mcp-channel
+ RUN  v2.1.9 /Users/yanhuili/workspace/zenuml/conf-app-mcp-channel
+ ✓ functions/agent-link/renderMcp.spec.ts > POST /mcp/render > analytics > marks our own smoke checks, and only them, as internal
+ ✓ functions/agent-link/renderMcp.spec.ts > POST /mcp/render > analytics > records the published URL a connection came through (?via=docs -> docs)
+ ✓ functions/agent-link/renderMcp.spec.ts > POST /mcp/render > analytics > records the published URL a connection came through (?via=claude-dir -> claude-dir)
+ ✓ functions/agent-link/renderMcp.spec.ts > POST /mcp/render > analytics > records the published URL a connection came through (?via=somewhere-else -> other)
+ ✓ functions/agent-link/renderMcp.spec.ts > POST /mcp/render > analytics > records the published URL a connection came through (?via=plugin-claude -> plugin-claude)
+ ✓ functions/agent-link/renderMcp.spec.ts > POST /mcp/render > analytics > treats ?via=internal as our own traffic, like the probe header
+ ✓ functions/agent-link/renderMcp.spec.ts > POST /mcp/render > analytics > records the published URL a connection came through (?via= -> none)
+ ✓ workers/render-mcp/index.spec.ts > independent render MCP routing and protocol > passes the ?via= tag through to the handler and answers as without it
+ Test Files  2 passed (2)
+      Tests  104 passed (104)

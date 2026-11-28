@@ -1,6 +1,7 @@
 import { deriveWarningBannerIdentity, shouldShowPaywallBanner } from '@/utils/paywall/warningBanner'
 import { isCurrentUserSpaceAdmin } from '@/utils/paywall/spaceAdminProbe'
 import { isCsatPendingFresh, isCsatSuppressed } from '@/utils/csat'
+import { isTeamSharePendingNow } from '@/utils/teamShare'
 
 /**
  * Which banner outranks the unplaced-diagram notice on this page load.
@@ -34,8 +35,12 @@ import { isCsatPendingFresh, isCsatSuppressed } from '@/utils/csat'
  * down, and the survey it stood down for closed itself. Both questions are
  * asked here now (isCsatSuppressed), off the same record and the same
  * synchronous read as everything else in this cascade.
+ *
+ * Order: paywall, paywall-admin, team-share, csat. The team-share strip (first
+ * diagram on a small Lite/Full site) is read from the same synchronous
+ * localStorage facts, so the unplaced iframe stands down for it too.
  */
-export type HigherPriorityBanner = 'paywall' | 'paywall-admin' | 'csat'
+export type HigherPriorityBanner = 'paywall' | 'paywall-admin' | 'team-share' | 'csat'
 
 export function higherPriorityBannerPending(now: number = Date.now()): HigherPriorityBanner | null {
   const identity = deriveWarningBannerIdentity()
@@ -46,6 +51,11 @@ export function higherPriorityBannerPending(now: number = Date.now()): HigherPri
   if (isCurrentUserSpaceAdmin(identity) && shouldShowPaywallBanner(now, identity, true)) {
     return 'paywall-admin'
   }
+  // "Share it with your team": armed for THIS page, this account not yet shown,
+  // view mode. Above CSAT because a save that arms it skips markCsatPending, so
+  // the two are not normally both pending; if they are, the share moment is the
+  // one that does not come back.
+  if (isTeamSharePendingNow(now)) return 'team-share'
   // Armed AND eligible. The trigger alone is not a reason to yield: a user who
   // dismissed the survey inside the last week has it suppressed, CsatBanner
   // would close itself on mount, and the yield would buy nothing — see

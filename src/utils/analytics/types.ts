@@ -830,7 +830,7 @@ export type AnalyticsProperties = {
   // notice stands down rather than stack — and the count says how often the
   // page's one banner slot was already spoken for, which is the only way to
   // tell "nobody sees this" apart from "nobody has unplaced diagrams".
-  suppressed_by?: 'paywall' | 'paywall-admin' | 'csat';
+  suppressed_by?: 'paywall' | 'paywall-admin' | 'team-share' | 'csat';
   // team_share_* events. Whether the saved diagram had a usable title (never the
   // title itself) and the site's diagram count when the prompt was armed.
   has_diagram_title?: boolean;

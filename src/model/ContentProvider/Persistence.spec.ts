@@ -8,6 +8,8 @@ import { activateEditRecoveryAfterSave } from "@/utils/paywall/editRecoveryActiv
 import forgeGlobal from "@/model/globals/forgeGlobal";
 import { _resetCreationFlowForTesting, getCreationFlowProps } from "@/utils/analytics/creationFlow";
 import macroMetrics from "@/services/MacroMetrics";
+import { markCsatPending } from "@/utils/csat";
+import { armTeamShareIfEligible } from "@/utils/teamShare";
 import { EditorState, Transaction } from '@codemirror/state';
 import {
   recordEditorTransaction,
@@ -37,6 +39,13 @@ vi.mock("@/utils/analytics/trackAnalyticsEvent", () => ({
   trackAnalyticsEvent: vi.fn(),
 }));
 
+vi.mock("@/utils/csat", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/utils/csat")>()),
+  markCsatPending: vi.fn(),
+}));
+
+vi.mock("@/utils/teamShare", () => ({ armTeamShareIfEligible: vi.fn() }));
+
 vi.mock("@/utils/paywall/editRecoveryActivation", () => ({ activateEditRecoveryAfterSave: vi.fn() }));
 
 vi.mock("@/services/CustomContent", () => ({
@@ -57,6 +66,9 @@ describe('Persistence', function () {
     mockUpdate.mockClear();
     vi.mocked(trackAnalyticsEvent).mockClear();
     vi.mocked(syncCustomContent).mockClear();
+    vi.mocked(markCsatPending).mockReset();
+    vi.mocked(armTeamShareIfEligible).mockReset();
+    vi.mocked(armTeamShareIfEligible).mockResolvedValue(false);
     // Reset Forge context so each test starts from a known baseline.
     (forgeGlobal as any).forgeContext = undefined;
     _resetCreationFlowForTesting();
@@ -287,6 +299,44 @@ describe('Persistence', function () {
       })
     );
   })
+
+  describe('team-share arming (first create)', () => {
+    it('arms the share prompt on a first create and then skips the CSAT trigger', async () => {
+      vi.mocked(armTeamShareIfEligible).mockResolvedValue(true);
+      await saveToPlatform({ ...NULL_DIAGRAM, title: 'Checkout flow', diagramType: DiagramType.Sequence }, mockApWrapper);
+      expect(armTeamShareIfEligible).toHaveBeenCalledWith({
+        contentId: 'mocked_custom_content_id',
+        diagramTitle: 'Checkout flow',
+        apWrapper: mockApWrapper,
+      });
+      expect(markCsatPending).not.toHaveBeenCalled();
+    });
+
+    it('keeps the CSAT trigger when the prompt is not armed', async () => {
+      await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper);
+      expect(armTeamShareIfEligible).toHaveBeenCalledTimes(1);
+      expect(markCsatPending).toHaveBeenCalledTimes(1);
+    });
+
+    it('never fails the save, and keeps CSAT, when arming throws', async () => {
+      vi.mocked(armTeamShareIfEligible).mockRejectedValue(new Error('boom'));
+      await expect(
+        saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Sequence }, mockApWrapper),
+      ).resolves.toBe('mocked_custom_content_id');
+      expect(markCsatPending).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not arm on an edit of an existing diagram, and keeps CSAT', async () => {
+      await saveToPlatform({ ...NULL_DIAGRAM, id: 'existing', source: 'custom-content', diagramType: DiagramType.Sequence } as any, mockApWrapper);
+      expect(armTeamShareIfEligible).not.toHaveBeenCalled();
+      expect(markCsatPending).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not arm for an Embed diagram', async () => {
+      await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Embed }, mockApWrapper);
+      expect(armTeamShareIfEligible).not.toHaveBeenCalled();
+    });
+  });
 
   it('should NOT fire analytics for Embed diagram type', async () => {
     await saveToPlatform({ ...NULL_DIAGRAM, diagramType: DiagramType.Embed }, mockApWrapper);

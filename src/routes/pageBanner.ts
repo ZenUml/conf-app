@@ -15,8 +15,9 @@ import type { TargetedSurveyCandidate } from '@/features/targetedSurvey/survey';
  * defer exists here).
  *
  * Priority: the paywall warning (unpaid Lite space over the hard limit, seen by
- * a recent macro author or by a space admin of that space) outranks the CSAT
- * survey, which outranks the unplaced-diagram notice, which outranks the
+ * a recent macro author or by a space admin of that space) outranks the
+ * "share it with your team" strip (first diagram on a small Lite/Full site,
+ * once per account), which outranks the CSAT survey, which outranks the unplaced-diagram notice, which outranks the
  * "What's new" strip. The targeted survey is the asynchronous fallback
  * when all synchronous banners decline. `none` means they declined.
  *
@@ -41,6 +42,7 @@ import type { TargetedSurveyCandidate } from '@/features/targetedSurvey/survey';
 export type PageBannerChoice =
   | 'paywall'
   | 'paywall-admin'
+  | 'team-share'
   | 'csat'
   /** From the shared host, off the localStorage fallback marker. */
   | 'unplaced'
@@ -105,6 +107,7 @@ export async function handlePageBannerRoute(
       component: (await import('@/components/UpgradePrompt/PaywallWarningBanner.vue')).default,
       props: { isSpaceAdmin: true },
     }),
+    'team-share': async () => ({ component: (await import('@/components/TeamShare/TeamShareBanner.vue')).default }),
     csat: async () => ({ component: (await import('@/components/CSAT/CsatBanner.vue')).default }),
     unplaced: async () => ({
       component: (await import('@/components/Byline/UnplacedDiagramsBanner.vue')).default,

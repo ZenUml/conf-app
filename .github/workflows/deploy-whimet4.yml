@@ -22,6 +22,11 @@ on:
         description: 'Also install/upgrade the app on whimet4 (needed after a module or scope change)'
         type: boolean
         default: true
+      variant:
+        description: 'App to build and deploy. Full deploys the Full app (its own "yanhui" environment) next to Lite on whimet4; the two use different Connect keys, so both can be installed.'
+        type: choice
+        options: [lite, full]
+        default: lite
 
 concurrency:
   # One deploy at a time to a single shared dev environment — a second run
@@ -49,6 +54,7 @@ jobs:
       # named custom environment (see `forge install list`).
       FORGE_ENV: yanhui
       SITE: whimet4.atlassian.net
+      VARIANT: ${{ inputs.variant || 'lite' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -77,8 +83,9 @@ jobs:
 
       # `resources.main` in manifest.yml points at dist/, so the Custom UI
       # assets have to exist before `forge deploy` packages the app.
-      - name: Build Lite frontend
-        run: pnpm build:lite
+      # build:lite and build:full both chain build:studio (AsyncAPI macro).
+      - name: Build ${{ env.VARIANT }} frontend
+        run: pnpm build:$VARIANT
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
           VITE_MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}
@@ -88,7 +95,7 @@ jobs:
       # list the wizard applies for development, so staging and production
       # cannot drift from it (see scripts/ci/manifest-edits.mjs).
       - name: Write the variant manifest edits
-        run: node scripts/ci/manifest-edits.mjs "lite" manifest-edits.sh
+        run: node scripts/ci/manifest-edits.mjs "$VARIANT" manifest-edits.sh
       - name: Apply the variant manifest edits
         uses: mikefarah/yq@master
         with:
@@ -96,7 +103,7 @@ jobs:
       - name: Upload final manifest
         uses: actions/upload-artifact@v4
         with:
-          name: manifest-lite-whimet4
+          name: manifest-${{ env.VARIANT }}-whimet4
           path: manifest.yml
           retention-days: 7
 
@@ -105,9 +112,24 @@ jobs:
           MIXPANEL_TOKEN: ${{ vars.VITE_MIXPANEL_TOKEN }}
         run: |
           pnpm forge:deploy:disable-analytics
-          # Default APP_ID (no override) is the Lite app — the one whimet4 has.
+          if [ "$VARIANT" = full ]; then
+            # Same identity as forge:deploy:full:staging in package.json; the
+            # fixed Full Connect key is fine because whimet4 has no other Full
+            # environment installed.
+            export APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7
+            export CONNECT_KEY=com.zenuml.confluence-addon
+            export SEQUENCE_MACRO_KEY=zenuml-sequence-macro
+            export CUSTOM_CONTENT_KEY=zenuml-content-sequence
+            export LITE_KEY_SUFFIX=
+            export LITE_TITLE_SUFFIX=
+            export APP_LABEL='ZenUML for Confluence'
+            export BACKEND_API_BASE_URL=https://conf-stg-full.zenuml.com
+          else
+            # Default APP_ID (no override) is the Lite app.
+            export BACKEND_API_BASE_URL=https://conf-stg-lite.zenuml.com
+          fi
           pnpm exec forge variables set MIXPANEL_TOKEN "$MIXPANEL_TOKEN" -e "$FORGE_ENV"
-          pnpm exec forge variables set BACKEND_API_BASE_URL "https://conf-stg-lite.zenuml.com" -e "$FORGE_ENV"
+          pnpm exec forge variables set BACKEND_API_BASE_URL "$BACKEND_API_BASE_URL" -e "$FORGE_ENV"
           pnpm exec forge deploy -e "$FORGE_ENV" --non-interactive --verbose
 
       # Non-fatal, for two reasons learned from the first real run:
@@ -130,6 +152,7 @@ jobs:
         if: inputs.install
         continue-on-error: true
         run: |
+          if [ "$VARIANT" = full ]; then export APP_ID=d9e4002b-120b-426b-834b-402a4a5adce7; fi
           pnpm exec forge install --site "$SITE" --product confluence -e "$FORGE_ENV" --non-interactive \
             || pnpm exec forge install --upgrade --site "$SITE" --product confluence -e "$FORGE_ENV" --non-interactive
 
@@ -142,7 +165,7 @@ jobs:
             echo "|----------|-------|"
             echo "| Branch | \`${{ github.ref_name }}\` |"
             echo "| Commit | \`${{ github.sha }}\` |"
-            echo "| Variant | lite |"
+            echo "| Variant | $VARIANT |"
             echo "| Forge environment | \`$FORGE_ENV\` |"
             echo "| Site | https://$SITE/wiki |"
             echo "| Deploy | succeeded |"

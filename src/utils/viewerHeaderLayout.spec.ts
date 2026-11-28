@@ -100,6 +100,14 @@ describe('viewerHeaderLayout', () => {
       expect(controlsWidth(mcp, 3, measureLabel)).toBe(controlsWidth(without, 3, measureLabel))
     })
 
+    it('measures the Connect MCP label the button test gives it', () => {
+      const mcp = { ...PLANTUML_SHORT.model, connectMcp: true, hasEdit: false }
+      const longer = { ...mcp, connectMcpLabel: 'Use with AI' }
+      // 'Use with AI' is 11 glyphs against 'MCP''s 3, at 7px each; icon-only it is the same button.
+      expect(controlsWidth(longer, 0, measureLabel) - controlsWidth(mcp, 0, measureLabel)).toBe((11 - 3) * 7)
+      expect(controlsWidth(longer, 1, measureLabel)).toBe(controlsWidth(mcp, 1, measureLabel))
+    })
+
     it('reserves the page navigation width for multi-page diagrams', () => {
       const one = { ...GRAPH_PAGES.model, pages: 1 }
       expect(controlsWidth(GRAPH_PAGES.model, 0, measureLabel)).toBeGreaterThan(controlsWidth(one, 0, measureLabel))

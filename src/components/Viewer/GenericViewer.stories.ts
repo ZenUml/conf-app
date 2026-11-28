@@ -24,6 +24,7 @@ import { __resetMermaidLoaderForTests, loadMermaid } from '@/utils/mermaid/loadM
 import { __resetEditGateCache } from '@/utils/guardEditClick'
 import { useCustomerSuccessService } from '@/composables/useCustomerSuccessService'
 import { PI_MAGIC_SYNTHETIC_ARTIFACT, PI_MAGIC_SYNTHETIC_SOURCE } from './fixtures/piMagicSynthetic'
+import { MCP_BUTTON_LABEL, MCP_BUTTON_VARIANT_OVERRIDE_KEY, type McpButtonVariant } from '@/composables/agentLink/mcpButtonExperiment'
 
 // Header.stories.ts's `{ template: '<story/>', app: (app) => app.use(store) }`
 // decorator idiom does NOT install the plugin on @storybook/vue3-vite 10.4's
@@ -302,6 +303,8 @@ function configureStory(options: {
   accountId?: string
 } = {}) {
   resetStubResponses()
+  // Each story picks its own Connect MCP button-test arm (or the hashed default).
+  try { localStorage.removeItem(MCP_BUTTON_VARIANT_OVERRIDE_KEY) } catch { /* storage blocked */ }
   stubFeatureFlags(Boolean(options.architectureTokensEnabled))
   stubForge(options.moduleKey, Boolean(options.architectureTokensEnabled), options.customContentId, options.accountId)
   if (options.architectureTokensEnabled) {
@@ -1178,6 +1181,44 @@ export const ConnectMcpGraph = connectMcpStory(DiagramType.Graph, 'Deployment to
 export const ConnectMcpOpenApi = connectMcpStory(DiagramType.OpenApi, 'Payments API', 'OpenAPI spec')
 export const ConnectMcpAsyncApi = connectMcpStory(DiagramType.AsyncApi, 'Order events', 'AsyncAPI spec')
 export const ConnectMcpMarkdown = connectMcpStory(DiagramType.Markdown, 'Release notes', 'Markdown document')
+
+/**
+ * The Connect MCP button test (mcpButtonExperiment.ts), seen at rest — no
+ * hover. Control: labelled "MCP" and hidden until hover, like before. The
+ * outcome_label arm: labelled "Use with AI", and visible at rest for someone
+ * who can edit the diagram; a reader still gets the hover header.
+ */
+function connectMcpTestStory(variant: McpButtonVariant, canEdit: boolean, name: string): Story {
+  return {
+    name,
+    decorators: [
+      () => {
+        configureStory({ diagramType: DiagramType.Mermaid, title: 'Login flow', mermaidCode: SAMPLE_MERMAID })
+        try {
+          localStorage.setItem(MCP_BUTTON_VARIANT_OVERRIDE_KEY, variant)
+          // The pin's permission answer is cached per page and account; start fresh.
+          for (const key of Object.keys(localStorage)) if (key.startsWith('zenuml.mcpCanEditPage:')) localStorage.removeItem(key)
+        } catch { /* storage blocked */ }
+        // The treatment arm asks Confluence whether this person can edit the page.
+        stubResponses.confluence.push({ match: '/permission/check', body: { hasPermission: canEdit } })
+        return { template: '<story />' }
+      },
+    ],
+    render: (args: Args) => renderViewer(args, 'Mermaid diagram preview'),
+    play: async () => {
+      const canvas = within(document.body)
+      const btn = await canvas.findByTestId('connect-mcp-btn')
+      await expect(btn).toHaveAttribute('data-mcp-variant', variant)
+      await expect(btn).toHaveTextContent(MCP_BUTTON_LABEL[variant])
+      const pinned = variant === 'outcome_label' && canEdit
+      await waitFor(() => expect(getComputedStyle(btn).opacity).toBe(pinned ? '1' : '0'))
+    },
+  }
+}
+
+export const ConnectMcpTestControl = connectMcpTestStory('control', true, 'Connect MCP test — control, at rest')
+export const ConnectMcpTestOutcomeEditor = connectMcpTestStory('outcome_label', true, 'Connect MCP test — "Use with AI", editor at rest')
+export const ConnectMcpTestOutcomeReader = connectMcpTestStory('outcome_label', false, 'Connect MCP test — "Use with AI", reader at rest')
 
 // ---------------------------------------------------------------------------
 // 5. RecoveredReadOnly — orphan-recovered diagram

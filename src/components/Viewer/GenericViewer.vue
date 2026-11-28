@@ -200,21 +200,20 @@
                    reveals on hover like the rest of the header. Fullscreen
                    always labels it. Tooltip and accessible name say
                    "Connect MCP". -->
+              <!-- The button test's pinned button (connectMcpPinned) renders at the
+                   right end of the row instead, before Create: visible at rest
+                   while its neighbours are hidden, it would otherwise float
+                   mid-row. Moved in the DOM, not with CSS order, so Tab still
+                   follows what is seen. -->
               <button
-                v-if="showAgentLinkConnect"
-                type="button"
-                class="viewer-btn-ghost viewer-act-connect-mcp"
-                aria-label="Connect MCP"
-                title="Connect MCP"
-                data-testid="connect-mcp-btn"
-                aria-haspopup="dialog"
-                :aria-expanded="showConnectMcpDialog ? 'true' : 'false'"
+                v-if="showAgentLinkConnect && !connectMcpPinned"
+                v-bind="connectMcpButtonAttrs"
                 @click="openConnectMcpDialog('toolbar')"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" :d="connectMcpIcon" />
                 </svg>
-                <span class="viewer-btn-label">MCP</span>
+                <span class="viewer-btn-label">{{ connectMcpLabel }}</span>
               </button>
               <span v-if="showViewSource && !isFullscreenMode" class="viewer-header-sep viewer-act-sep" aria-hidden="true"></span>
               <OverflowMenu ref="moreMenu" class="viewer-act-more" trigger-label="More" menu-label="More actions"
@@ -262,6 +261,16 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
                 </svg>
                 <span class="viewer-btn-label">Fullscreen</span>
+              </button>
+              <button
+                v-if="showAgentLinkConnect && connectMcpPinned"
+                v-bind="connectMcpButtonAttrs"
+                @click="openConnectMcpDialog('toolbar')"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="viewer-icon" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" :d="connectMcpIcon" />
+                </svg>
+                <span class="viewer-btn-label">{{ connectMcpLabel }}</span>
               </button>
               <!-- Create: opens the slash-command creation guide (src/features/createGuide).
                    Last in the row and visible without hover — a discovery affordance. -->
@@ -552,6 +561,8 @@ import McpPromoCard from '@/components/AgentLink/McpPromoCard.vue'
 import { createMcpPromoState } from '@/composables/agentLink/mcpPromo'
 import { RELAY_SESSIONS_ENABLED, rememberedMcpClient } from '@/composables/agentLink/connectInstructions'
 import { createConnectMcpShownRecord } from '@/composables/agentLink/connectMcpShown'
+import { mcpButtonVariant, MCP_BUTTON_LABEL, canEditPageCached } from '@/composables/agentLink/mcpButtonExperiment'
+import { canEditPage } from '@/features/titleDraft/canEdit'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
 import LinkStatusChip from '@/components/AgentLink/LinkStatusChip.vue'
 import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
@@ -696,6 +707,9 @@ export default {
     // Per-viewer daily dedupe for agent_link_mcp_button_shown
     // (connectMcpShown.ts); null until mounted() has the viewer's identity.
     connectMcpShownRecord: null,
+    // Button test, treatment arm: can this person edit the page? null until
+    // Confluence answers (or for the control arm, which never asks).
+    connectMcpCanEditPage: null,
     connectMcpShownTracked: false,
     // Set on unmount so a shown event still waiting for the header layout
     // is dropped instead of reporting a viewer that no longer exists.
@@ -827,6 +841,7 @@ export default {
         pages: 0,
         hasEdit: this.showEdit && !this.isFullscreenMode,
         connectMcp: this.showAgentLinkConnect && !this.isFullscreenMode,
+        connectMcpLabel: this.connectMcpLabel,
       };
     },
     // Anything that changes the header's content without resizing the viewer.
@@ -1031,15 +1046,56 @@ export default {
         && this.connectMcpShownRecord !== null
         && this.isDisplayMode
         && !this.hideHeader
-        && !this.isLoadFailed;
+        && !this.isLoadFailed
+        && this.connectMcpPinResolved;
+    },
+    // What the treatment arm's permission check needs, once the account is
+    // known; null for control, Fullscreen, or before the account resolves.
+    connectMcpPinQuery() {
+      if (this.connectMcpVariant !== 'outcome_label' || this.isFullscreenMode || !this.currentAccountId) return null;
+      return { pageId: this.currentPageId ? String(this.currentPageId) : '', accountId: this.currentAccountId };
+    },
+    // The impression waits for the treatment arm's permission answer, so its
+    // mcp_button_reveal says what the person actually saw.
+    connectMcpPinResolved() {
+      return this.connectMcpVariant !== 'outcome_label' || this.isFullscreenMode || !this.currentAccountId
+        || this.connectMcpCanEditPage !== null;
     },
     // Where the button sits and how it shows, for the analytics properties.
     connectMcpPlacement() {
       return !this.isFullscreenMode && this.headerStage >= 3 ? 'more_menu' : 'toolbar';
     },
-    // Fullscreen headers are always visible; inline ones reveal on hover.
+    // Fullscreen headers are always visible; inline ones reveal on hover,
+    // except the pinned button of the test's treatment arm.
     connectMcpEffectiveReveal() {
-      return this.isFullscreenMode ? 'always' : 'hover';
+      return this.isFullscreenMode || this.connectMcpPinned ? 'always' : 'hover';
+    },
+    // The Connect MCP button test (mcpButtonExperiment.ts): one arm per account.
+    connectMcpVariant() {
+      return mcpButtonVariant(this.currentAccountId);
+    },
+    connectMcpLabel() {
+      return MCP_BUTTON_LABEL[this.connectMcpVariant];
+    },
+    // Shared by the button's two places in the header (see the template).
+    connectMcpButtonAttrs() {
+      return {
+        type: 'button',
+        class: ['viewer-btn-ghost', 'viewer-act-connect-mcp', { 'viewer-act-connect-mcp--pinned': this.connectMcpPinned }],
+        'aria-label': 'Connect MCP',
+        title: this.connectMcpVariant === 'outcome_label' ? 'Connect an AI agent (MCP)' : 'Connect MCP',
+        'data-mcp-variant': this.connectMcpVariant,
+        'data-testid': 'connect-mcp-btn',
+        'aria-haspopup': 'dialog',
+        'aria-expanded': this.showConnectMcpDialog ? 'true' : 'false',
+      };
+    },
+    // Treatment arm, inline, for viewers who can edit the page (Confluence's
+    // answer, not the canUserEdit() stub): visible at rest, like a pinned Edit.
+    // Readers keep the quiet hover header.
+    connectMcpPinned() {
+      return this.connectMcpVariant === 'outcome_label' && !this.isFullscreenMode && this.connectMcpCanEditPage === true
+        && this.headerStage < 3;
     },
     viewSourceCode() {
       return getCodeFromDiagram(this.diagram, this.diagramType) || '';
@@ -1196,6 +1252,17 @@ export default {
     },
   },
   watch: {
+    // Button test, treatment arm: ask Confluence once whether this person can
+    // edit the page (see connectMcpPinned). Control never asks.
+    connectMcpPinQuery: {
+      immediate: true,
+      async handler(query) {
+        if (!query || this.connectMcpCanEditPage !== null) return;
+        if (!query.pageId) { this.connectMcpCanEditPage = false; return; }
+        const editable = await canEditPageCached(query.pageId, query.accountId, canEditPage);
+        if (!this.connectMcpUnmounted) this.connectMcpCanEditPage = editable;
+      },
+    },
     showExportModal: {
       flush: 'sync',
       handler(active) {
@@ -2368,6 +2435,7 @@ export default {
         surface: this.isFullscreenMode ? 'fullscreen' : 'viewer',
         macro_type: this.diagramType ?? 'none',
         mcp_mode: 'headless',
+        mcp_button_variant: this.connectMcpVariant,
         ...extra,
       };
     },
@@ -3142,7 +3210,7 @@ export default {
    affordance), the page navigation and a pressed Refined toggle stay visible
    at rest. Opacity only — a hidden control still takes focus, which reveals. */
 .viewer-top-actions > * { transition: opacity 200ms ease; }
-.viewer-frame:not(.viewer-frame--fullscreen) .viewer-surface:not(.viewer-surface--revealed) .viewer-top-actions > :not(.viewer-btn-create):not(.viewer-header-nav):not(.viewer-refined-toggle--pressed):not(.viewer-act-edit--pinned) {
+.viewer-frame:not(.viewer-frame--fullscreen) .viewer-surface:not(.viewer-surface--revealed) .viewer-top-actions > :not(.viewer-btn-create):not(.viewer-header-nav):not(.viewer-refined-toggle--pressed):not(.viewer-act-edit--pinned):not(.viewer-act-connect-mcp--pinned) {
   opacity: 0;
 }
 /* Inline order (prototype), in DOM order so Tab follows what is seen:

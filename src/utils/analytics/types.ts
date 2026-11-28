@@ -61,6 +61,7 @@ import type {
   AgentLinkWriteResult,
   AgentLinkMcpButtonPlacement,
   AgentLinkMcpButtonReveal,
+  AgentLinkMcpButtonVariant,
   AgentLinkMcpCopyTarget,
   AgentLinkMcpClientChoice,
   AgentLinkMcpCloseSource,
@@ -1327,6 +1328,9 @@ export type AnalyticsProperties = {
   // events also carry `header_stage`.
   mcp_button_placement?: AgentLinkMcpButtonPlacement;
   mcp_button_reveal?: AgentLinkMcpButtonReveal;
+  // The viewer-header Connect MCP button test arm (catalog.ts
+  // AgentLinkMcpButtonVariant), on every GenericViewer agent_link_mcp_* event.
+  mcp_button_variant?: AgentLinkMcpButtonVariant;
   // AA — headless MCP tool usage (agent_link_mcp_tool_called /
   // _initialized). `mcp_tool` is the tool name from the server's own list
   // ('unknown' for anything else); `mcp_tool_outcome` is how the call ended;

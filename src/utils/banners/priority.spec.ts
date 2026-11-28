@@ -3,6 +3,7 @@ import { higherPriorityBannerPending } from './priority'
 import { shouldShowPaywallBanner, deriveWarningBannerIdentity } from '@/utils/paywall/warningBanner'
 import { isCurrentUserSpaceAdmin } from '@/utils/paywall/spaceAdminProbe'
 import { isCsatPendingFresh, isCsatSuppressed } from '@/utils/csat'
+import { isTeamSharePendingNow } from '@/utils/teamShare'
 
 vi.mock('@/utils/paywall/warningBanner', () => ({
   shouldShowPaywallBanner: vi.fn(),
@@ -10,12 +11,14 @@ vi.mock('@/utils/paywall/warningBanner', () => ({
 }))
 vi.mock('@/utils/paywall/spaceAdminProbe', () => ({ isCurrentUserSpaceAdmin: vi.fn() }))
 vi.mock('@/utils/csat', () => ({ isCsatPendingFresh: vi.fn(), isCsatSuppressed: vi.fn() }))
+vi.mock('@/utils/teamShare', () => ({ isTeamSharePendingNow: vi.fn() }))
 
 const IDENTITY = { clientDomain: 'example-tenant', spaceKey: 'ENG' }
 const paywall = vi.mocked(shouldShowPaywallBanner)
 const csat = vi.mocked(isCsatPendingFresh)
 const csatSuppressed = vi.mocked(isCsatSuppressed)
 const isAdmin = vi.mocked(isCurrentUserSpaceAdmin)
+const teamShare = vi.mocked(isTeamSharePendingNow)
 
 describe('higherPriorityBannerPending — the order both banner iframes obey', () => {
   beforeEach(() => {
@@ -25,6 +28,7 @@ describe('higherPriorityBannerPending — the order both banner iframes obey', (
     csat.mockReturnValue(false)
     csatSuppressed.mockReturnValue(false)
     isAdmin.mockReturnValue(false)
+    teamShare.mockReturnValue(false)
   })
 
   it('is null when the page is free — the unplaced notice may take it', () => {
@@ -46,6 +50,37 @@ describe('higherPriorityBannerPending — the order both banner iframes obey', (
   it('names CSAT', () => {
     csat.mockReturnValue(true)
     expect(higherPriorityBannerPending()).toBe('csat')
+  })
+
+  it('names the team-share strip', () => {
+    teamShare.mockReturnValue(true)
+    expect(higherPriorityBannerPending()).toBe('team-share')
+  })
+
+  it('puts team-share above CSAT', () => {
+    teamShare.mockReturnValue(true)
+    csat.mockReturnValue(true)
+    expect(higherPriorityBannerPending()).toBe('team-share')
+    expect(csat).not.toHaveBeenCalled()
+  })
+
+  it('puts the paywall above team-share', () => {
+    paywall.mockReturnValue(true)
+    teamShare.mockReturnValue(true)
+    expect(higherPriorityBannerPending()).toBe('paywall')
+    expect(teamShare).not.toHaveBeenCalled()
+  })
+
+  it('puts the admin paywall above team-share', () => {
+    paywall.mockImplementation((_now, _id, asAdmin) => asAdmin === true)
+    isAdmin.mockReturnValue(true)
+    teamShare.mockReturnValue(true)
+    expect(higherPriorityBannerPending()).toBe('paywall-admin')
+  })
+
+  it('threads `now` into the team-share read', () => {
+    higherPriorityBannerPending(99)
+    expect(teamShare).toHaveBeenCalledWith(99)
   })
 
   it('puts the paywall above CSAT', () => {

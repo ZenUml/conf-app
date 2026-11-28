@@ -1076,6 +1076,47 @@ export default class ApWrapper2 {
     }
   }
 
+  // Number of diagram custom contents the user can see on the site, capped at
+  // `limit` (one v1 CQL search, no body fetches). Used by the share prompt to
+  // tell a small site from a large one. Throws on failure so the caller can
+  // decline instead of guessing.
+  async countSiteDiagramsUpTo(limit: number): Promise<number> {
+    const typeClause = customContentTypesForVariant().map(t => `type = "${this.customContentType(t)}"`).join(' OR ');
+    const cql = `(${typeClause})`;
+    const search: any = await forgeRequest(`/wiki/rest/api/search?cql=${encodeURIComponent(cql)}&limit=${limit}`);
+    return Array.isArray(search?.results) ? search.results.length : 0;
+  }
+
+  // Title of a page and its absolute web URL, for the share message. The v2
+  // envelope carries _links.base + _links.webui regardless of body format.
+  async getPageTitleAndUrl(pageId: string): Promise<{ title: string; url: string }> {
+    const page: any = await this.request(`/api/v2/pages/${encodeURIComponent(pageId)}`);
+    const base = page?._links?.base;
+    const webui = page?._links?.webui;
+    let url = base && webui ? `${base}${webui}` : '';
+    if (!url) {
+      const origin = new URL(await this._getCurrentPageUrl()).origin;
+      url = `${origin}/wiki/pages/viewpage.action?pageId=${encodeURIComponent(pageId)}`;
+    }
+    return { title: String(page?.title ?? ''), url };
+  }
+
+  // The `title` and `diagramType` of a custom content's raw JSON body ('' when absent).
+  async getDiagramBodyInfo(contentId: string): Promise<{ title: string; diagramType: string }> {
+    const cc = await this.getCustomContentRawV2(contentId);
+    const raw = cc?.body?.raw?.value;
+    if (!raw) return { title: '', diagramType: '' };
+    try {
+      const body = JSON.parse(raw);
+      return {
+        title: typeof body?.title === 'string' ? body.title : '',
+        diagramType: typeof body?.diagramType === 'string' ? body.diagramType : '',
+      };
+    } catch {
+      return { title: '', diagramType: '' };
+    }
+  }
+
   async getCustomContentVersionBeforeDate(id: string, date: string): Promise<ICustomContentV2 | undefined> {
     const customContent = await this.getCustomContentRawV2(id, 'include-versions=true');
     const descendingVersions = customContent?.versions?.results.sort((a, b) => b.number - a.number);

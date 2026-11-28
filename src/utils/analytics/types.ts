@@ -831,7 +831,16 @@ export type AnalyticsProperties = {
   // notice stands down rather than stack — and the count says how often the
   // page's one banner slot was already spoken for, which is the only way to
   // tell "nobody sees this" apart from "nobody has unplaced diagrams".
-  suppressed_by?: 'paywall' | 'paywall-admin' | 'csat';
+  suppressed_by?: 'paywall' | 'paywall-admin' | 'team-share' | 'csat';
+  // team_share_* events. Whether the saved diagram had a usable title (never the
+  // title itself) and the site's diagram count when the prompt was armed.
+  has_diagram_title?: boolean;
+  site_diagram_count_bucket?: '1' | '2-5';
+  // team_share_copied: what was copied and how the clipboard write went.
+  copy_kind?: 'message' | 'link';
+  copy_method?: 'clipboard_api' | 'exec_command' | 'manual_fallback';
+  // team_share_dismissed.
+  dismiss_kind?: 'not_now';
   // whats_new_* events. `whats_new_release_id` is the release's stable id from
   // src/utils/whatsNew/releases.ts (e.g. '2026-10'), never its copy.
   whats_new_release_id?: string;

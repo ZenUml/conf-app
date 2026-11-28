@@ -131,6 +131,13 @@ export const OCTOBER_STOP_EVENTS = new Set<string>([
 // The reviewed core/error list is explicit so an expanded success/info
 // allowlist cannot silently reduce a protected event during this budget.
 export const OCTOBER_RETAINED_EVENTS = new Set<string>([
+  // "Share it with your team" strip (2026-11-28), rate 1. One shown event per
+  // first diagram create on a Lite/Full site with at most 5 diagrams, shown once
+  // per account per site; copied and dismissed follow at most once each.
+  // Estimated upper bound 5,710 events a month in total (0.6% of the 1M cap).
+  "team_share_prompt_shown",
+  "team_share_copied",
+  "team_share_dismissed",
   // Connect MCP dialog funnel, rate 1 (2026-11-26). At 10% the funnel's first
   // step was a sample while agent_link_oauth_authorized is sent in full: a
   // 30-day funnel showed 2 of 25 openers signing in when 35 users did. One

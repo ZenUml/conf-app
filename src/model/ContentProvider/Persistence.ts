@@ -3,6 +3,7 @@ import { trackAnalyticsEvent } from "@/utils/analytics/trackAnalyticsEvent";
 import type { MacroTypeValue } from "@/utils/analytics/catalog";
 import ApWrapper2 from "@/model/ApWrapper2";
 import { markCsatPending } from "@/utils/csat";
+import { armTeamShareIfEligible } from "@/utils/teamShare";
 import { syncCustomContent } from "@/services/CustomContent";
 import globals from '@/model/globals';
 import forgeGlobal from '@/model/globals/forgeGlobal';
@@ -135,7 +136,23 @@ export async function saveToPlatform(diagram: Diagram, apWrapper: ApWrapper2 = g
       });
     }
     markRecentMacroActivity(isNew ? 'create' : 'edit');
-    markCsatPending();
+    // A first create on a small site arms the "share it with your team" strip
+    // INSTEAD of the CSAT survey for this save: one banner slot, and the share
+    // moment is the one that does not come back. Any other save keeps CSAT.
+    // armTeamShareIfEligible never throws and is bounded by its own timeout.
+    let teamShareArmed = false;
+    if (isNew) {
+      try {
+        teamShareArmed = await armTeamShareIfEligible({
+          contentId: savedId,
+          diagramTitle: diagram.title,
+          apWrapper,
+        });
+      } catch {
+        teamShareArmed = false;
+      }
+    }
+    if (!teamShareArmed) markCsatPending();
 
     // Diagram source snapshot attachment (docs/superpowers/plans/
     // 2026-07-18-diagram-source-snapshot-attachments.md, Task 3): a per-page

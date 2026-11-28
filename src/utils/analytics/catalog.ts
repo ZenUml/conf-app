@@ -34,7 +34,11 @@ export type FeatureArea =
   // Full variant: the "no active license" watermark and upgrade strip in the
   // viewer. Its own area because it measures a licensing notice, not a macro
   // lifecycle step.
-  | "license_notice";
+  | "license_notice"
+  // The "share it with your team" strip shown once after a person's first
+  // diagram on a small site. Its own area: it measures a sharing prompt on a
+  // page banner, not a macro lifecycle step.
+  | "team_share";
 
 /** What the draft lookup found for this page. */
 export type TitleDraftLookupStatus = "pending" | "ready" | "no_diagram";
@@ -989,6 +993,14 @@ export type AnalyticsEventName =
   | "csat_displayed"
   | "csat_submitted"
   | "csat_dismissed"
+  // "Share it with your team" strip (page banner), Lite/Full, once per account
+  // per site after a first diagram create on a site with at most 5 diagrams.
+  // shown = committed to display; copied = a copy action completed; dismissed =
+  // "Not now". Properties carry counts and kinds only: never a page or diagram
+  // title, URL or the copied message text.
+  | "team_share_prompt_shown"
+  | "team_share_copied"
+  | "team_share_dismissed"
   // Lite/Full targeted survey funnel. The server selects the recipient from a
   // verified Forge identity; events contain campaign metadata only, never the
   // target, selected answer, or free text.

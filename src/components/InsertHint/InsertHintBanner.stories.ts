@@ -14,7 +14,7 @@ const meta: Meta<typeof InsertHintBanner> = {
       description: {
         component:
           'H.1 insert hint, design B (Figma "H.1 banner · detail design (2026-11-28)"). ' +
-          'Tabs rotate once: Flowchart 3 s, Architecture 3 s, API docs 3 s, back to Flowchart, stop. ' +
+          'Tabs rotate once: Mermaid 3 s, draw.io 3 s, Swagger 3 s, back to Mermaid, stop. ' +
           'Hover pauses; a click or Arrow key stops the pass. With reduced motion there is no ' +
           'rotation and no build animation. The component emits shown, tab-change (source auto, ' +
           'click or keyboard), replay and dismiss; it sends no analytics itself.',
@@ -31,36 +31,36 @@ const meta: Meta<typeof InsertHintBanner> = {
 
 export default meta
 
-/** Live: rotates once through the three tabs, then rests on Flowchart. */
+/** Live: rotates once through the three tabs, then rests on Mermaid. */
 export const AutoRotate: Story = {}
 
-/** B1: Flowchart at rest (no rotation). */
-export const Flowchart: Story = {
-  args: { autoRotate: false, initialTab: 'flowchart' },
+/** B1: Mermaid at rest (no rotation). */
+export const Mermaid: Story = {
+  args: { autoRotate: false, initialTab: 'mermaid' },
   play: async () => {
     const canvas = within(document.body)
-    await expect(await canvas.findByRole('tab', { name: /Flowchart/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(await canvas.findByRole('tab', { name: /Mermaid/ })).toHaveAttribute('aria-selected', 'true')
     await expect(canvas.getByTestId('insert-hint-command')).toHaveTextContent('/mermaid')
   },
 }
 
-/** B2: Architecture at rest. */
-export const Architecture: Story = {
-  args: { autoRotate: false, initialTab: 'architecture' },
+/** B2: draw.io at rest. */
+export const Drawio: Story = {
+  args: { autoRotate: false, initialTab: 'drawio' },
   play: async () => {
     const canvas = within(document.body)
-    await expect(await canvas.findByRole('tab', { name: /Architecture/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(await canvas.findByRole('tab', { name: /draw\.io/ })).toHaveAttribute('aria-selected', 'true')
     await expect(canvas.getByTestId('insert-hint-command')).toHaveTextContent('/drawio')
     await expect(canvas.getByText('Cloud')).toBeInTheDocument()
   },
 }
 
-/** B3: API docs at rest. */
-export const ApiDocs: Story = {
-  args: { autoRotate: false, initialTab: 'api' },
+/** B3: Swagger at rest. */
+export const Swagger: Story = {
+  args: { autoRotate: false, initialTab: 'swagger' },
   play: async () => {
     const canvas = within(document.body)
-    await expect(await canvas.findByRole('tab', { name: /API docs/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(await canvas.findByRole('tab', { name: /Swagger/ })).toHaveAttribute('aria-selected', 'true')
     await expect(canvas.getByTestId('insert-hint-command')).toHaveTextContent('/swagger')
   },
 }
@@ -69,8 +69,8 @@ export const ApiDocs: Story = {
 export const ClickStopsRotation: Story = {
   play: async ({ args }) => {
     const canvas = within(document.body)
-    await userEvent.click(await canvas.findByRole('tab', { name: /API docs/ }))
-    await expect(args['onTab-change']).toHaveBeenLastCalledWith({ tab: 'api', source: 'click' })
+    await userEvent.click(await canvas.findByRole('tab', { name: /Swagger/ }))
+    await expect(args['onTab-change']).toHaveBeenLastCalledWith({ tab: 'swagger', source: 'click' })
     await expect(canvas.getByTestId('insert-hint-progress')).toHaveStyle({ width: '100%' })
   },
 }
@@ -80,20 +80,20 @@ export const KeyboardFocus: Story = {
   args: { autoRotate: false },
   play: async ({ args }) => {
     const canvas = within(document.body)
-    const first = await canvas.findByRole('tab', { name: /Flowchart/ })
+    const first = await canvas.findByRole('tab', { name: /Mermaid/ })
     first.focus()
     await userEvent.keyboard('{ArrowDown}')
-    await expect(canvas.getByRole('tab', { name: /Architecture/ })).toHaveFocus()
-    await expect(args['onTab-change']).toHaveBeenLastCalledWith({ tab: 'architecture', source: 'keyboard' })
+    await expect(canvas.getByRole('tab', { name: /draw\.io/ })).toHaveFocus()
+    await expect(args['onTab-change']).toHaveBeenLastCalledWith({ tab: 'drawio', source: 'keyboard' })
   },
 }
 
-/** prefers-reduced-motion: no rotation, full Flowchart, full bar. */
+/** prefers-reduced-motion: no rotation, full Mermaid, full bar. */
 export const ReducedMotion: Story = {
   args: { reducedMotion: true },
   play: async () => {
     const canvas = within(document.body)
-    await expect(await canvas.findByRole('tab', { name: /Flowchart/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(await canvas.findByRole('tab', { name: /Mermaid/ })).toHaveAttribute('aria-selected', 'true')
     await expect(canvas.getByTestId('insert-hint-progress')).toHaveStyle({ width: '100%' })
   },
 }

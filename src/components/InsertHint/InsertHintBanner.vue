@@ -47,18 +47,7 @@
         :tabindex="i === selected ? 0 : -1"
         @click="select(i, 'click')"
       >
-        <span class="ih-tile" aria-hidden="true">
-          <svg v-if="tab.id === 'flowchart'" width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <rect x="1.5" y="1.5" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5" />
-            <rect x="9.5" y="9.5" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.5" />
-            <path d="M4 6.5V12h5.5" stroke="currentColor" stroke-width="1.5" />
-          </svg>
-          <svg v-else-if="tab.id === 'architecture'" width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M8 1.5l6.5 3.25L8 8 1.5 4.75 8 1.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
-            <path d="M1.5 8L8 11.25 14.5 8M1.5 11.25L8 14.5l6.5-3.25" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
-          </svg>
-          <span v-else class="ih-braces">{ }</span>
-        </span>
+        <img class="ih-logo" :src="logos[tab.id]" width="24" height="24" alt="" aria-hidden="true" />
         <span class="ih-tab-text">
           <span class="ih-tab-title">{{ tab.title }}</span>
           <span v-if="i === selected" class="ih-tab-desc">{{ tab.description }}</span>
@@ -96,7 +85,7 @@
           </marker>
         </defs>
 
-        <g v-if="current.id === 'flowchart'" class="ih-mermaid">
+        <g v-if="current.id === 'mermaid'" class="ih-mermaid">
           <g class="ih-el" style="--i: 0"><rect x="22" y="55" width="80" height="34" rx="4" /><text x="62" y="76">Request</text></g>
           <path class="ih-el ih-edge" style="--i: 1" d="M102 72H132" marker-end="url(#ih-arrow)" />
           <g class="ih-el" style="--i: 2"><rect x="134" y="55" width="80" height="34" rx="4" /><text x="174" y="76">Review</text></g>
@@ -106,21 +95,38 @@
           <g class="ih-el" style="--i: 6"><rect x="374" y="55" width="72" height="34" rx="4" /><text x="410" y="76">Publish</text></g>
         </g>
 
-        <g v-else-if="current.id === 'architecture'" class="ih-drawio">
-          <g class="ih-el" style="--i: 0"><rect x="22" y="55" width="80" height="34" rx="4" /><text x="62" y="76">Browser</text></g>
-          <path class="ih-el ih-edge" style="--i: 1" d="M102 72H128" marker-end="url(#ih-arrow)" />
-          <g class="ih-el" style="--i: 2"><rect x="130" y="55" width="100" height="34" rx="4" /><text x="180" y="76">API Gateway</text></g>
-          <path class="ih-el ih-edge" style="--i: 3" d="M230 72H246" marker-end="url(#ih-arrow)" />
-          <g class="ih-el ih-cloud" style="--i: 4">
-            <rect x="248" y="28" width="200" height="88" rx="6" />
-            <text x="258" y="42">Cloud</text>
+        <g v-else-if="current.id === 'drawio'" class="ih-drawio">
+          <defs>
+            <pattern id="ih-grid-minor" width="10" height="10" patternUnits="userSpaceOnUse">
+              <path d="M10 0H0V10" fill="none" stroke="#F0F0F0" />
+            </pattern>
+            <pattern id="ih-grid-major" width="40" height="40" patternUnits="userSpaceOnUse">
+              <rect width="40" height="40" fill="url(#ih-grid-minor)" />
+              <path d="M40 0H0V40" fill="none" stroke="#E0E0E0" />
+            </pattern>
+            <marker id="ih-classic" viewBox="0 0 7 8" refX="6" refY="4" markerWidth="7" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+              <path d="M0 0.5L6.5 4 0 7.5z" fill="#000" />
+            </marker>
+          </defs>
+          <rect class="ih-grid" x="1" y="1" width="464" height="142" fill="url(#ih-grid-major)" />
+          <g class="ih-el" style="--i: 0"><rect class="ih-dio-blue" x="15" y="56" width="80" height="34" rx="6" /><text x="55" y="77">Browser</text></g>
+          <path class="ih-el ih-dio-edge" style="--i: 1" d="M95 73H122" marker-end="url(#ih-classic)" />
+          <g class="ih-el" style="--i: 2"><rect class="ih-dio-green" x="123" y="56" width="100" height="34" rx="6" /><text x="173" y="77">API Gateway</text></g>
+          <g class="ih-el ih-cloud" style="--i: 3">
+            <rect x="251" y="31" width="194" height="80" />
+            <text x="259" y="43">Cloud</text>
           </g>
-          <g class="ih-el" style="--i: 5"><rect x="264" y="55" width="70" height="34" rx="4" /><text x="299" y="76">Service</text></g>
-          <path class="ih-el ih-edge" style="--i: 6" d="M334 72H358" marker-end="url(#ih-arrow)" />
+          <path class="ih-el ih-dio-edge" style="--i: 4" d="M223 73H262" marker-end="url(#ih-classic)" />
+          <g class="ih-el" style="--i: 5"><rect class="ih-dio-orange" x="263" y="56" width="70" height="34" rx="6" /><text x="298" y="77">Service</text></g>
+          <path class="ih-el ih-dio-edge" style="--i: 6" d="M333 73H360" marker-end="url(#ih-classic)" />
           <g class="ih-el ih-db" style="--i: 7">
-            <path d="M360 56v32c0 4 16 7 36 7s36-3 36-7V56" />
-            <ellipse cx="396" cy="56" rx="36" ry="6" />
-            <text x="396" y="80">Database</text>
+            <path d="M361 59c0-4.4 16.1-8 36-8s36 3.6 36 8v28c0 4.4-16.1 8-36 8s-36-3.6-36-8V59z" />
+            <path d="M361 59c0 4.4 16.1 8 36 8s36-3.6 36-8" fill="none" />
+            <text x="397" y="83">Database</text>
+          </g>
+          <g class="ih-el ih-select" style="--i: 8">
+            <rect class="ih-select-outline" x="121" y="54" width="104" height="38" />
+            <rect v-for="(h, n) in handles" :key="n" class="ih-handle" :x="h[0]" :y="h[1]" width="6" height="6" />
           </g>
         </g>
 
@@ -157,11 +163,14 @@ import {
   type InsertHintSwitchSource,
   type InsertHintTabId,
 } from './insertHintTabs';
+import mermaidLogo from './logos/mermaid.svg';
+import drawioLogo from './logos/drawio.svg';
+import swaggerLogo from './logos/swagger.svg';
 
 /**
  * H.1 insert hint: tells a person how to add a diagram or API spec to the page
  * and shows what each kind looks like. The tabs rotate once on their own
- * (Flowchart, Architecture, API docs, back to Flowchart) and then stop.
+ * (Mermaid, draw.io, Swagger, back to Mermaid) and then stop.
  *
  * This component only renders and reports. It sends no analytics and makes no
  * Forge calls; the host wires `shown`, `tab-change`, `replay` and `dismiss`.
@@ -175,7 +184,7 @@ const props = withDefaults(
     /** Tab shown first. */
     initialTab?: InsertHintTabId;
   }>(),
-  { autoRotate: true, reducedMotion: undefined, initialTab: 'flowchart' },
+  { autoRotate: true, reducedMotion: undefined, initialTab: 'mermaid' },
 );
 
 const emit = defineEmits<{
@@ -186,6 +195,13 @@ const emit = defineEmits<{
 }>();
 
 const tabs = INSERT_HINT_TABS;
+const logos: Record<InsertHintTabId, string> = { mermaid: mermaidLogo, drawio: drawioLogo, swagger: swaggerLogo };
+// draw.io selection handles around "API Gateway": corners and edge midpoints.
+const handles = [
+  [118, 51], [170, 51], [222, 51],
+  [118, 70], [222, 70],
+  [118, 89], [170, 89], [222, 89],
+];
 const operations = [
   { method: 'GET', path: '/pets', summary: 'List all pets' },
   { method: 'POST', path: '/pets', summary: 'Add a pet' },
@@ -476,26 +492,7 @@ onBeforeUnmount(() => {
   height: 56px;
   background: #e9f2ff;
 }
-.ih-tile {
-  width: 24px;
-  height: 24px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: 6px;
-  background: #f1f2f4;
-  color: #44546f;
-}
-.ih-tab-selected .ih-tile {
-  background: #ffffff;
-  color: #0c66e4;
-}
-.ih-braces {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: -1px;
-}
+.ih-logo { width: 24px; height: 24px; flex: none; display: block; }
 .ih-tab-text { display: flex; flex-direction: column; min-width: 0; }
 .ih-tab-title { font-size: 14px; line-height: 20px; font-weight: 500; }
 .ih-tab-selected .ih-tab-title { font-weight: 600; color: #0c66e4; }
@@ -546,25 +543,28 @@ onBeforeUnmount(() => {
   stroke-width: 1;
 }
 
-.ih-drawio rect,
-.ih-drawio .ih-db path,
-.ih-drawio .ih-db ellipse {
-  fill: #dae8fc;
-  stroke: #6c8ebf;
-  stroke-width: 1;
-}
+.ih-drawio text { font-family: Helvetica, Arial, sans-serif; fill: #000; }
+.ih-drawio rect:not(.ih-grid):not(.ih-handle):not(.ih-select-outline) { stroke-width: 1; }
+.ih-dio-blue { fill: #dae8fc; stroke: #6c8ebf; }
+.ih-dio-green { fill: #d5e8d4; stroke: #82b366; }
+.ih-dio-orange { fill: #ffe6cc; stroke: #d79b00; }
+.ih-dio-edge { fill: none; stroke: #000; stroke-width: 1; }
+.ih-drawio .ih-db path { fill: #fff2cc; stroke: #d6b656; stroke-width: 1; }
+.ih-drawio .ih-db path + path { fill: none; }
 .ih-drawio .ih-cloud rect {
   fill: none;
-  stroke: #ed7100;
+  stroke: #d79b00;
   stroke-width: 1.5;
   stroke-dasharray: 4 3;
 }
 .ih-drawio .ih-cloud text {
   text-anchor: start;
   font-size: 10px;
-  font-weight: 600;
-  fill: #ed7100;
+  font-weight: 700;
+  fill: #d79b00;
 }
+.ih-select-outline { fill: none; stroke: #00a8ff; stroke-width: 1; stroke-dasharray: 3 3; }
+.ih-handle { fill: #00a8ff; stroke: #fff; stroke-width: 1; }
 
 .ih-openapi .ih-api-title {
   text-anchor: start;

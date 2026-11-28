@@ -40,6 +40,35 @@ export function githubApi(repo) {
   };
 }
 
+const PERMISSION_ROUTE = /^\/collaborators\/([^/?]+)\/permission$/;
+
+/**
+ * Wraps a githubApi for the local publishing commands (`publish`,
+ * request-pr-e2e.mjs) only; CI's check/sync/draft use the plain api and keep
+ * failing closed. Some API proxies, such as the Claude Code cloud container's,
+ * refuse the collaborator-permission path. When that lookup fails and the login
+ * is the authenticated user, GitHub's own `permissions` for that user on the
+ * repository answer it instead. Any other login's failure is rethrown, so the
+ * caller can never vouch for someone else's decision.
+ */
+export function withOwnPermissionFallback(api, repo) {
+  let self;
+  return async (path, ...rest) => {
+    const match = PERMISSION_ROUTE.exec(path);
+    if (!match) return api(path, ...rest);
+    try {
+      return await api(path, ...rest);
+    } catch (error) {
+      try { self ??= (await api('user'))?.login; } catch { throw error; }
+      if (!self || self !== decodeURIComponent(match[1])) throw error;
+      const p = (await api(`repos/${repo}`))?.permissions;
+      if (!p) throw error;
+      const permission = p.admin ? 'admin' : p.maintain ? 'maintain' : p.push ? 'write' : p.triage ? 'triage' : p.pull ? 'read' : 'none';
+      return { permission };
+    }
+  };
+}
+
 async function paginate(api, path) {
   const rows = [];
   for (let page = 1; page <= 100; page++) {
@@ -342,7 +371,7 @@ async function main() {
     console.log(JSON.stringify({ repo, ...identity(context.pr), files: context.files, source_paths: context.paths, removed_paths: context.removed_paths,
       floor: selectAgentFloor(context.paths, { removedPaths: context.removed_paths }), features: FEATURES, interfaces: INTERFACES, scenarios: SCENARIOS, uncovered_scenarios: SCENARIOS.filter(pair => !hasPrCoverage(pair)), ...catalog,
       decision_template: { schema_version: 2, ...identity(context.pr), mode: 'triage', source: 'labeling', scenarios: [], reason: '', evidence: [] } }, null, 2));
-  } else if (a.command === 'publish') console.log(JSON.stringify(await publish(api, context, JSON.parse(readFileSync(a.file, 'utf8')))));
+  } else if (a.command === 'publish') console.log(JSON.stringify(await publish(withOwnPermissionFallback(api, repo), context, JSON.parse(readFileSync(a.file, 'utf8')))));
   else if (a.command === 'sync') {
     if (!discoveryFailure && process.env.GITHUB_EVENT_NAME === 'issue_comment' && process.env.GITHUB_EVENT_PATH) {
       await recordDeletedDecision(api, context, JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')), process.env.GITHUB_EVENT_NAME);

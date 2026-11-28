@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { MARKER, catalog, readContext, validateDecision, findDecision, authorize, publish, synchronize, syncAndPublish, draftIfUnresolved, recordDeletedDecision } from '../pr-decision.mjs';
+import { MARKER, catalog, readContext, validateDecision, findDecision, authorize, publish, synchronize, syncAndPublish, draftIfUnresolved, recordDeletedDecision, withOwnPermissionFallback } from '../pr-decision.mjs';
 import { CATEGORIES } from '../../../tests/e2e-tests/config/categories.mjs';
 
 const HEAD = 'a'.repeat(40), BASE = 'b'.repeat(40), MERGE = 'c'.repeat(40), TREE = 'd'.repeat(40);
@@ -34,7 +34,15 @@ async function fixture(files = [{ filename: 'docs/guide.md', status: 'modified',
         ...(state.actor === 'github-actions[bot]' ? { performed_via_github_app: { slug: 'github-actions' } } : {}) }));
       return state.comments.at(-1);
     }
-    if (route.startsWith('/collaborators/')) return { permission: state.permissions[decodeURIComponent(route.split('/')[2])] ?? 'none' };
+    if (route.startsWith('/collaborators/')) {
+      if (state.collaboratorsBlocked) throw new Error('gh: Access to this GitHub API path is not permitted through this proxy. (HTTP 403)');
+      return { permission: state.permissions[decodeURIComponent(route.split('/')[2])] ?? 'none' };
+    }
+    if (route === 'repos/example/repo' && method === 'GET') {
+      const level = state.permissions[state.actor] ?? 'none';
+      return { full_name: 'example/repo', permissions: { admin: level === 'admin', maintain: level === 'maintain',
+        push: ['admin', 'maintain', 'write'].includes(level), triage: level !== 'none' && level !== 'read', pull: level !== 'none' } };
+    }
     if (route === 'user') return { login: state.actor };
     if (route === '/issues/42/labels' && method === 'GET') return state.labels.map(name => ({ name }));
     if (route === '/labels' && method === 'GET') return [];
@@ -223,6 +231,29 @@ test('publishing requires repository write access and refuses unauthorized full 
   f.state.actor = 'maintainer';
   await assert.rejects(publish(f.api, f.context, { ...f.decision, mode: 'all' }), /full-needs-triage-approval/);
   assert.equal(f.state.comments.length, 0);
+});
+
+test('publishing behind a proxy that refuses the collaborator endpoint uses the publisher\'s own repository permissions', async () => {
+  const f = await fixture(); f.state.collaboratorsBlocked = true;
+  const api = withOwnPermissionFallback(f.api, 'example/repo');
+  const result = await publish(api, f.context, f.decision);
+  assert.equal(result.executable, true); assert.equal(result.comment_id, 20);
+  assert.equal((await authorize(api, 42)).result.comment_id, 20);
+  assert.ok(f.state.calls.some(c => c.path === 'repos/example/repo'));
+});
+
+test('the own-permission fallback rejects a read-only publisher and never vouches for another login', async () => {
+  const f = await fixture(); f.state.collaboratorsBlocked = true; f.state.actor = 'visitor';
+  await assert.rejects(publish(withOwnPermissionFallback(f.api, 'example/repo'), f.context, f.decision), /repository write permission/);
+  assert.equal(f.state.comments.length, 0);
+  // A maintainer's decision cannot be checked through a different caller's own permissions.
+  const g = await fixture(); g.state.comments = [comment(g.decision)]; g.state.collaboratorsBlocked = true; g.state.actor = 'visitor';
+  await assert.rejects(authorize(withOwnPermissionFallback(g.api, 'example/repo'), 42), /collaborator-permission-unavailable/);
+});
+
+test('without the wrapper a refused collaborator endpoint still fails closed for the caller\'s own decision', async () => {
+  const f = await fixture(); f.state.comments = [comment(f.decision)]; f.state.collaboratorsBlocked = true;
+  await assert.rejects(authorize(f.api, 42), /collaborator-permission-unavailable/);
 });
 
 test('publishing creates an immutable collaborator decision with current catalog and syncs labels', async () => {

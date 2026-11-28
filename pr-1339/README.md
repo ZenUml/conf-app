@@ -1,15 +1,16 @@
 # PR #1339 — Connect MCP button test
 
-Candidate `a0c6879f054b1691ce2332d6645409d22b90ad1d` (the pin asks Confluence's page permission check; first captures were `3a486bb`); baseline `main` at `f0980039f` (the control arm is the baseline button, unchanged).
+Candidate `b9091d995e0a4cccca0711a878289d1c04aef78c` (pinned button at the right end of the row, before Create; earlier captures were `3a486bb` and `a0c6879`); baseline `main` at `f0980039f` (the control arm is the baseline button, unchanged).
 
 All captures are the macro **at rest**: the mouse is outside the macro, so the inline header shows only what is visible without hover.
 
 | File | Where | Arm | Viewer | Observed |
 |---|---|---|---|---|
-| `whimet4-control.png` | whimet4 dev site, Forge build `a0c6879` (bundle contains the SHA) | `control` (forced) | robot account, can edit | label `MCP`, opacity 0, title "Connect MCP" |
+| `whimet4-control.png` | whimet4 dev site, Forge build `b9091d9` (bundle contains the SHA) | `control` (forced) | robot account, can edit | label `MCP`, opacity 0, title "Connect MCP" |
 | `whimet4-outcome-editor.png` | same | `outcome_label` (forced) | same; Confluence permission check answered `true` (cached `{"v":true}`) | label `Use with AI`, opacity 1, pinned, title "Connect an AI agent (MCP)" |
 | `storybook-control.png` | `storybook dev`, story `Connect MCP test — control, at rest` | `control` | can edit | label `MCP`, opacity 0 |
 | `storybook-outcome-editor.png` | story `Connect MCP test — "Use with AI", editor at rest` | `outcome_label` | permission check stubbed `hasPermission: true` | label `Use with AI`, opacity 1, pinned |
+| `storybook-outcome-editor-hover.png` | same story, mouse over the macro | `outcome_label` | permission check stubbed `hasPermission: true` | full row revealed: Source, More, Edit, Fullscreen, `Use with AI`, Create |
 | `storybook-outcome-reader.png` | story `Connect MCP test — "Use with AI", reader at rest` | `outcome_label` | permission check stubbed `hasPermission: false` | label `Use with AI`, opacity 0 |
 
 - Arms were forced with the QA override `localStorage['zenuml.mcpButtonVariant']` in the macro iframe; production assigns them by account hash.

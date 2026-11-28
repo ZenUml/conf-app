@@ -1122,11 +1122,11 @@ async function loadHeavyComponents(criticalData: { macroData: any; feedbackHandl
     await (editable ? import("@/forge-graph-editor") : import("@/forge-graph-viewer"));
   } else if(isEmbed) {
     await (editable ? import("@/forge-embed-editor") : import("@/forge-embed-viewer"));
-  } else if(isAsyncApi && (import.meta.env.PRODUCT_TYPE === 'asyncapi' || import.meta.env.PRODUCT_TYPE === 'lite')) {
+  } else if(isAsyncApi && import.meta.env.PRODUCT_TYPE !== 'diagramly') {
     // Build-time literal: Vite replaces PRODUCT_TYPE via `define` so
-    // full/diagramly short-circuit and dead-code-eliminate the dynamic
+    // diagramly short-circuits and dead-code-eliminates the dynamic
     // import. Keeps @asyncapi/parser (which pulls in Node `fs`) out of
-    // the full/diagramly dependency graph entirely. Lite ships the
+    // the diagramly dependency graph entirely. Lite and Full ship the
     // AsyncAPI macro per ADR-0005 Option A: forgeGlobal.isAsyncApi stays
     // FALSE there, so ApWrapper2.getContentKey() files the content under
     // the shared zenuml-content-sequence type (discriminated by the

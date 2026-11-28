@@ -173,14 +173,14 @@ export function toModalDiagramType(diagramType: string): string {
  * the sequence viewer applies to the same bodies (model/Diagram/
  * legacyDiagramType). A row's type picks the macro Add to page places — a spec
  * goes under the OpenAPI macro, a DSL body under the sequence macro — and each
- * renders what the row says. Full ships no AsyncAPI macro, so an AsyncAPI
- * spec there stays Unknown rather than being given a key the app cannot
- * render.
+ * renders what the row says. Diagramly ships no AsyncAPI macro, so an
+ * AsyncAPI spec there stays Unknown rather than being given a key the app
+ * cannot render.
  */
 function inferLegacyType(body: any, productType: string | undefined): string | undefined {
   if (!body || typeof body !== 'object') return undefined
   const spec = inferLegacySpecType(body)
-  if (spec === DiagramType.AsyncApi && productType !== 'asyncapi' && productType !== 'lite') {
+  if (spec === DiagramType.AsyncApi && productType === 'diagramly') {
     return undefined
   }
   if (spec || productType === 'asyncapi') return spec

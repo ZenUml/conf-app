@@ -8,8 +8,12 @@ describe('bylineTileMacroTypes', () => {
 
   // Full strips zenuml-asyncapi-macro; an AsyncAPI tile there would open the
   // OpenAPI editor and save a swagger document.
-  it('offers Full everything but AsyncAPI', () => {
-    expect(bylineTileMacroTypes('full')).toEqual(['mermaid', 'sequence', 'graph', 'openapi'])
+  it('offers Full every type, AsyncAPI included (ADR-0005)', () => {
+    expect(bylineTileMacroTypes('full')).toEqual(['mermaid', 'sequence', 'graph', 'openapi', 'asyncapi'])
+  })
+
+  it('offers Diagramly everything but AsyncAPI', () => {
+    expect(bylineTileMacroTypes('diagramly')).toEqual(['mermaid', 'sequence', 'graph', 'openapi'])
   })
 
   it('offers the AsyncAPI app only the two API-spec types it ships', () => {

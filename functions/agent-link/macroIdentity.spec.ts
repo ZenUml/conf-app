@@ -216,6 +216,8 @@ describe('macroKeyFor', () => {
   it('applies the -lite suffix only on lite', () => {
     expect(macroKeyFor(lite, 'graph')).toBe('zenuml-graph-macro-lite');
     expect(macroKeyFor(full, 'graph')).toBe('zenuml-graph-macro');
+    // ADR-0005: Full ships the AsyncAPI page macro, as Lite does.
+    expect(macroKeyFor(full, 'asyncapi')).toBe('zenuml-asyncapi-macro');
   });
 
   it('uses each variant own diagram macro', () => {
@@ -234,7 +236,6 @@ describe('macroKeyFor', () => {
     expect(macroKeyFor(dia, 'graph')).toBeNull();
     expect(macroKeyFor(dia, 'openapi')).toBeNull();
     expect(macroKeyFor(async, 'graph')).toBeNull();
-    expect(macroKeyFor(full, 'asyncapi')).toBeNull();
     expect(macroKeyFor(dia, 'asyncapi')).toBeNull();
     // The asyncapi app ships no text-DSL macro.
     expect(macroKeyFor(async, 'sequence')).toBeNull();

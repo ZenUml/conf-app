@@ -527,6 +527,31 @@ describe('GenericViewer (chrome-less)', () => {
           vi.useRealTimers();
         }
       });
+
+      // The feedback is loaded twice: once when the artifact proves available,
+      // again after the Magic view attaches. This viewer has no accountId, so
+      // the vote has no storage key and lives only in the component. When the
+      // second load landed after the click it re-read storage, found nothing,
+      // and the survey came back after the thanks — the race that made the test
+      // above fail about one run in ten under load. Forced here in that order.
+      it('keeps a vote it could not store when the feedback reloads after the click', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        try {
+          store.state.diagram.magic = { sourceHash: await magicSourceHash(source), svg, rulesVersion: 'magic-v1', outcome: 'validated' };
+          const wrapper = await mountMagic();
+          await vi.waitFor(() => expect(wrapper.find('[data-testid="magic-layout-feedback"]').exists()).toBe(true));
+
+          await wrapper.find('[data-testid="magic-layout-feedback"]').findAll('button').find(b => b.text() === 'Original')!.trigger('click');
+          // The store's own (reactive) artifact: loadMagicFeedback ignores any other.
+          await (wrapper.vm as any).loadMagicFeedback(store.state.diagram.magic, store.state.diagram.mermaidCode);
+          expect((wrapper.vm as any).magicPreviousFeedback).toBe('original');
+
+          await vi.advanceTimersByTimeAsync(4100);
+          expect(wrapper.find('[data-testid="magic-layout-feedback"]').exists()).toBe(false);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
     });
 
     // Forge sends no user token on invokeRemote for guest and anonymous viewers,

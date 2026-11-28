@@ -1910,9 +1910,16 @@ export default {
       try {
         const generation = await magicGenerationKey(artifact);
         if (this.diagram?.magic !== artifact || this.diagram?.mermaidCode !== source) return;
+        const sameGeneration = this.magicFeedbackGeneration === generation;
         this.magicFeedbackGeneration = generation;
         const sessionKey = this.magicSessionKey(artifact.sourceHash) + ':' + generation;
-        this.magicPreviousFeedback = readMagicFeedback(this.magicIdentity(artifact.sourceHash), generation);
+        // This runs twice (when the artifact proves available, and again after
+        // the Magic view attaches). A vote cast in between has no stored copy
+        // when there is no storage key (anonymous viewers, blocked
+        // localStorage), so a plain re-read erased it and the survey came back
+        // after the thanks. Keep this view's own vote for the same generation.
+        this.magicPreviousFeedback = readMagicFeedback(this.magicIdentity(artifact.sourceHash), generation)
+          ?? (sameGeneration ? this.magicLayoutFeedback : null);
         // Inline, the survey only shows to viewers who have not voted yet.
         if (!this.magicFeedbackPrompted[sessionKey] && (this.isFullscreenMode || this.magicPreviousFeedback == null)) {
           this.magicFeedbackPrompted[sessionKey] = true;

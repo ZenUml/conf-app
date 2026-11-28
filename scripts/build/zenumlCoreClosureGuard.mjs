@@ -87,9 +87,14 @@ export function findZenumlCoreClosureViolations(bundle, getModuleInfo) {
   return problems;
 }
 
+// Storybook's builder loads vite.config.mjs too, and every story file is a load
+// root that may import the renderer statically; .storybook/main.ts drops the
+// guard by this name. The app bundles keep it.
+export const ZENUML_CORE_CLOSURE_GUARD = 'zenuml-core-closure-guard';
+
 export function zenumlCoreClosureGuard() {
   return {
-    name: 'zenuml-core-closure-guard',
+    name: ZENUML_CORE_CLOSURE_GUARD,
     apply: 'build',
     generateBundle(_options, bundle) {
       const problems = findZenumlCoreClosureViolations(bundle, (id) => this.getModuleInfo(id));

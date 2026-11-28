@@ -20,6 +20,7 @@ const APPS = {
     production: { envId: "b28ee919-d73b-4f43-b7fd-45a3a881ec46", envName: "PRODUCTION", sites: { zenuml: "zenuml.atlassian.net" } },
   } },
   full: { appId: "d9e4002b-120b-426b-834b-402a4a5adce7", suffix: "", connectKey: "com.zenuml.confluence-addon", sequenceModule: "zenuml-sequence-macro", contentTypes: { sequence: "zenuml-content-sequence", graph: "zenuml-content-graph" }, environments: {
+    yanhui: { envId: "a0067a64-0b3c-47b0-b699-4265aa9b3d68", envName: "DEVELOPMENT", sites: { whimet4: "whimet4.atlassian.net" } },
     staging: { envId: "095a5f48-0aa4-48b6-b546-0535bcee7c8e", envName: "STAGING", sites: { "full-stg": "full-stg.atlassian.net" } },
     production: { envId: "bd98a544-377a-4832-a72f-eb8d80b19dde", envName: "PRODUCTION", sites: { zenuml: "zenuml.atlassian.net" } },
   } },

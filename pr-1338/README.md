@@ -14,3 +14,10 @@ The failing customer layout was not reproduced synthetically (`fuzz-natural-repr
 
 ## Limitations
 Not a natural reproduction of the customer layout. Forge Tunnel and CI-deployed staging checks are separate stages.
+
+## Forge Tunnel stage (2026-11-28)
+- Candidate: branch `fix/mermaid-edge-btoa-unicode` at `7ed2cdcbf`, Lite variant, Forge development environment, a personal test site (not a customer site).
+- Vite on :8080 started from the PR worktree with `FORGE_TUNNEL=1`; `forge tunnel` reported `Tunnelling to: DEV <env>`.
+- Throwaway page with one Mermaid macro (same synthetic Vietnamese flowchart), created over REST as the tunnel's own Forge account.
+- Observed: both Lite macro iframes loaded from `localhost:8000` (owned by the `forge tunnel` process), not the Atlassian CDN; the proxy served `vendor/mermaid/chunks/mermaid.esm.min/chunk-4OADUZ5Q.mjs` with the patched call (raw `btoa(JSON.stringify(` count 0) and `VITE_APP_GIT_HASH` `7ed2cdcbf`; the flowchart rendered. Screenshot cropped to the macro: `tunnel-after.jpg`.
+- Limitation: the edge-point leak was not injected inside the Confluence iframe (the browser tool cannot run code in Forge's cross-origin iframe), so this stage proves the patched build is what Confluence loads and renders non-Latin1 text; the forced failure is covered by `capture.mjs` and Storybook.

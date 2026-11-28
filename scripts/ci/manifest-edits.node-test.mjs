@@ -49,7 +49,7 @@ test('applying the script equals applying each forge-wizard edit', { skip: !hasY
 for (const [file, variantExpr, allowed] of [
   ['staging-deploy.yml', '${{ needs.resolve.outputs.variant }}', ['Speed up the conversion trigger on staging']],
   ['release.yml', '${{ steps.properties.outputs.license }}', []],
-  ['deploy-whimet4.yml', 'lite', []],
+  ['deploy-whimet4.yml', '$VARIANT', []],
 ]) {
   test(`${file} applies the forge-wizard edits and carries no hand-copied ones`, () => {
     const all = steps(workflow(file))

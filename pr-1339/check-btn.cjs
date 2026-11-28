@@ -43,7 +43,7 @@ const mcpFrame = async (page) => {
   console.log('build:', build);
   if (build === 'other build') return browser.close();
   for (const variant of ['control', 'outcome_label']) {
-    await frame.evaluate((v) => localStorage.setItem('zenuml.mcpButtonVariant', v), variant);
+    await frame.evaluate((v) => { localStorage.setItem('zenuml.mcpButtonVariant', v); for (const k of Object.keys(localStorage)) if (k.startsWith('zenuml.mcpCanEditPage:')) localStorage.removeItem(k); }, variant);
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(25000);
     await page.mouse.move(5, 995);
@@ -51,7 +51,8 @@ const mcpFrame = async (page) => {
     frame = await mcpFrame(page);
     const info = await frame.evaluate(() => {
       const b = document.querySelector('[data-testid="connect-mcp-btn"]');
-      return { variant: b.dataset.mcpVariant, label: b.textContent.trim(), opacity: getComputedStyle(b).opacity, pinned: b.classList.contains('viewer-act-connect-mcp--pinned'), title: b.title };
+      const cache = Object.keys(localStorage).filter((k) => k.startsWith('zenuml.mcpCanEditPage:')).map((k) => localStorage.getItem(k));
+      return { canEditCache: cache, variant: b.dataset.mcpVariant, label: b.textContent.trim(), opacity: getComputedStyle(b).opacity, pinned: b.classList.contains('viewer-act-connect-mcp--pinned'), title: b.title };
     });
     console.log(variant, JSON.stringify(info));
     const el = await frame.frameElement();

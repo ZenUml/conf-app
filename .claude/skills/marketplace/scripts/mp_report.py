@@ -589,6 +589,40 @@ def _fuzzy_hosts(domain, auth):
     return []
 
 
+ENTITLEMENT_RE = re.compile(r"^E(-[0-9A-Z]{3}){4}$", re.I)
+
+
+def _resolve_entitlement(number, auth):
+    """Entitlement number (E-xxx-xxx-xxx-xxx) -> {number, kind, host, cloudId}, or None.
+
+    The Marketplace licence page links by the HOST entitlement number (the Confluence site's), so
+    a pasted link carries neither the hostname nor the app's own number. Both numbers sit on every
+    licence and transaction row. `text=` is a substring search over the whole record, so a hit is
+    confirmed against the two number fields. A transaction has cloudId but no hostname: when only
+    a transaction carries the number, the hostname comes from the licences of that cloudId."""
+    want = number.upper()
+
+    def kind_of(row):
+        if (row.get("hostEntitlementNumber") or "").upper() == want: return "host"
+        if (row.get("appEntitlementNumber") or "").upper() == want: return "app"
+        return None
+
+    def result(kind, lic_rows, cloud_id):
+        hosts = sorted({r.get("cloudSiteHostname") for r in lic_rows if r.get("cloudSiteHostname")})
+        if len(hosts) > 1:
+            sys.exit(f"ERROR entitlement {number} matches several sites: {', '.join(hosts)}")
+        return {"number": want, "kind": kind, "host": hosts[0] if hosts else None, "cloudId": cloud_id}
+
+    lics = [r for r in export("licenses", auth, text=number) if kind_of(r)]
+    if lics:
+        return result(kind_of(lics[0]), lics, next((r.get("cloudId") for r in lics if r.get("cloudId")), None))
+    for t in export("sales/transactions", auth, text=number):
+        if kind_of(t) and t.get("cloudId"):
+            cid = t["cloudId"]
+            return result(kind_of(t), [r for r in export("licenses", auth, text=cid) if r.get("cloudId") == cid], cid)
+    return None
+
+
 KV_AUTH_FIX = "npx wrangler login"
 
 
@@ -670,6 +704,13 @@ def cmd_whois(args, auth):
     near-match hosts on a miss. Marketplace tx join on cloudId (see cmd_client)."""
     today = datetime.date.today()
     domain = args.domain
+    entitlement = None
+    if ENTITLEMENT_RE.match(domain):                      # a pasted licence link, not a site name
+        entitlement = _resolve_entitlement(domain, auth)
+        if not entitlement:
+            sys.exit(f"ERROR no license or transaction carries entitlement number {domain}"
+                     + (" in the local snapshot (run `sync`, or drop --local)" if LOCAL["db"] else ""))
+        domain = entitlement["host"] or entitlement["cloudId"]
     # The Marketplace text= search matches the tenant SLUG, not the full hostname: passing
     # "subsplash.atlassian.net" returned zero licenses and a "not paying" verdict for a $5,782
     # payer (2026-07-25). Every host this tool prints elsewhere is fully qualified, so strip the
@@ -748,7 +789,9 @@ def cmd_whois(args, auth):
         "total_lifetime_vendor": round(sum(x["lifetime_vendor"] for x in apps), 2),
         "suggestions": (suggest or None),
     }
-    if LOCAL["db"]:                                       # self-document the data vintage (determinism/repro)
+    if entitlement:
+        out["entitlement"] = entitlement
+    if LOCAL["db"]:                                      # self-document the data vintage (determinism/repro)
         con = sqlite3.connect(LOCAL["db"])
         m = con.execute("SELECT synced_at, license_rows, tx_rows FROM sync_meta "
                         "ORDER BY synced_at DESC LIMIT 1").fetchone()
@@ -759,6 +802,8 @@ def cmd_whois(args, auth):
         print(json.dumps(out, indent=2, default=str)); return
 
     print(f"=== {domain} ===")
+    if entitlement:
+        print(f"  lookup  : {entitlement['number']} ({entitlement['kind']} entitlement number)")
     print(f"  cloudId : {', '.join(cids) if cids else '(unresolved)'}")
     if not apps:
         print("  apps    : (no Marketplace license found)")
@@ -866,8 +911,10 @@ def main():
     p.set_defaults(func=cmd_tier)
 
     p = sub.add_parser("whois", parents=[common],
-                       help="domain -> cloudId, users, state (FREE/TRIAL/PAID), lifetime $ + Lite KV check")
-    p.add_argument("domain", help="tenant domain / slug")
+                       help="domain or entitlement number -> cloudId, users, state (FREE/TRIAL/PAID), "
+                            "lifetime $ + Lite KV check")
+    p.add_argument("domain", help="tenant domain / slug, or an entitlement number (E-xxx-xxx-xxx-xxx, "
+                                  "host or app) as in a Marketplace licence link")
     p.add_argument("--no-kv", action="store_true", help="skip the Layer-B (Stripe/KV) space-license check for Lite")
     p.set_defaults(func=cmd_whois)
 

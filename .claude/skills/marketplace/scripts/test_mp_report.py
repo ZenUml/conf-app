@@ -220,6 +220,95 @@ class KvAuth(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
 
 
+class WhoisByEntitlement(unittest.TestCase):
+    """`whois E-…` resolves an entitlement number to its site before building the card.
+
+    The Marketplace licence page links by the HOST entitlement number (the Confluence site's),
+    which is neither the hostname nor the app's own entitlement number. Before 2026-11-28 `whois`
+    printed "(no Marketplace license found)" for it, and the site had to be dug out of the
+    snapshot by hand."""
+
+    HOST_ENT, APP_ENT, CLOUD = "E-111-AAA-222-BBB", "E-333-CCC-444-DDD", "cloud-0001"
+
+    def setUp(self):
+        self.license = {
+            "addonKey": DIA, "cloudId": self.CLOUD, "cloudSiteHostname": "example-tenant.atlassian.net",
+            "appEntitlementNumber": self.APP_ENT, "hostEntitlementNumber": self.HOST_ENT,
+            "licenseType": "COMMERCIAL", "status": "active", "tier": "58 Users",
+            "maintenanceEndDate": "2099-12-19",
+        }
+        self.tx = {
+            "addonKey": DIA, "cloudId": self.CLOUD, "transactionId": "IN-000-000-001",
+            "appEntitlementNumber": self.APP_ENT, "hostEntitlementNumber": self.HOST_ENT,
+            "purchaseDetails": {"vendorAmount": 25.79, "billingPeriod": "Monthly", "saleType": "New",
+                                "saleDate": "2099-11-27", "maintenanceStartDate": "2099-11-26",
+                                "maintenanceEndDate": "2099-12-19"},
+        }
+        self.licenses, self.transactions = [self.license], [self.tx]
+        self._export, self._edge = mp_report.export, mp_report._tenant_info_cloudid
+        mp_report._tenant_info_cloudid = lambda *_: None      # never reach the network
+        mp_report.export = self.fake_export
+
+    def tearDown(self):
+        mp_report.export, mp_report._tenant_info_cloudid = self._export, self._edge
+
+    def fake_export(self, kind, auth, **filters):
+        """Same broad substring match the real `text=` filter and `--local` snapshot apply."""
+        import json as _json
+        rows = self.transactions if kind.startswith("sales") else self.licenses
+        text = str(filters.get("text") or "").lower()
+        return [r for r in rows if text in _json.dumps(r).lower()]
+
+    def whois(self, query):
+        args = argparse.Namespace(domain=query, json=True, no_kv=True, app="all")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            mp_report.cmd_whois(args, auth=None)
+        import json as _json
+        return _json.loads(buf.getvalue())
+
+    def test_host_entitlement_number_resolves_to_the_site(self):
+        out = self.whois(self.HOST_ENT)
+        self.assertEqual(out["domain"], "example-tenant.atlassian.net")
+        self.assertEqual(out["cloudIds"], [self.CLOUD])
+        self.assertEqual(out["entitlement"], {"number": self.HOST_ENT, "kind": "host",
+                                              "host": "example-tenant.atlassian.net", "cloudId": self.CLOUD})
+        self.assertEqual([a["users"] for a in out["apps"]], [58])
+        self.assertEqual(out["total_lifetime_vendor"], 25.79)
+
+    def test_app_entitlement_number_resolves_too(self):
+        out = self.whois(self.APP_ENT.lower())                # the number is matched case-insensitively
+        self.assertEqual(out["domain"], "example-tenant.atlassian.net")
+        self.assertEqual(out["entitlement"]["kind"], "app")
+
+    def test_number_known_only_to_a_transaction_resolves_through_cloud_id(self):
+        # A transaction has cloudId but no hostname; the licence row may carry an older number.
+        self.license = dict(self.license, hostEntitlementNumber="E-999-ZZZ-999-ZZZ")
+        self.licenses = [self.license]
+        out = self.whois(self.HOST_ENT)
+        self.assertEqual(out["domain"], "example-tenant.atlassian.net")
+        self.assertEqual(out["cloudIds"], [self.CLOUD])
+
+    def test_unknown_entitlement_number_stops_with_a_clear_message(self):
+        with self.assertRaises(SystemExit) as cm:
+            self.whois("E-000-NOP-000-NOP")
+        self.assertIn("E-000-NOP-000-NOP", str(cm.exception))
+        self.assertIn("no license or transaction", str(cm.exception))
+
+    def test_a_number_that_only_appears_inside_another_field_does_not_match(self):
+        # text= is a substring search over the whole record: a hit is not yet a match.
+        self.license = dict(self.license, hostEntitlementNumber="E-999-ZZZ-999-ZZZ",
+                            appEntitlementNumber="E-888-YYY-888-YYY", note=self.HOST_ENT)
+        self.licenses, self.transactions = [self.license], []
+        with self.assertRaises(SystemExit):
+            self.whois(self.HOST_ENT)
+
+    def test_a_plain_domain_is_not_treated_as_an_entitlement(self):
+        out = self.whois("example-tenant")
+        self.assertEqual(out["domain"], "example-tenant")
+        self.assertNotIn("entitlement", out)
+
+
 def subprocess_result(code, stdout, stderr):
     return type("R", (), {"returncode": code, "stdout": stdout, "stderr": stderr})()
 

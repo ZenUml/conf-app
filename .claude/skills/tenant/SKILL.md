@@ -23,7 +23,13 @@ references it by path, the same way `macro-count` references `mixpanel`'s script
 S=.claude/skills/marketplace/scripts/mp_report.py
 python3 $S whois <domain>          # the card: cloudId, users, per-app STATE, lifetime $, + Lite Layer-B KV
 python3 $S whois <domain> --json   # machine-readable (self-documents data vintage in --local mode)
+python3 $S whois E-123-ABC-456-DEF # same card from an entitlement number (host or app)
 ```
+
+A Marketplace licence link (`.../reporting/licenses?text=E-…`) carries the **host** entitlement
+number: the Confluence site's, not the hostname and not the app's own number. Pass it to `whois` as
+it is; the card names the site and says which kind of number matched. An unknown number exits with
+an error instead of an empty card.
 
 For a seat-count request, use the `users` value parsed from the Marketplace license `tier`. Mixpanel
 active users, viewers and editors are usage measures, not seats. For multiple tenants, sync once,
@@ -32,18 +38,18 @@ live query or fresh sync fails, report the seat count as unknown or use a dated 
 with its date; do not substitute a usage metric.
 
 **Always read `whois` before concluding anything about a tenant's paid status** — a naive Marketplace
-`$0` is the single most common wrong answer here.
+"zero dollars" is the single most common wrong answer here.
 
 ## What the card encodes (the traps baked in)
 
 - **Purchase and settlement are independent.** Inspect raw transactions alongside the license. The current `whois` helper can label positive transaction amounts `PAID` without checking `paymentStatus`; its `PAID`, `paying` and lifetime totals are not independent payment confirmation. Verify raw Paid/Fully paid/Open status, source IDs and service periods in the Marketplace export/snapshot. A valid commercial order with Open status establishes purchase, while settlement stays unconfirmed. Do not describe that customer as unpaid or without an order.
-- **Lite space licenses are checked automatically.** Lite is free on the Marketplace (`$0` by design);
+- **Lite space licenses are checked automatically.** Lite is free on the Marketplace (zero dollars by design);
   paid Lite status is the Stripe/KV space license. `whois` shells `wrangler kv … --remote`
   (the `--remote` is baked in — without it wrangler v4 reads LOCAL state and returns a false empty)
   and prints `[space licenses: none / N]`. `--no-kv` skips it (~2s). On 401 the card prints
   `FIX: npx wrangler login`. That is an unread check, not an unpaid tenant.
 - **cloudId is the join key.** Transactions carry `cloudId` + company but NO hostname, so a text
-  search by hostname finds the license yet misses every transaction → a false `$0`. `whois` joins on
+  search by hostname finds the license yet misses every transaction → a false "zero dollars". `whois` joins on
   cloudId; do not hand-roll a text search.
 - **Slug typo → suggestions.** A miss prints near-match hosts (`woolworth-agile` → `woolworths-agile`).
 

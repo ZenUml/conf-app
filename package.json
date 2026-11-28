@@ -170,7 +170,7 @@
     "oxlint": "1.94.0",
     "portless": "^0.15.6",
     "rollup-plugin-visualizer": "^6.0.5",
-    "storybook": "^10.4.1",
+    "storybook": "^10.6.2",
     "tailwind-scrollbar": "^3.0.5",
     "vite": "^8.3.8",
     "vite-plugin-node-polyfills": "^0.27.0",

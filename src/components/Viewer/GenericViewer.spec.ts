@@ -13,6 +13,7 @@ import { isArchitectureTokensEnabled, isCreateGuideEnabled, isNoLicenseNoticeEna
 import { openCreateGuide } from '@/features/createGuide/openCreateGuide'
 import globals from '@/model/globals'
 import forgeRuntime, { openUrl } from '@/model/globals/forgeGlobal'
+import { canEditPage } from '@/features/titleDraft/canEdit'
 import { persistSession } from '@/composables/agentLink/sessionHandoff'
 import ThinkingOverlay from '@/components/AgentLink/ThinkingOverlay.vue'
 import ExportModal from '@/components/ExportModal/ExportModal.vue'
@@ -76,6 +77,7 @@ vi.mock('@/composables/agentLink/connectInstructions', async (importOriginal) =>
   return { ...actual, get RELAY_SESSIONS_ENABLED() { return relaySwitch.on } }
 })
 
+vi.mock('@/features/titleDraft/canEdit', () => ({ canEditPage: vi.fn(() => Promise.resolve(false)) }))
 vi.mock('@/features/createGuide/openCreateGuide', () => ({ openCreateGuide: vi.fn(() => Promise.resolve()) }))
 
 vi.mock('@/model/globals', () => ({
@@ -2828,7 +2830,22 @@ describe('GenericViewer (chrome-less)', () => {
     })
 
     describe('button test (mcp_button_variant)', () => {
-      it('keeps the control arm as it was and reports it', async () => {
+      // The treatment arm asks Confluence whether this person can edit the
+      // page; give it an account and a page, and answer per test.
+      let previousContext: any
+      beforeEach(() => {
+        previousContext = forgeRuntime.forgeContext
+        forgeRuntime.forgeContext = { ...previousContext, ...window.forgeGlobal?.forgeContext, accountId: 'acct-1' }
+        ;(window as any).forgeGlobal = { forgeContext: { cloudId: 'cloud-1', accountId: 'acct-1', extension: { content: { id: '42' } } } }
+        vi.mocked(canEditPage).mockReset()
+        vi.mocked(canEditPage).mockResolvedValue(false)
+      })
+      afterEach(() => {
+        forgeRuntime.forgeContext = previousContext
+      })
+
+      it('keeps the control arm as it was, reports it, and never asks about permissions', async () => {
+        localStorage.setItem('zenuml.mcpButtonVariant', 'control')
         const wrapper = mountViewer()
         await settleLayout()
         const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
@@ -2836,20 +2853,24 @@ describe('GenericViewer (chrome-less)', () => {
         expect(btn.find('.viewer-btn-label').text()).toBe('MCP')
         expect(btn.classes()).not.toContain('viewer-act-connect-mcp--pinned')
         expect(shownCalls()[0]?.[1]).toMatchObject({ mcp_button_variant: 'control', mcp_button_reveal: 'hover' })
+        expect(canEditPage).not.toHaveBeenCalled()
         await btn.trigger('click')
         expect(vi.mocked(trackAnalyticsEvent)).toHaveBeenCalledWith(
           'agent_link_mcp_dialog_opened', expect.objectContaining({ mcp_button_variant: 'control' }))
       })
 
-      it('labels the outcome and keeps the button visible at rest for an editor in the treatment arm', async () => {
+      it('labels the outcome and keeps the button visible at rest for someone Confluence says can edit the page', async () => {
         localStorage.setItem('zenuml.mcpButtonVariant', 'outcome_label')
+        vi.mocked(canEditPage).mockResolvedValue(true)
         const wrapper = mountViewer()
         await settleLayout()
+        expect(canEditPage).toHaveBeenCalledWith('42', 'acct-1')
         const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
         expect(btn.find('.viewer-btn-label').text()).toBe('Use with AI')
         expect(btn.attributes('title')).toBe('Connect an AI agent (MCP)')
         expect(btn.attributes('aria-label')).toBe('Connect MCP')
         expect(btn.classes()).toContain('viewer-act-connect-mcp--pinned')
+        expect(shownCalls()).toHaveLength(1)
         expect(shownCalls()[0]?.[1]).toMatchObject({ mcp_button_variant: 'outcome_label', mcp_button_reveal: 'always' })
         await btn.trigger('click')
         await wrapper.find('[data-testid="connect-mcp-tab-cursor"]').trigger('click')
@@ -2859,13 +2880,26 @@ describe('GenericViewer (chrome-less)', () => {
 
       it('does not pin the button for a reader in the treatment arm', async () => {
         localStorage.setItem('zenuml.mcpButtonVariant', 'outcome_label')
-        vi.mocked(globals.apWrapper.canUserEdit).mockResolvedValueOnce(false)
+        vi.mocked(canEditPage).mockResolvedValue(false)
         const wrapper = mountViewer()
         await settleLayout()
         const btn = wrapper.find('[data-testid="connect-mcp-btn"]')
         expect(btn.find('.viewer-btn-label').text()).toBe('Use with AI')
         expect(btn.classes()).not.toContain('viewer-act-connect-mcp--pinned')
         expect(shownCalls()[0]?.[1]).toMatchObject({ mcp_button_variant: 'outcome_label', mcp_button_reveal: 'hover' })
+      })
+
+      it('holds the impression until Confluence has answered, so its reveal is the one the viewer saw', async () => {
+        localStorage.setItem('zenuml.mcpButtonVariant', 'outcome_label')
+        let answer!: (v: boolean) => void
+        vi.mocked(canEditPage).mockReturnValue(new Promise((resolve) => { answer = resolve }))
+        mountViewer()
+        await settleLayout()
+        expect(shownCalls()).toHaveLength(0)
+        answer(true)
+        await settleLayout()
+        expect(shownCalls()).toHaveLength(1)
+        expect(shownCalls()[0]?.[1]).toMatchObject({ mcp_button_reveal: 'always' })
       })
     })
 

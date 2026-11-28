@@ -554,7 +554,8 @@ import McpPromoCard from '@/components/AgentLink/McpPromoCard.vue'
 import { createMcpPromoState } from '@/composables/agentLink/mcpPromo'
 import { RELAY_SESSIONS_ENABLED, rememberedMcpClient } from '@/composables/agentLink/connectInstructions'
 import { createConnectMcpShownRecord } from '@/composables/agentLink/connectMcpShown'
-import { mcpButtonVariant, MCP_BUTTON_LABEL } from '@/composables/agentLink/mcpButtonExperiment'
+import { mcpButtonVariant, MCP_BUTTON_LABEL, canEditPageCached } from '@/composables/agentLink/mcpButtonExperiment'
+import { canEditPage } from '@/features/titleDraft/canEdit'
 import ConnectPanel from '@/components/AgentLink/ConnectPanel.vue'
 import LinkStatusChip from '@/components/AgentLink/LinkStatusChip.vue'
 import LiveBadge from '@/components/AgentLink/LiveBadge.vue'
@@ -699,6 +700,9 @@ export default {
     // Per-viewer daily dedupe for agent_link_mcp_button_shown
     // (connectMcpShown.ts); null until mounted() has the viewer's identity.
     connectMcpShownRecord: null,
+    // Button test, treatment arm: can this person edit the page? null until
+    // Confluence answers (or for the control arm, which never asks).
+    connectMcpCanEditPage: null,
     connectMcpShownTracked: false,
     // Set on unmount so a shown event still waiting for the header layout
     // is dropped instead of reporting a viewer that no longer exists.
@@ -1035,7 +1039,20 @@ export default {
         && this.connectMcpShownRecord !== null
         && this.isDisplayMode
         && !this.hideHeader
-        && !this.isLoadFailed;
+        && !this.isLoadFailed
+        && this.connectMcpPinResolved;
+    },
+    // What the treatment arm's permission check needs, once the account is
+    // known; null for control, Fullscreen, or before the account resolves.
+    connectMcpPinQuery() {
+      if (this.connectMcpVariant !== 'outcome_label' || this.isFullscreenMode || !this.currentAccountId) return null;
+      return { pageId: this.currentPageId ? String(this.currentPageId) : '', accountId: this.currentAccountId };
+    },
+    // The impression waits for the treatment arm's permission answer, so its
+    // mcp_button_reveal says what the person actually saw.
+    connectMcpPinResolved() {
+      return this.connectMcpVariant !== 'outcome_label' || this.isFullscreenMode || !this.currentAccountId
+        || this.connectMcpCanEditPage !== null;
     },
     // Where the button sits and how it shows, for the analytics properties.
     connectMcpPlacement() {
@@ -1053,10 +1070,11 @@ export default {
     connectMcpLabel() {
       return MCP_BUTTON_LABEL[this.connectMcpVariant];
     },
-    // Treatment arm, inline, for viewers who can edit: visible at rest, like a
-    // pinned Edit. Readers keep the quiet hover header.
+    // Treatment arm, inline, for viewers who can edit the page (Confluence's
+    // answer, not the canUserEdit() stub): visible at rest, like a pinned Edit.
+    // Readers keep the quiet hover header.
     connectMcpPinned() {
-      return this.connectMcpVariant === 'outcome_label' && !this.isFullscreenMode && !!this.canUserEdit
+      return this.connectMcpVariant === 'outcome_label' && !this.isFullscreenMode && this.connectMcpCanEditPage === true
         && this.headerStage < 3;
     },
     viewSourceCode() {
@@ -1214,6 +1232,17 @@ export default {
     },
   },
   watch: {
+    // Button test, treatment arm: ask Confluence once whether this person can
+    // edit the page (see connectMcpPinned). Control never asks.
+    connectMcpPinQuery: {
+      immediate: true,
+      async handler(query) {
+        if (!query || this.connectMcpCanEditPage !== null) return;
+        if (!query.pageId) { this.connectMcpCanEditPage = false; return; }
+        const editable = await canEditPageCached(query.pageId, query.accountId, canEditPage);
+        if (!this.connectMcpUnmounted) this.connectMcpCanEditPage = editable;
+      },
+    },
     showExportModal: {
       flush: 'sync',
       handler(active) {

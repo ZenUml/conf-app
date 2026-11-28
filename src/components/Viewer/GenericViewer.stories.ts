@@ -1142,8 +1142,13 @@ function connectMcpTestStory(variant: McpButtonVariant, canEdit: boolean, name: 
     decorators: [
       () => {
         configureStory({ diagramType: DiagramType.Mermaid, title: 'Login flow', mermaidCode: SAMPLE_MERMAID })
-        try { localStorage.setItem(MCP_BUTTON_VARIANT_OVERRIDE_KEY, variant) } catch { /* storage blocked */ }
-        globals.apWrapper.canUserEdit = async () => canEdit
+        try {
+          localStorage.setItem(MCP_BUTTON_VARIANT_OVERRIDE_KEY, variant)
+          // The pin's permission answer is cached per page and account; start fresh.
+          for (const key of Object.keys(localStorage)) if (key.startsWith('zenuml.mcpCanEditPage:')) localStorage.removeItem(key)
+        } catch { /* storage blocked */ }
+        // The treatment arm asks Confluence whether this person can edit the page.
+        stubResponses.confluence.push({ match: '/permission/check', body: { hasPermission: canEdit } })
         return { template: '<story />' }
       },
     ],

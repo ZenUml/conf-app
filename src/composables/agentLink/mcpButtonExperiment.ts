@@ -50,3 +50,37 @@ export function mcpButtonVariant(accountId: string | null | undefined): McpButto
   if (!accountId) return 'control'
   return fnv1a(`${EXPERIMENT_KEY}:${accountId}`) % 2 === 0 ? 'control' : 'outcome_label'
 }
+
+// Whether this person can edit the page, for the treatment arm's pin. The
+// viewer's canUserEdit() is a stub that always answers true on Forge, so the
+// pin asks Confluence (content permission check, as the user). The answer is
+// kept per page and account for a day, so a page with several macros, or a
+// reload, does not ask again; any failure counts as "cannot edit" (no pin).
+const CAN_EDIT_TTL_MS = 24 * 60 * 60 * 1000
+
+export async function canEditPageCached(
+  pageId: string,
+  accountId: string,
+  ask: (pageId: string, accountId: string) => Promise<boolean>,
+  now: () => number = Date.now,
+): Promise<boolean> {
+  const key = `zenuml.mcpCanEditPage:${pageId}:${accountId}`
+  try {
+    const cached = JSON.parse(localStorage.getItem(key) || 'null')
+    if (cached && typeof cached.v === 'boolean' && now() - cached.at < CAN_EDIT_TTL_MS) return cached.v
+  } catch {
+    // Unreadable or blocked storage: ask instead.
+  }
+  let value = false
+  try {
+    value = await ask(pageId, accountId)
+  } catch {
+    value = false
+  }
+  try {
+    localStorage.setItem(key, JSON.stringify({ v: value, at: now() }))
+  } catch {
+    // Best effort.
+  }
+  return value
+}

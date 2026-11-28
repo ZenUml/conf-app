@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MCP_BUTTON_LABEL, MCP_BUTTON_VARIANT_OVERRIDE_KEY, mcpButtonVariant } from './mcpButtonExperiment'
+import { vi } from 'vitest'
+import { MCP_BUTTON_LABEL, MCP_BUTTON_VARIANT_OVERRIDE_KEY, canEditPageCached, mcpButtonVariant } from './mcpButtonExperiment'
 
 describe('mcpButtonVariant', () => {
   beforeEach(() => localStorage.clear())
@@ -33,5 +34,27 @@ describe('mcpButtonVariant', () => {
 
   it('labels the arms', () => {
     expect(MCP_BUTTON_LABEL).toEqual({ control: 'MCP', outcome_label: 'Use with AI' })
+  })
+})
+
+describe('canEditPageCached', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('asks once per page and account within a day, then asks again', async () => {
+    const ask = vi.fn(() => Promise.resolve(true))
+    let t = 1_000_000
+    expect(await canEditPageCached('42', 'acct', ask, () => t)).toBe(true)
+    t += 60 * 60 * 1000
+    expect(await canEditPageCached('42', 'acct', ask, () => t)).toBe(true)
+    expect(ask).toHaveBeenCalledTimes(1)
+    await canEditPageCached('43', 'acct', ask, () => t)
+    expect(ask).toHaveBeenCalledTimes(2)
+    t += 25 * 60 * 60 * 1000
+    await canEditPageCached('42', 'acct', ask, () => t)
+    expect(ask).toHaveBeenCalledTimes(3)
+  })
+
+  it('treats a failed check as cannot edit', async () => {
+    expect(await canEditPageCached('42', 'acct', () => Promise.reject(new Error('403')))).toBe(false)
   })
 })

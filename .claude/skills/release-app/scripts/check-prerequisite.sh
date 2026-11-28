@@ -3,6 +3,10 @@
 set -euo pipefail
 
 repo="${RELEASE_REPO:-ZenUml/conf-app}"
+# Releases over REST only (gh-rest.sh): `gh release view/list` use GraphQL,
+# which cloud agent sessions cannot reach.
+# shellcheck source=gh-rest.sh
+source "$(cd "$(dirname "$0")" && pwd)/gh-rest.sh"
 requested_variant="${1:-}"
 draft_tag="${2:-}"
 
@@ -21,14 +25,13 @@ esac
 
 [[ -n "$draft_tag" ]] || block "draft tag is required"
 
-release_json="$(gh release view "$draft_tag" --repo "$repo" \
-  --json isDraft,tagName,targetCommitish 2>/dev/null)" \
+release_json="$(rest_release_by_tag "$draft_tag")" \
   || block "$draft_tag not found"
 
-[[ "$(jq -r '.isDraft' <<<"$release_json")" == "true" ]] \
+[[ "$(jq -r '.draft' <<<"$release_json")" == "true" ]] \
   || block "$draft_tag is already published"
 
-draft_target="$(jq -r '.targetCommitish' <<<"$release_json")"
+draft_target="$(jq -r '.target_commitish' <<<"$release_json")"
 [[ "$draft_target" =~ ^[0-9a-fA-F]{40}$ ]] \
   || block "$draft_tag targetCommitish '$draft_target' is not a full commit SHA — pin the draft before publishing"
 
@@ -50,8 +53,7 @@ esac
 
 matching_tag=""
 matching_published_at=""
-published_releases="$(gh release list --repo "$repo" --exclude-drafts --limit 1000 \
-  --json tagName,publishedAt)" \
+published_tsv="$(rest_published_tsv)" \
   || block "could not list published $prerequisite_variant releases"
 git fetch --tags --quiet origin \
   || block "could not fetch release tags from origin"
@@ -66,8 +68,8 @@ while IFS=$'\t' read -r tag published_at; do
     break
   fi
 done < <(
-  jq -r ".[] | select(.tagName | endswith(\"-$prerequisite_variant\")) | [.tagName, .publishedAt] | @tsv" \
-    <<<"$published_releases"
+  awk -F'\t' -v suffix="-$prerequisite_variant" 'length($1) >= length(suffix) && substr($1, length($1) - length(suffix) + 1) == suffix' \
+    <<<"$published_tsv"
 )
 
 [[ -n "$matching_tag" ]] \

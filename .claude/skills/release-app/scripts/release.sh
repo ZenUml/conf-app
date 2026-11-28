@@ -22,6 +22,10 @@ set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="${RELEASE_REPO:-ZenUml/conf-app}"
+# Releases are read and edited over REST only (gh-rest.sh): `gh release
+# list/view` use GraphQL, which cloud agent sessions cannot reach.
+# shellcheck source=gh-rest.sh
+source "$here/gh-rest.sh"
 
 usage() {
   printf 'usage: release.sh <diagramly|lite|full|asyncapi> [--publish --notes-file FILE | --spot-check pass|na --note TEXT]\n' >&2
@@ -98,14 +102,13 @@ esac
 if [[ -n "$spot_check" ]]; then
   [[ "$publish" -eq 0 ]] || usage
   line="$(bash "$here/spot-check.sh" format "$spot_check" "$spot_note")" || exit 1
-  latest="$(gh release list --repo "$repo" --exclude-drafts --limit 40 --json tagName \
-    --jq "[.[] | select(.tagName | endswith(\"-${variant}\"))][0].tagName // empty")"
+  latest="$(rest_latest_published_tag "$variant")"
   [[ -n "$latest" ]] || { printf 'BLOCK: no published %s release\n' "$variant"; exit 1; }
   body="$(mktemp)"; updated="$(mktemp)"
   trap 'rm -f "$body" "$updated"' EXIT
-  gh release view "$latest" --repo "$repo" --json body --jq .body >"$body"
+  rest_release_body "$latest" >"$body"
   bash "$here/spot-check.sh" apply "$body" "$line" >"$updated"
-  gh release edit "$latest" --repo "$repo" --notes-file "$updated" >/dev/null
+  rest_release_edit "$latest" "$updated" || { printf 'BLOCK: could not update %s\n' "$latest"; exit 1; }
   printf 'RECORDED %s\n%s\n' "$latest" "$line"
   exit 0
 fi
@@ -126,8 +129,7 @@ skips="$(grep '^SKIP:' <<<"$select_out" || true)"
 
 gate="$(bash "$here/check-prerequisite.sh" "$variant" "$tag" 2>&1)" && gate_status=0 || gate_status=$?
 
-previous="$(gh release list --repo "$repo" --exclude-drafts --limit 40 --json tagName \
-  --jq "[.[] | select(.tagName | endswith(\"-${variant}\"))][0].tagName // empty")"
+previous="$(rest_latest_published_tag "$variant")"
 
 delta_file="${RELEASE_DELTA_DIR:-${TMPDIR:-/tmp}}/release-${variant}-${tag}.delta"
 {
@@ -215,7 +217,8 @@ if [[ "$variant" == lite || "$variant" == full ]]; then
     exit 1
   fi
   prereq_body="$(mktemp)"
-  gh release view "$prereq_tag" --repo "$repo" --json body --jq .body >"$prereq_body"
+  rest_releases_reset
+  rest_release_body "$prereq_tag" >"$prereq_body"
   if ! spot_line="$(bash "$here/spot-check.sh" check "$prereq_body")"; then
     rm -f "$prereq_body"
     printf '%s\nBLOCK: %s has no spot check; record it with release.sh %s --spot-check pass|na --note "..."\n' \
@@ -229,10 +232,11 @@ fi
 draft_body="$(mktemp)"
 combined="$(mktemp)"
 trap 'rm -f "$draft_body" "$combined"' EXIT
-gh release view "$tag" --repo "$repo" --json body --jq .body >"$draft_body"
+rest_releases_reset
+rest_release_body "$tag" >"$draft_body"
 bash "$here/notes-body.sh" "$notes_file" "$draft_body" >"$combined"
 
-gh release edit "$tag" --repo "$repo" --notes-file "$combined" --draft=false
+rest_release_edit "$tag" "$combined" publish || { printf 'BLOCK: could not publish %s\n' "$tag"; exit 1; }
 printf 'PUBLISHED %s\n' "$tag"
 own_status=0
 wait_for_release "$tag" || own_status=$?

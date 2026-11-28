@@ -2510,6 +2510,23 @@ export type AgentLinkRenderValidation = "valid" | "invalid" | "unvalidated";
 // watching: it can mean detection picked the wrong language.
 export type AgentLinkRenderTypeSource = "given" | "detected";
 
+// Which published URL a public render MCP connection came through: the `via`
+// query parameter each channel's URL carries (`https://zenuml.com/mcp?via=docs`).
+// On every `mcp_mode: 'render'` backend event. `none` = no `via` (existing
+// installs, a bare URL); `other` = a value outside this list (the raw value is
+// client-controlled text and is never recorded). `internal` is our own
+// connectors and also sets `internal_probe`.
+export type AgentLinkMcpChannel =
+  | "docs"
+  | "plugin-claude"
+  | "plugin-openai"
+  | "claude-dir"
+  | "chatgpt-dir"
+  | "readme"
+  | "internal"
+  | "other"
+  | "none";
+
 // What render_diagram recognised in a ZenUML ("sequence") source
 // (agent_link_mcp_tool_called, `render_issues`). Lint warnings on a source
 // that parsed but draws the wrong diagram: 'group_with_messages' = a message

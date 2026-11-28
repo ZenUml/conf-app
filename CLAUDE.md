@@ -62,6 +62,12 @@ Every PR description must also have a **Persisted data changes** section: each c
 
 For the Confluence app, design for the desktop surface. Do not create narrow/mobile layouts or separate narrow-screen artboards unless the user explicitly requests them.
 
+### New user experience: agree it in Figma before implementing
+
+For a new or changed user experience (a prompt, banner, flow, entry point or onboarding step), put the design in the [Conf App Figma file](https://www.figma.com/design/xyLOTL0IvXNszqFCKCdAp0/Conf-App) first and discuss it with the owner. Write no implementation code until the owner agrees the experience there. When you propose the next step for such work, say that the design goes into Figma first and that implementation waits until the experience is agreed.
+
+**Why (owner, 2026-11-28):** the owner wants to settle the user experience before code exists, so changes happen on the design, not in a PR.
+
 ### Never mark a UI spot check passed without UI evidence
 
 A spot check assertion that requires UI verification must be confirmed by actually observing the UI — a screenshot, a snapshot, or a network intercept. Passing a unit test does not satisfy a UI assertion. If the UI cannot be driven (e.g. iframe keyboard limitations), mark the assertion **SKIPPED** with the reason and the blocker, not **PASS**.

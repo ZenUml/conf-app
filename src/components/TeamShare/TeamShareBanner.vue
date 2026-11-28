@@ -71,24 +71,39 @@ const manualInput = ref<HTMLInputElement | null>(null);
 const pageTitle = ref('');
 const pageUrl = ref('');
 const diagramTitle = ref('');
+/** "Mermaid diagram" etc.; names the diagram when it has no usable title. */
+const typeLabel = ref('diagram');
 let analyticsProps: Record<string, unknown> | null = null;
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
 const headline = computed(() =>
   diagramTitle.value
     ? `Nice — "${diagramTitle.value}" is on this page. Share it with your team?`
-    : 'Nice — your diagram is on this page. Share it with your team?',
+    : `Nice — your ${typeLabel.value} is on this page. Share it with your team?`,
 );
 
 function buildMessage(): string {
   const first = diagramTitle.value
     ? `I made a diagram on "${pageTitle.value}": ${diagramTitle.value}.`
-    : `I made a diagram on "${pageTitle.value}".`;
+    : `I made ${article(typeLabel.value)} ${typeLabel.value} on "${pageTitle.value}".`;
   return [
     first,
     `Take a look: ${pageUrl.value}`,
     'Want one on your page? Edit it, type /zenuml, and pick a diagram type.',
   ].join('\n');
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  sequence: 'sequence diagram',
+  mermaid: 'Mermaid diagram',
+  plantuml: 'PlantUML diagram',
+  graph: 'draw.io diagram',
+  openapi: 'API spec',
+  markdown: 'Markdown block',
+};
+
+function article(label: string): string {
+  return /^[aeiou]/i.test(label) ? 'an' : 'a';
 }
 
 function closeFrame() {
@@ -142,6 +157,7 @@ onMounted(async () => {
     pageTitle.value = page.title;
     pageUrl.value = page.url;
     diagramTitle.value = usableDiagramTitle(body.title) || usableDiagramTitle(pending.diagramTitle);
+    typeLabel.value = TYPE_LABELS[String(body.diagramType || '').toLowerCase()] || 'diagram';
     analyticsProps = {
       macro_type: toMacroType(body.diagramType) as MacroTypeValue,
       has_diagram_title: !!diagramTitle.value,

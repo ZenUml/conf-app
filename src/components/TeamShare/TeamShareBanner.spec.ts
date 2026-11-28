@@ -83,7 +83,7 @@ describe('TeamShareBanner', () => {
   it('falls back to the generic headline for a placeholder title', async () => {
     api.getDiagramBodyInfo.mockResolvedValue({ title: 'Untitled 2026-11-28T00:00:00.000Z', diagramType: 'sequence' })
     const w = await armAndMount('Untitled 2026-11-28T00:00:00.000Z')
-    expect(w.text()).toContain('Nice — your diagram is on this page. Share it with your team?')
+    expect(w.text()).toContain('Nice — your sequence diagram is on this page. Share it with your team?')
   })
 
   it('uses the marker title when the body has none', async () => {
@@ -107,8 +107,25 @@ describe('TeamShareBanner', () => {
     expect(w.text()).toContain('Paste it in Slack, Teams or email.')
   })
 
-  it('omits the diagram title from line one when there is none', async () => {
-    api.getDiagramBodyInfo.mockResolvedValue({ title: '', diagramType: 'sequence' })
+  it('names the diagram type when there is no title', async () => {
+    api.getDiagramBodyInfo.mockResolvedValue({ title: '', diagramType: 'mermaid' })
+    const w = await armAndMount('')
+    expect(w.text()).toContain('Nice — your Mermaid diagram is on this page.')
+    await button(w, 'Copy message').trigger('click')
+    await flushPromises()
+    expect(writeClipboardWithMethod.mock.calls[0][0].split('\n')[0]).toBe('I made a Mermaid diagram on "Checkout service".')
+  })
+
+  it('uses "an" before a type label starting with a vowel', async () => {
+    api.getDiagramBodyInfo.mockResolvedValue({ title: '', diagramType: 'OpenAPI' })
+    const w = await armAndMount('')
+    await button(w, 'Copy message').trigger('click')
+    await flushPromises()
+    expect(writeClipboardWithMethod.mock.calls[0][0].split('\n')[0]).toBe('I made an API spec on "Checkout service".')
+  })
+
+  it('falls back to "diagram" for an unknown type', async () => {
+    api.getDiagramBodyInfo.mockResolvedValue({ title: '', diagramType: '' })
     const w = await armAndMount('')
     await button(w, 'Copy message').trigger('click')
     await flushPromises()

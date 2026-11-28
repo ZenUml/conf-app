@@ -22,7 +22,7 @@ trusted_controller_dir=$(mktemp -d "${TMPDIR:-/tmp}/conf-app-pr-controller.XXXXX
 git worktree add --detach "$trusted_controller_dir" "$trusted_controller_sha"
 ```
 
-Use `node "$trusted_controller_dir/scripts/test-selection/pr-decision.mjs" ...` and `node "$trusted_controller_dir/scripts/test-selection/request-pr-e2e.mjs" ...` for the commands below. Keep decision JSON at an absolute path. After completion, remove the clean helper checkout with `git worktree remove "$trusted_controller_dir"`. If the default branch lacks this policy version, report the bootstrap blocker; do not execute candidate authorization code instead.
+Use `node "$trusted_controller_dir/scripts/test-selection/pr-decision.mjs" ...` and `node "$trusted_controller_dir/scripts/test-selection/request-pr-e2e.mjs" ...` for the commands below. Both commands also work behind a GitHub proxy that refuses `/collaborators/<login>/permission` (the Claude Code cloud container's): they then read the signed-in account's own permission from `GET /repos/<repo>`, and only for that account. CI's `check`, `sync` and `draft` keep the collaborator endpoint and fail closed. Keep decision JSON at an absolute path. After completion, remove the clean helper checkout with `git worktree remove "$trusted_controller_dir"`. If the default branch lacks this policy version, report the bootstrap blocker; do not execute candidate authorization code instead.
 
 
 ### Explicit labels-only bootstrap exercise

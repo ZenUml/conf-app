@@ -3,7 +3,7 @@ import process from 'node:process';
 import { existsSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { authorize, githubApi } from './pr-decision.mjs';
+import { authorize, githubApi, withOwnPermissionFallback } from './pr-decision.mjs';
 
 // A request label starts a fresh PR-associated run. It grants no test permission.
 // workflow_dispatch on main would attach the result to main, leaving stale PR checks.
@@ -29,6 +29,6 @@ export async function requestPrE2E(api, pr) {
 async function main() {
   const args = Object.fromEntries(process.argv.slice(2).reduce((pairs, value, i, all) => value.startsWith('--') ? [...pairs, [value.slice(2), all[i + 1]]] : pairs, []));
   const repo = args.repo || process.env.GITHUB_REPOSITORY || execFileSync('gh', ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], { encoding: 'utf8' }).trim();
-  console.log(JSON.stringify(await requestPrE2E(githubApi(repo), args.pr)));
+  console.log(JSON.stringify(await requestPrE2E(withOwnPermissionFallback(githubApi(repo), repo), args.pr)));
 }
 if (process.argv[1] && existsSync(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main().catch(error => { console.error(error.message); process.exitCode = 1; });
